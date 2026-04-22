@@ -41,17 +41,6 @@ import {
   isRecurringEntry,
 } from "../lib/scheduleCalendar";
 
-function useIsMobile() {
-  const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.innerWidth <= 760);
-  useEffect(() => {
-    const mql = window.matchMedia("(max-width: 760px)");
-    const handler = (e: MediaQueryListEvent) => setMobile(e.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
-  }, []);
-  return mobile;
-}
-
 const WEEKDAYS = [
   { v: "", label: "—" },
   { v: "0", label: "Sun" },
@@ -183,7 +172,7 @@ function TimedEventBlock({
   return (
     <button
       type="button"
-      draggable={!isGoogle && !!onDragStart}
+      draggable={!isGoogle}
       className={`sch-timed-block ${isGoogle ? "sch-event-google" : ""}`}
       style={{ top, height: h, left: `${left}%`, width: `${w}%`, "--sch-h": hue } as CSSProperties}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
@@ -457,7 +446,6 @@ const AI_INSIGHTS = [
 ];
 
 export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = false, fullscreen = false }: Props) {
-  const isMobile = useIsMobile();
   const [insightIdx, setInsightIdx] = useState(0);
   const insightTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [tasks, setTasks] = useState<DraggableTask[]>(SAMPLE_TASKS);
@@ -829,12 +817,12 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
           <div
             key={task.id}
             className="sch-task-card"
-            draggable={!isMobile}
-            onDragStart={!isMobile ? (e) => {
+            draggable
+            onDragStart={(e) => {
               setDraggingTask(task);
               e.dataTransfer.effectAllowed = "copy";
-            } : undefined}
-            onDragEnd={!isMobile ? () => { setDraggingTask(null); setDropTarget(null); } : undefined}
+            }}
+            onDragEnd={() => { setDraggingTask(null); setDropTarget(null); }}
             style={{ borderLeftColor: PRIORITY_COLOR[task.priority] }}
           >
             <button
@@ -976,21 +964,21 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
           <DayCalendarView day={cursor} entries={visibleEntries}
             onSlotClick={(h) => openSlot(cursor, h)} onEventClick={openEntry}
             onAddUndated={() => openNew({ date: "", weekday: null, start: "", end: "" })}
-            draggingTask={isMobile ? null : draggingTask} draggingEntry={isMobile ? null : draggingEntry} dropTarget={isMobile ? null : dropTarget}
-            onCellDragOver={isMobile ? undefined : (d, h) => setDropTarget({ day: d, hour: h })}
-            onCellDrop={isMobile ? undefined : handleCellDrop}
-            onDragLeave={isMobile ? undefined : () => setDropTarget(null)}
-            onEventDragStart={isMobile ? undefined : (e) => { setDraggingEntry(e); setDraggingTask(null); }}
-            onEventDragEnd={isMobile ? undefined : () => { setDraggingEntry(null); setDropTarget(null); }} />
+            draggingTask={draggingTask} draggingEntry={draggingEntry} dropTarget={dropTarget}
+            onCellDragOver={(d, h) => setDropTarget({ day: d, hour: h })}
+            onCellDrop={handleCellDrop}
+            onDragLeave={() => setDropTarget(null)}
+            onEventDragStart={(e) => { setDraggingEntry(e); setDraggingTask(null); }}
+            onEventDragEnd={() => { setDraggingEntry(null); setDropTarget(null); }} />
         ) : view === "week" ? (
           <WeekCalendarView days={weekDays} entries={visibleEntries}
             onSlotClick={openSlot} onEventClick={openEntry}
-            draggingTask={isMobile ? null : draggingTask} draggingEntry={isMobile ? null : draggingEntry} dropTarget={isMobile ? null : dropTarget}
-            onCellDragOver={isMobile ? undefined : (d, h) => setDropTarget({ day: d, hour: h })}
-            onCellDrop={isMobile ? undefined : handleCellDrop}
-            onDragLeave={isMobile ? undefined : () => setDropTarget(null)}
-            onEventDragStart={isMobile ? undefined : (e) => { setDraggingEntry(e); setDraggingTask(null); }}
-            onEventDragEnd={isMobile ? undefined : () => { setDraggingEntry(null); setDropTarget(null); }} />
+            draggingTask={draggingTask} draggingEntry={draggingEntry} dropTarget={dropTarget}
+            onCellDragOver={(d, h) => setDropTarget({ day: d, hour: h })}
+            onCellDrop={handleCellDrop}
+            onDragLeave={() => setDropTarget(null)}
+            onEventDragStart={(e) => { setDraggingEntry(e); setDraggingTask(null); }}
+            onEventDragEnd={() => { setDraggingEntry(null); setDropTarget(null); }} />
         ) : (
           <MonthCalendarView anchorMonth={cursor} entries={visibleEntries}
             onPickDay={(d) => { setCursor(d); setView("day"); }} onEventClick={openEntry} />
