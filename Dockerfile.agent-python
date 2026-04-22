@@ -1,0 +1,35 @@
+FROM python:3.12-slim
+
+RUN groupadd -g 1000 agent && \
+    useradd -m -u 1000 -g agent -s /bin/bash agent
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ripgrep \
+    procps \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir uv
+
+WORKDIR /app
+
+COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
+COPY backend/assistant ./assistant
+COPY backend/*.py ./
+RUN uv sync --frozen --no-dev
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+ENV PAGER=cat \
+    MANPAGER=cat \
+    LESS=-R \
+    PIP_PROGRESS_BAR=off \
+    TQDM_DISABLE=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    AGENT_PORT=8766
+
+EXPOSE 8766
+
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8766"]

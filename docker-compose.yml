@@ -1,0 +1,65 @@
+name: kairo
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent-python
+    ports:
+      - "${AGENT_PORT:-8766}:8766"
+    environment:
+      # ── Server ────────────────────────────────────────────────────────────────
+      AGENT_PORT: "8766"
+      PUBLIC_URL: "${PUBLIC_URL:?Set PUBLIC_URL, e.g. https://api.example.com}"
+      DATA_DIR: /data
+      VAULT_DIR: /vault
+
+      # ── Security ──────────────────────────────────────────────────────────────
+      GATEWAY_TOKEN: "${GATEWAY_TOKEN:?Set a strong random GATEWAY_TOKEN}"
+      CORS_ORIGINS: "${CORS_ORIGINS:?Set CORS_ORIGINS to your frontend origin}"
+
+      # ── Demo ──────────────────────────────────────────────────────────────────
+      DEMO_SESSION_LIMIT: "${DEMO_SESSION_LIMIT:-6}"
+      RATE_LIMIT_RPM: "${RATE_LIMIT_RPM:-60}"
+
+      # ── LLM ───────────────────────────────────────────────────────────────────
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      MODEL: "${MODEL:-}"
+      PM_MODEL: "${PM_MODEL:-}"
+
+      # ── Google Calendar ───────────────────────────────────────────────────────
+      GOOGLE_CALENDAR_CLIENT_ID: "${GOOGLE_CALENDAR_CLIENT_ID}"
+      GOOGLE_CALENDAR_CLIENT_SECRET: "${GOOGLE_CALENDAR_CLIENT_SECRET}"
+      # GOOGLE_CALENDAR_REDIRECT_URI auto-derived from PUBLIC_URL if not set
+      GOOGLE_CALENDAR_REDIRECT_URI: "${GOOGLE_CALENDAR_REDIRECT_URI:-}"
+
+    volumes:
+      - pm_data:/data
+      - pm_vault:/vault
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8766/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE: "${VITE_API_BASE:?Set VITE_API_BASE to the backend origin}"
+        VITE_GATEWAY_TOKEN: "${VITE_GATEWAY_TOKEN:?Set VITE_GATEWAY_TOKEN for the demo frontend}"
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pm_data:
+  pm_vault:
