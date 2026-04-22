@@ -4725,3 +4725,579 @@ body {
   color: var(--text-muted);
   font-family: var(--font-mono);
 }
+
+/* ── Mobile app layout ───────────────────────────────────────────── */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root,
+  .app {
+    height: 100dvh;
+  }
+}
+
+@media (max-width: 760px) {
+  :root {
+    --topnav-h: 50px;
+  }
+
+  body {
+    overscroll-behavior: none;
+  }
+
+  .topnav {
+    padding-left: calc(10px + env(safe-area-inset-left));
+    padding-right: calc(8px + env(safe-area-inset-right));
+    gap: 8px;
+  }
+
+  .topnav-logo {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .topnav-logo-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
+  .topnav-logo-name {
+    font-size: 15px;
+    letter-spacing: 0;
+  }
+
+  .topnav-logo-sub,
+  .topnav-pm-breadcrumb,
+  .topnav-pm-status-label,
+  .topnav-credits-label {
+    display: none;
+  }
+
+  .topnav-pm-pill {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+
+  .topnav-pm-badge {
+    padding: 5px 8px;
+    gap: 6px;
+  }
+
+  .topnav-pm-badge-icon {
+    display: none;
+  }
+
+  .topnav-pm-status {
+    border-left: none;
+    padding-left: 0;
+  }
+
+  .topnav-actions {
+    flex-shrink: 0;
+  }
+
+  .topnav-action-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .topnav-credits {
+    padding: 3px 7px;
+  }
+
+  .app-pm .main {
+    flex-direction: column;
+  }
+
+  .chat-col {
+    min-height: 0;
+  }
+
+  .cal-sidebar {
+    position: fixed;
+    top: var(--topnav-h);
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: calc(100dvh - var(--topnav-h));
+    z-index: 80;
+    border: none;
+  }
+
+  .pm-pet-panel {
+    margin: 0;
+    padding: 8px 12px;
+  }
+
+  .pm-pet-compact {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    min-height: 42px;
+  }
+
+  .pm-pet-avatar-button {
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+  }
+
+  .pm-pet-avatar-button .pm-pet-sprite {
+    transform: scale(0.34);
+  }
+
+  .pm-pet-compact-head {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .pm-pet-compact-title {
+    letter-spacing: 0;
+  }
+
+  .pm-pet-compact-xp {
+    display: none;
+  }
+
+  .pm-pet-compact .pm-pet-speech {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.35;
+  }
+
+  .pm-pet-compact-actions {
+    align-self: stretch;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .pm-pet-tab {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .chat-window {
+    min-height: 0;
+  }
+
+  .empty-state {
+    justify-content: flex-start;
+    padding: 44px 22px 28px;
+    text-align: center;
+  }
+
+  .empty-title {
+    font-size: 14px;
+  }
+
+  .empty-suggestions {
+    width: 100%;
+    max-width: 360px;
+  }
+
+  .suggestion-chip {
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.3;
+  }
+
+  .app-pm .messages-list,
+  .messages-list {
+    max-width: none;
+    padding: 16px 12px 18px;
+    gap: 12px;
+  }
+
+  .message.user {
+    max-width: 88%;
+  }
+
+  .message-bubble {
+    padding: 9px 12px;
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+
+  .message-bubble pre {
+    padding: 10px;
+    max-width: calc(100vw - 48px);
+  }
+
+  .message-bubble table {
+    display: block;
+    overflow-x: auto;
+    max-width: calc(100vw - 48px);
+  }
+
+  .agent-activity {
+    margin-bottom: 8px;
+    padding: 9px 10px;
+    gap: 8px;
+  }
+
+  .agent-activity-stop {
+    padding: 5px 8px;
+  }
+
+  .app-pm .input-area,
+  .input-area {
+    padding: 10px 10px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .input-bar {
+    max-width: none;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 12px;
+  }
+
+  .input-textarea {
+    min-width: 0;
+    font-size: 13.5px;
+    max-height: 104px;
+  }
+
+  .mic-btn,
+  .voice-toggle-btn,
+  .send-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
+  .stop-btn {
+    height: 30px;
+    padding: 0 9px;
+  }
+
+  .history-overlay,
+  .ws-overlay,
+  .sch-modal-overlay {
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 0;
+  }
+
+  .history-panel,
+  .ws-panel,
+  .trace-panel {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .history-header,
+  .ws-header {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .history-header-actions {
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .history-empty {
+    padding: 28px 18px;
+  }
+
+  .trace-panel .history-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .trace-panel .history-header-actions {
+    justify-content: space-between;
+  }
+
+  .trace-tabs {
+    max-width: calc(100vw - 70px);
+    overflow-x: auto;
+    border-radius: 10px;
+  }
+
+  .trace-tab {
+    flex: 0 0 auto;
+    padding: 5px 10px;
+  }
+
+  .trace-list,
+  .trace-audit-list {
+    padding: 8px 10px 12px;
+  }
+
+  .trace-card-header {
+    padding: 10px 11px;
+  }
+
+  .trace-card-preview {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .trace-card-body {
+    padding: 8px 11px 12px;
+  }
+
+  .trace-kv {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .approval-card {
+    max-width: 100%;
+  }
+
+  .approval-header {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 760px) {
+  .sch-panel-cal,
+  .sch-panel-sidebar {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .sch-fullscreen-layout {
+    flex-direction: column;
+  }
+
+  .sch-task-sidebar {
+    width: 100%;
+    max-height: 112px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sch-task-sidebar-top {
+    display: none;
+  }
+
+  .sch-task-cards {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 10px;
+  }
+
+  .sch-task-card {
+    min-width: 180px;
+    max-width: 220px;
+  }
+
+  .sch-task-sidebar-footer {
+    display: none;
+  }
+
+  .sch-cal-header {
+    padding: 12px 12px 10px;
+    gap: 9px;
+  }
+
+  .sch-cal-header-main {
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .sch-cal-header-main .ws-header-left {
+    min-width: 0;
+  }
+
+  .sch-month-title,
+  .sch-subtitle {
+    letter-spacing: 0;
+  }
+
+  .sch-view-tabs {
+    align-self: stretch;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sch-view-tab {
+    padding: 7px 8px;
+    text-align: center;
+  }
+
+  .sch-cal-toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sch-header-actions {
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  .sch-btn {
+    padding: 6px 10px;
+  }
+
+  .sch-btn-primary {
+    min-width: 62px;
+  }
+
+  .sch-insight-banner {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 7px;
+    padding: 8px 12px;
+  }
+
+  .sch-insight-text {
+    white-space: normal;
+    line-height: 1.3;
+  }
+
+  .sch-insight-gcal {
+    justify-content: space-between;
+    padding-left: 0;
+    border-left: none;
+    min-width: 0;
+  }
+
+  .sch-gcal-identity {
+    min-width: 0;
+  }
+
+  .sch-gcal-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sch-gcal-status {
+    display: none;
+  }
+
+  .sch-error {
+    margin: 8px 12px;
+  }
+
+  .sch-agenda-strip {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  .sch-body {
+    min-height: 0;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sch-cal-scroll {
+    min-height: 100%;
+    padding: 0 8px 10px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sch-allday {
+    gap: 8px;
+  }
+
+  .sch-allday-day .sch-allday-label,
+  .sch-time-gutter {
+    width: 44px;
+  }
+
+  .sch-time-gutter {
+    padding-right: 6px;
+  }
+
+  .sch-time-label {
+    font-size: 10.5px;
+  }
+
+  .sch-now-badge {
+    display: none;
+  }
+
+  .sch-week-allday,
+  .sch-week-allday-row,
+  .sch-week-grid {
+    min-width: 680px;
+  }
+
+  .sch-week-allday,
+  .sch-week-allday-row {
+    padding-left: 44px;
+  }
+
+  .sch-month-wrap {
+    min-width: 650px;
+    padding: 8px 8px 12px;
+  }
+
+  .sch-month-cell {
+    min-height: 84px;
+  }
+
+  .sch-modal {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    border: none;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .topnav-pm-badge-label,
+  .topnav-credits {
+    display: none;
+  }
+
+  .topnav-action-btn {
+    width: 30px;
+  }
+
+  .pm-pet-compact-status {
+    display: none;
+  }
+
+  .message.user {
+    max-width: 94%;
+  }
+
+  .sch-cal-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .sch-nav-cluster,
+  .sch-header-actions {
+    justify-content: space-between;
+  }
+
+  .sch-header-actions {
+    width: 100%;
+  }
+
+  .sch-field-row,
+  .approval-actions {
+    flex-direction: column;
+  }
+}
