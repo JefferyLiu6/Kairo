@@ -185,23 +185,25 @@ const speech = useMemo(() => {
             type="button"
             className={`pm-pet-tab${!calendarFull && !scheduleOpen ? " pm-pet-tab-active" : ""}`}
             onClick={() => { onCalendarFull?.(false); if (scheduleOpen) onToggleSchedule(); if (traceOpen && onToggleTrace) onToggleTrace(); }}
+            title="Chat"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
             </svg>
-            Chat
+            <span className="pm-pet-tab-label">Chat</span>
           </button>
           {/* Calendar tab */}
           <button
             type="button"
             className={`pm-pet-tab${calendarFull ? " pm-pet-tab-active" : ""}`}
             onClick={() => onCalendarFull?.(!calendarFull)}
+            title="Calendar"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
               <rect x="3" y="4" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
               <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
-            Calendar
+            <span className="pm-pet-tab-label">Calendar</span>
           </button>
         </div>
       </div>
