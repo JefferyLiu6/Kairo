@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="web/public/kairo-logo.svg" alt="Kairo logo" width="96" height="96" />
+</p>
+
 # Kairo
 
 [![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)

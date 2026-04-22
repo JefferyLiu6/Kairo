@@ -172,7 +172,7 @@ function TimedEventBlock({
   return (
     <button
       type="button"
-      draggable={!isGoogle}
+      draggable={Boolean(onDragStart) && !isGoogle}
       className={`sch-timed-block ${isGoogle ? "sch-event-google" : ""}`}
       style={{ top, height: h, left: `${left}%`, width: `${w}%`, "--sch-h": hue } as CSSProperties}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
@@ -449,6 +449,9 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
   const [insightIdx, setInsightIdx] = useState(0);
   const insightTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [tasks, setTasks] = useState<DraggableTask[]>(SAMPLE_TASKS);
+  const [dragDropEnabled, setDragDropEnabled] = useState(() =>
+    typeof window === "undefined" ? true : !window.matchMedia("(max-width: 760px)").matches
+  );
   const [draggingTask, setDraggingTask] = useState<DraggableTask | null>(null);
   const [draggingEntry, setDraggingEntry] = useState<ScheduleEntry | null>(null);
   const [dropTarget, setDropTarget] = useState<{ day: Date; hour: number } | null>(null);
@@ -457,6 +460,24 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
     insightTimer.current = setInterval(() => setInsightIdx((i) => (i + 1) % AI_INSIGHTS.length), 5000);
     return () => { if (insightTimer.current) clearInterval(insightTimer.current); };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const query = window.matchMedia("(max-width: 760px)");
+    const syncDragMode = () => {
+      const enabled = !query.matches;
+      setDragDropEnabled(enabled);
+      if (!enabled) {
+        setDraggingTask(null);
+        setDraggingEntry(null);
+        setDropTarget(null);
+      }
+    };
+    syncDragMode();
+    query.addEventListener("change", syncDragMode);
+    return () => query.removeEventListener("change", syncDragMode);
+  }, []);
+
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -781,6 +802,19 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
     return longDateLabel(cursor);
   }, [view, cursor, weekStart]);
 
+  const dragDropViewProps = dragDropEnabled
+    ? {
+        draggingTask,
+        draggingEntry,
+        dropTarget,
+        onCellDragOver: (d: Date, h: number) => setDropTarget({ day: d, hour: h }),
+        onCellDrop: handleCellDrop,
+        onDragLeave: () => setDropTarget(null),
+        onEventDragStart: (e: ScheduleEntry) => { setDraggingEntry(e); setDraggingTask(null); },
+        onEventDragEnd: () => { setDraggingEntry(null); setDropTarget(null); },
+      }
+    : {};
+
   const taskSidebar = (
     <aside className="sch-task-sidebar">
       <div className="sch-task-sidebar-top">
@@ -964,21 +998,11 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
           <DayCalendarView day={cursor} entries={visibleEntries}
             onSlotClick={(h) => openSlot(cursor, h)} onEventClick={openEntry}
             onAddUndated={() => openNew({ date: "", weekday: null, start: "", end: "" })}
-            draggingTask={draggingTask} draggingEntry={draggingEntry} dropTarget={dropTarget}
-            onCellDragOver={(d, h) => setDropTarget({ day: d, hour: h })}
-            onCellDrop={handleCellDrop}
-            onDragLeave={() => setDropTarget(null)}
-            onEventDragStart={(e) => { setDraggingEntry(e); setDraggingTask(null); }}
-            onEventDragEnd={() => { setDraggingEntry(null); setDropTarget(null); }} />
+            {...dragDropViewProps} />
         ) : view === "week" ? (
           <WeekCalendarView days={weekDays} entries={visibleEntries}
             onSlotClick={openSlot} onEventClick={openEntry}
-            draggingTask={draggingTask} draggingEntry={draggingEntry} dropTarget={dropTarget}
-            onCellDragOver={(d, h) => setDropTarget({ day: d, hour: h })}
-            onCellDrop={handleCellDrop}
-            onDragLeave={() => setDropTarget(null)}
-            onEventDragStart={(e) => { setDraggingEntry(e); setDraggingTask(null); }}
-            onEventDragEnd={() => { setDraggingEntry(null); setDropTarget(null); }} />
+            {...dragDropViewProps} />
         ) : (
           <MonthCalendarView anchorMonth={cursor} entries={visibleEntries}
             onPickDay={(d) => { setCursor(d); setView("day"); }} onEventClick={openEntry} />
@@ -1005,7 +1029,7 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
   if (fullscreen) {
     return (
       <div className="sch-fullscreen-layout">
-        {taskSidebar}
+        {dragDropEnabled && taskSidebar}
         {calendarSection}
       </div>
     );

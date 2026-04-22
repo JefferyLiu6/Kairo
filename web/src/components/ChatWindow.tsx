@@ -13,16 +13,7 @@ function KairoEmptyState({ onAction }: { onAction?: (t: string) => void }) {
   return (
     <div className="empty-state">
       <div className="empty-logo-mark">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M20 2H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h3l2.5 3L12 19h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"
-            fill="white"
-            fillOpacity="0.95"
-          />
-          <circle cx="8" cy="11" r="1.3" fill="#14b8a6" />
-          <circle cx="12" cy="11" r="1.3" fill="#14b8a6" />
-          <circle cx="16" cy="11" r="1.3" fill="#14b8a6" />
-        </svg>
+        <img className="empty-logo-img" src="/kairo-logo.svg" alt="" aria-hidden="true" />
       </div>
       <div className="empty-title">Ask Kairo to plan, update, or review</div>
       {onAction && (
