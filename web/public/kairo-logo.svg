@@ -1,28 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
   <title id="title">Kairo logo</title>
-  <desc id="desc">A teal rounded square with a connected K-shaped command mark.</desc>
+  <desc id="desc">A teal rounded square with a white chat bubble and three dots.</desc>
   <defs>
-    <linearGradient id="bg" x1="18" x2="78" y1="12" y2="84" gradientUnits="userSpaceOnUse">
+    <linearGradient id="bg" x1="18" x2="78" y1="14" y2="82" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#5eead4"/>
-      <stop offset=".52" stop-color="#14b8a6"/>
-      <stop offset="1" stop-color="#0f766e"/>
+      <stop offset=".48" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#14b8a6"/>
     </linearGradient>
-    <linearGradient id="shine" x1="20" x2="76" y1="12" y2="72" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#fff" stop-opacity=".35"/>
-      <stop offset=".72" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="shadow" x="-16" y="-14" width="128" height="128" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="10" stdDeviation="9" flood-color="#0f766e" flood-opacity=".24"/>
+    <filter id="shadow" x="-16" y="-12" width="128" height="128" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#0f766e" flood-opacity=".22"/>
     </filter>
   </defs>
   <rect width="72" height="72" x="12" y="12" rx="22" fill="url(#bg)" filter="url(#shadow)"/>
-  <path fill="url(#shine)" d="M34 16h28c10 0 18 8 18 18v4C58 39 40 31 26 20a18 18 0 0 1 8-4Z"/>
-  <path d="M34 29v38" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"/>
-  <path d="M61 29 39 48l22 19" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="34" cy="29" r="6" fill="#ecfeff"/>
-  <circle cx="34" cy="67" r="6" fill="#ecfeff"/>
-  <circle cx="61" cy="29" r="6" fill="#ecfeff"/>
-  <circle cx="61" cy="67" r="6" fill="#ecfeff"/>
-  <circle cx="39" cy="48" r="5" fill="#083f3a"/>
-  <path d="M69 48h6" fill="none" stroke="#ecfeff" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="32" cy="28" r="25" fill="#fff" opacity=".08"/>
+  <path
+    d="M66 28H30a8 8 0 0 0-8 8v23a8 8 0 0 0 8 8h8l6 7 7-7h15a8 8 0 0 0 8-8V36a8 8 0 0 0-8-8Z"
+    fill="#fff"
+    fill-opacity=".96"
+  />
+  <circle cx="38" cy="48" r="4.5" fill="#14b8a6"/>
+  <circle cx="48" cy="48" r="4.5" fill="#14b8a6"/>
+  <circle cx="58" cy="48" r="4.5" fill="#14b8a6"/>
 </svg>
