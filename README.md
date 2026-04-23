@@ -12,6 +12,8 @@
 ![Tests](https://img.shields.io/badge/tests-227%20passing-2ea44f)
 ![Evals](https://img.shields.io/badge/evals-252%2F252-2ea44f)
 
+Try it out: https://kairo-mu-two.vercel.app
+
 Kairo is a full-stack AI agent that lets natural language update calendar,
 tasks, habits, journal, memory, and Google Calendar data without giving the
 model unchecked authority. An orchestrator handles conversation and delegates
