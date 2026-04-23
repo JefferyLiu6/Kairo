@@ -2938,6 +2938,12 @@ body {
   box-shadow: 0 2px 8px oklch(0.50 0.14 168 / 0.3);
 }
 
+.sch-back-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* ── Task Sidebar ── */
 .sch-task-sidebar {
   width: 222px;
@@ -5322,6 +5328,12 @@ body {
   .cal-full .sch-fullscreen-add-btn {
     width: 28px;
     height: 28px;
+  }
+
+  .cal-full .sch-back-chat-btn {
+    height: 28px;
+    padding: 5px 8px;
+    font-size: 11.5px;
   }
 
   .cal-full .sch-today-btn {
