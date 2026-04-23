@@ -23,10 +23,13 @@ evals, adversarial tests, and a decision-trace UI.
 Why it matters: useful personal AI needs permission, memory, and accountability,
 not just fluent chat.
 
-![Main Kairo workspace](docs/screenshots/main-workspace.png)
+## Demo
 
-Demo status: local/Docker demo ready; hosted demo or short walkthrough link can
-be added after publishing.
+Live app: [kairo-hazel.vercel.app](https://kairo-hazel.vercel.app)
+
+> Portfolio demo only. Do not enter real personal data.
+
+![Kairo demo: natural-language calendar update, approval gate, decision trace, and mobile calendar](docs/demo/kairo-demo.gif)
 
 ## Two-Minute Skim
 

@@ -920,9 +920,17 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
               </button>
             )}
             {fullscreen ? (
-              <button type="button" className="sch-fullscreen-add-btn" onClick={() => openNew()}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="white" strokeWidth="2" strokeLinecap="round"/></svg>
-              </button>
+              <>
+                <button type="button" className="sch-btn sch-btn-secondary sch-back-chat-btn" onClick={onClose}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path d="M15 18 9 12l6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Chat
+                </button>
+                <button type="button" className="sch-fullscreen-add-btn" onClick={() => openNew()} aria-label="Add event">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="white" strokeWidth="2" strokeLinecap="round"/></svg>
+                </button>
+              </>
             ) : (
               <button type="button" className="sch-btn sch-btn-close" onClick={onClose} title="Close">✕</button>
             )}
