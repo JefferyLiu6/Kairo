@@ -1,33 +1,94 @@
 import type { Mode, ScheduleData } from "./types";
 
-// Production support: set VITE_API_BASE to the backend origin (e.g. https://api.example.com)
-// and VITE_GATEWAY_TOKEN to the bearer token if auth is enabled.
+// Production support: set VITE_API_BASE to the backend origin (e.g. https://api.example.com).
 const _API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
-const _API_TOKEN = import.meta.env.VITE_GATEWAY_TOKEN ?? "";
 
-export function apiWebSocketUrl(path: string, params: Record<string, string> = {}): string {
-  const base = _API_BASE || window.location.origin;
-  const url = new URL(path, base);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value);
-  }
-  if (_API_TOKEN) url.searchParams.set("token", _API_TOKEN);
-  return url.toString();
-}
+// CSRF token — fetched from /auth/csrf on mount, injected on state-changing requests.
+let _csrfToken = "";
+
 
 function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = _API_BASE ? `${_API_BASE}${path}` : path;
   const merged = new Headers(init?.headers);
   merged.set("Content-Type", merged.get("Content-Type") ?? "application/json");
-  if (_API_TOKEN) merged.set("Authorization", `Bearer ${_API_TOKEN}`);
-  return fetch(url, { ...init, headers: merged });
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (_csrfToken && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    merged.set("X-CSRF-Token", _csrfToken);
+  }
+  return fetch(url, { ...init, headers: merged, credentials: "include" });
+}
+
+// ── Auth API ──────────────────────────────────────────────────────────────────
+
+export type AuthUser = { id: string; email: string; displayName: string; isDemo: boolean };
+
+function _parseUser(data: { id: string; email: string; display_name: string; is_demo?: boolean }): AuthUser {
+  return { id: data.id, email: data.email, displayName: data.display_name, isDemo: data.is_demo ?? false };
+}
+
+export async function authCsrf(): Promise<void> {
+  const res = await fetch(
+    _API_BASE ? `${_API_BASE}/auth/csrf` : "/auth/csrf",
+    { credentials: "include" },
+  );
+  if (res.ok) {
+    const data = (await res.json()) as { csrf_token: string };
+    _csrfToken = data.csrf_token;
+  }
+}
+
+export async function authMe(): Promise<AuthUser> {
+  const res = await apiFetch("/auth/me");
+  if (!res.ok) throw new Error(`${res.status}`);
+  return _parseUser(await res.json());
+}
+
+export async function authDemo(): Promise<AuthUser> {
+  const res = await apiFetch("/auth/demo", { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText })) as { detail: string };
+    throw new Error(body.detail ?? "Demo login failed");
+  }
+  return _parseUser(await res.json());
+}
+
+export async function authLogin(email: string, password: string): Promise<AuthUser> {
+  const res = await apiFetch("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText })) as { detail: string };
+    throw new Error(body.detail ?? "Login failed");
+  }
+  return _parseUser(await res.json());
+}
+
+export async function authSignup(
+  email: string,
+  password: string,
+  displayName: string,
+): Promise<void> {
+  const res = await apiFetch("/auth/signup", {
+    method: "POST",
+    body: JSON.stringify({ email, password, display_name: displayName }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText })) as { detail: string };
+    throw new Error(body.detail ?? "Signup failed");
+  }
+}
+
+export async function authLogout(): Promise<void> {
+  await apiFetch("/auth/logout", { method: "POST" });
+  _csrfToken = "";
 }
 
 export type SessionEntry = {
   sessionId: string;
   messageCount: number;
-  createdAt?: string;  // ISO timestamp; present on sessions fetched from the updated backend
+  createdAt?: string;
+  title?: string;
 };
 
 export type ServerMessage = {
@@ -164,107 +225,36 @@ export async function sendChat(
   return data.reply;
 }
 
-/** Workspace file tree node. */
-export type WorkspaceFile = {
-  name: string;
-  path: string;
-  type: "file" | "dir";
-  size?: number;
-  modified?: number;
-  children?: WorkspaceFile[];
-};
-
-/** Fetch the workspace file tree. */
-export async function fetchWorkspace(): Promise<{ root: string | null; files: WorkspaceFile[] }> {
-  const res = await apiFetch("/workspace");
-  if (!res.ok) return { root: null, files: [] };
-  return res.json() as Promise<{ root: string | null; files: WorkspaceFile[] }>;
-}
-
-/** Fetch the content of a workspace file. */
-export async function fetchWorkspaceFile(path: string): Promise<string | null> {
-  const res = await apiFetch(`/workspace/file?path=${encodeURIComponent(path)}`);
-  if (!res.ok) return null;
-  const data = (await res.json()) as { content: string };
-  return data.content;
-}
-
-export type RunResult = {
-  stdout: string;
-  stderr: string;
-  exitCode: number | null;
-  durationMs: number;
-  image: string;
-  timedOut: boolean;
-};
-
-/** Save (create or overwrite) a workspace file. */
-export async function saveWorkspaceFile(path: string, content: string): Promise<boolean> {
-  const res = await apiFetch("/workspace/file", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path, content }),
-  });
-  return res.ok;
-}
-
-/** Create a workspace directory (and any missing parents). */
-export async function createWorkspaceDir(path: string): Promise<boolean> {
-  const res = await apiFetch("/workspace/mkdir", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
-  });
-  return res.ok;
-}
-
-/** Delete a workspace file or directory (recursive). */
-export async function deleteWorkspaceEntry(path: string): Promise<boolean> {
-  const res = await apiFetch(`/workspace/entry?path=${encodeURIComponent(path)}`, {
-    method: "DELETE",
-  });
-  return res.ok;
-}
-
-/** Run a workspace file in a Docker container. */
-export async function runWorkspaceFile(
-  path: string,
-  language?: string,
-  signal?: AbortSignal,
-): Promise<RunResult> {
-  const res = await apiFetch("/workspace/run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path, language }),
-    signal,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText })) as { error: string };
-    throw new Error(err.error);
-  }
-  return res.json() as Promise<RunResult>;
-}
-
-/** Delete a master (chat) session by ID. */
+/** Delete a PM session (thread) by ID. */
 export async function deleteSession(sessionId: string): Promise<boolean> {
-  const res = await apiFetch(`/master/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  const res = await apiFetch(`/personal-manager/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
   return res.ok;
 }
 
-/** Fetch list of all sessions. */
+/** Fetch list of all PM sessions (threads). */
 export async function fetchSessions(): Promise<SessionEntry[]> {
-  const res = await apiFetch("/sessions");
+  const res = await apiFetch("/personal-manager/sessions");
   if (!res.ok) return [];
-  const data = (await res.json()) as { sessions: SessionEntry[] };
-  return data.sessions ?? [];
+  const data = (await res.json()) as { sessions: Array<{ sessionId: string; title: string | null; lastActiveAt: string }> };
+  return (data.sessions ?? []).map((s) => ({
+    sessionId: s.sessionId,
+    // PM threads don't count messages; use 1 so HistoryPanel's messageCount>0 filter passes.
+    messageCount: 1,
+    createdAt: s.lastActiveAt,
+    title: s.title ?? undefined,
+  }));
 }
 
-/** Fetch full message history for a master (chat) session. */
+/** Fetch the human/assistant message transcript for a PM thread from its LangGraph checkpoint. */
 export async function fetchSession(sessionId: string): Promise<ServerMessage[]> {
-  const res = await apiFetch(`/sessions/${encodeURIComponent(sessionId)}`);
-  if (!res.ok) return [];
-  const data = (await res.json()) as { messages?: ServerMessage[] };
-  return data.messages ?? [];
+  try {
+    const res = await apiFetch(`/personal-manager/sessions/${sessionId}/messages`);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { messages: ServerMessage[] };
+    return data.messages ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export type CodingSessionEntry = {

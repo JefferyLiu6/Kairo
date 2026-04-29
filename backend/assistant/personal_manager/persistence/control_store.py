@@ -43,8 +43,14 @@ class ApprovalRecord:
         }
 
 
-def pm_db_path(session_id: str, data_dir: str) -> str:
-    return os.path.join(_pm_dir(session_id, data_dir), "pm.db")
+def pm_db_path(session_id: str, data_dir: str, *, user_id: str = "") -> str:
+    """Return path to the pm.db file.
+
+    ``user_id`` overrides which user directory is used (for thread-scoped
+    operations where ``session_id`` is a thread_id, not the user_id).
+    """
+    key = user_id or session_id
+    return os.path.join(_pm_dir(key, data_dir), "pm.db")
 
 
 def _now() -> str:
@@ -59,8 +65,8 @@ def _conn(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def init_control_store(session_id: str, data_dir: str) -> None:
-    with _conn(pm_db_path(session_id, data_dir)) as conn:
+def init_control_store(session_id: str, data_dir: str, *, user_id: str = "") -> None:
+    with _conn(pm_db_path(session_id, data_dir, user_id=user_id)) as conn:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS approval_requests (
@@ -91,6 +97,16 @@ def init_control_store(session_id: str, data_dir: str) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_audit_session_created
                 ON audit_events(session_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS conversation_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                thread_id  TEXT NOT NULL,
+                role       TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_conversation_log_thread
+                ON conversation_log(thread_id, id);
             """
         )
 
@@ -383,6 +399,7 @@ def record_audit_event(
     session_id: str,
     data_dir: str,
     *,
+    user_id: str = "",
     event_type: str,
     intent: str = "",
     action_type: str = "",
@@ -390,8 +407,8 @@ def record_audit_event(
     result_summary: Any = "",
     approval_id: Optional[str] = None,
 ) -> None:
-    init_control_store(session_id, data_dir)
-    with _conn(pm_db_path(session_id, data_dir)) as conn:
+    init_control_store(session_id, data_dir, user_id=user_id)
+    with _conn(pm_db_path(session_id, data_dir, user_id=user_id)) as conn:
         conn.execute(
             """
             INSERT INTO audit_events (
@@ -414,9 +431,9 @@ def record_audit_event(
         )
 
 
-def list_audit_events(session_id: str, data_dir: str, *, limit: int = 50) -> list[dict[str, Any]]:
-    init_control_store(session_id, data_dir)
-    with _conn(pm_db_path(session_id, data_dir)) as conn:
+def list_audit_events(session_id: str, data_dir: str, *, user_id: str = "", limit: int = 50) -> list[dict[str, Any]]:
+    init_control_store(session_id, data_dir, user_id=user_id)
+    with _conn(pm_db_path(session_id, data_dir, user_id=user_id)) as conn:
         rows = conn.execute(
             """
             SELECT * FROM audit_events
@@ -426,6 +443,21 @@ def list_audit_events(session_id: str, data_dir: str, *, limit: int = 50) -> lis
             """,
             (session_id, max(1, min(limit, 200))),
         ).fetchall()
+    return _audit_rows_to_dicts(rows)
+
+
+def list_all_audit_events(user_id: str, data_dir: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    """Return all audit events for a user regardless of thread."""
+    init_control_store(user_id, data_dir)
+    with _conn(pm_db_path(user_id, data_dir)) as conn:
+        rows = conn.execute(
+            "SELECT * FROM audit_events ORDER BY created_at DESC LIMIT ?",
+            (max(1, min(limit, 200)),),
+        ).fetchall()
+    return _audit_rows_to_dicts(rows)
+
+
+def _audit_rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
     return [
         {
             "id": r["id"],
@@ -440,3 +472,70 @@ def list_audit_events(session_id: str, data_dir: str, *, limit: int = 50) -> lis
         }
         for r in rows
     ]
+
+
+# ── Conversation log ───────────────────────────────────────────────────────────
+
+def append_conversation_turn(
+    user_id: str,
+    thread_id: str,
+    data_dir: str,
+    human_text: str,
+    assistant_text: str,
+) -> None:
+    """Persist a human+assistant exchange to the conversation log."""
+    init_control_store(user_id, data_dir)
+    now = _now()
+    with _conn(pm_db_path(user_id, data_dir)) as conn:
+        conn.executemany(
+            "INSERT INTO conversation_log (thread_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+            [
+                (thread_id, "user", human_text, now),
+                (thread_id, "assistant", assistant_text, now),
+            ],
+        )
+
+
+def list_conversation_turns(
+    user_id: str,
+    thread_id: str,
+    data_dir: str,
+    *,
+    limit: int = 500,
+) -> list[dict[str, str]]:
+    """Return ordered human/assistant messages for a thread."""
+    init_control_store(user_id, data_dir)
+    with _conn(pm_db_path(user_id, data_dir)) as conn:
+        rows = conn.execute(
+            "SELECT role, content FROM conversation_log WHERE thread_id = ? ORDER BY id LIMIT ?",
+            (thread_id, max(1, min(limit, 1000))),
+        ).fetchall()
+    return [{"role": r["role"], "content": r["content"]} for r in rows]
+
+
+def delete_thread_data(user_id: str, thread_id: str, data_dir: str) -> None:
+    """Delete all thread-scoped rows from pm.db and the LangGraph checkpoint tables.
+
+    Called when a chat thread is deleted so that transcript, approvals, audit
+    events, and LangGraph state cannot be fetched after the thread is gone.
+    """
+    db_path = pm_db_path(user_id, data_dir)
+    if not os.path.exists(db_path):
+        return
+    with _conn(db_path) as conn:
+        conn.execute("DELETE FROM conversation_log WHERE thread_id = ?", (thread_id,))
+        conn.execute("DELETE FROM approval_requests WHERE session_id = ?", (thread_id,))
+        conn.execute("DELETE FROM audit_events WHERE session_id = ?", (thread_id,))
+        # turn_decision_log is created lazily; skip if it doesn't exist yet.
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        if "turn_decision_log" in tables:
+            conn.execute("DELETE FROM turn_decision_log WHERE session_id = ?", (thread_id,))
+
+    checkpoints_path = os.path.join(os.path.dirname(db_path), "checkpoints.db")
+    if os.path.exists(checkpoints_path):
+        with _conn(checkpoints_path) as conn:
+            # Both LangGraph checkpoint tables are keyed by thread_id.
+            for table in ("writes", "checkpoints"):
+                conn.execute(f"DELETE FROM {table} WHERE thread_id = ?", (thread_id,))  # noqa: S608

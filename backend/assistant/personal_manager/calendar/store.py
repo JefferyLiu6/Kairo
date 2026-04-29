@@ -449,7 +449,7 @@ def disconnect_calendar_account(session_id: str, data_dir: str, account_id: str)
 
 
 def list_calendar_account_sessions(data_dir: str, *, provider: str = "google") -> list[str]:
-    root = os.path.join(data_dir, "personal-manager")
+    root = os.path.join(data_dir, "users")
     if not os.path.isdir(root):
         return []
     session_ids: set[str] = set()

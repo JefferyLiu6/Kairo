@@ -18,6 +18,7 @@ export default defineConfig({
       "/personal-manager": apiOrigin,
       "/orchestrator": apiOrigin,
       "/demo": apiOrigin,
+      "/auth": apiOrigin,
     },
   },
 });

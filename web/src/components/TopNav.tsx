@@ -6,9 +6,9 @@ type Props = {
   onTrace?: () => void;
   onStopAgent?: () => void;
   agentBusy?: boolean;
-  onClear: () => void;
-  callCount?: number;
-  callLimit?: number;
+  onNewChat: () => void;
+  user?: { displayName: string; email: string };
+  onLogout?: () => void;
 };
 
 export function TopNav({
@@ -17,9 +17,9 @@ export function TopNav({
   onTrace,
   onStopAgent,
   agentBusy,
-  onClear,
-  callCount,
-  callLimit,
+  onNewChat,
+  user,
+  onLogout,
 }: Props) {
   return (
     <nav className="topnav">
@@ -58,12 +58,6 @@ export function TopNav({
 
       {/* Controls */}
       <div className="topnav-actions">
-        {callLimit != null && (
-          <div className={`topnav-credits${(callCount ?? 0) >= callLimit ? " exhausted" : ""}`} title="Demo credits remaining">
-            <span className="topnav-credits-count">{Math.max(0, callLimit - (callCount ?? 0))}</span>
-            <span className="topnav-credits-label">credits</span>
-          </div>
-        )}
         {agentBusy && onStopAgent && (
           <button
             type="button"
@@ -96,13 +90,27 @@ export function TopNav({
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         </button>
-        <button className="topnav-action-btn" onClick={onClear} title="New chat">
+        <button className="topnav-action-btn" onClick={onNewChat} title="New chat">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
             <path d="M23 4v6h-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <path d="M1 20v-6h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
         </button>
+        {user && (
+          <div className="topnav-user">
+            <span className="topnav-user-name" title={user.email}>{user.displayName}</span>
+            {onLogout && (
+              <button className="topnav-action-btn topnav-logout-btn" onClick={onLogout} title="Sign out">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <polyline points="16 17 21 12 16 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </nav>
   );

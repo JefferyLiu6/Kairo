@@ -114,13 +114,15 @@ def approve_pm_request(
     *,
     vault_dir: Optional[str] = None,
     session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> str:
     _sync_approval_hooks()
+    effective_sid = user_id or session_id
     return _approval_flow.approve_pm_request(
         approval_id,
         data_dir,
         vault_dir=vault_dir,
-        session_id=session_id,
+        session_id=effective_sid,
     )
 
 
@@ -129,8 +131,10 @@ def reject_pm_request(
     data_dir: str,
     *,
     session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> str:
-    return _approval_flow.reject_pm_request(approval_id, data_dir, session_id=session_id)
+    effective_sid = user_id or session_id
+    return _approval_flow.reject_pm_request(approval_id, data_dir, session_id=effective_sid)
 
 
 def approve_from_chat(message: str, config: Any) -> str:
@@ -144,16 +148,18 @@ def reject_from_chat(message: str, config: Any) -> str:
 
 def run_typed_pm_turn(message: str, config: Any) -> Optional[str]:
     """Handle deterministic PM workflows. Return None only for safe fallback turns."""
-    sid = normalize_pm_session_id(config.session_id)
-    d = TurnDecision(session_id=sid, message_preview=message)
+    thread_id = normalize_pm_session_id(config.session_id)
+    # uid (user_id) owns user-level data; thread_id scopes pending/working-memory state.
+    uid = getattr(config, "user_id", "") or thread_id
+    d = TurnDecision(session_id=thread_id, message_preview=message)
 
     try:
-        return _run_typed_pm_turn_inner(message, config, sid, d)
+        return _run_typed_pm_turn_inner(message, config, uid, thread_id, d)
     finally:
-        d.persist(config.data_dir)
+        d.persist(config.data_dir, user_id=uid)
 
 
-def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecision) -> Optional[str]:
+def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, thread_id: str, d: TurnDecision) -> Optional[str]:
     if _looks_like_injection(message):
         d.route("unsafe_injection", "message contains prompt-injection markers")
         d.wm_after = "none"
@@ -164,12 +170,12 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
         d.set_reply(reply)
         return reply
 
-    pending = _load_pending(sid, config.data_dir)
+    pending = _load_pending(thread_id, config.data_dir, user_id=sid)
     if pending is not None:
         d.set_working_memory(pending)
 
     if pending and pending.get("type") == "field_choices" and is_time_slot_recommendation_request(message):
-        _clear_pending(sid, config.data_dir, status="replaced")
+        _clear_pending(thread_id, config.data_dir, user_id=sid, status="replaced")
         d.wm_outcome = "replaced_new_request"
         pending = None
 
@@ -179,10 +185,11 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
     _pending_was_active = pending is not None
 
     if pending and _is_pending_cancel_reply(message):
-        _clear_pending(sid, config.data_dir, status="cancelled")
+        _clear_pending(thread_id, config.data_dir, user_id=sid, status="cancelled")
         record_audit_event(
-            sid,
+            thread_id,
             config.data_dir,
+            user_id=sid,
             event_type="working_memory_cancelled",
             intent="DIALOGUE",
             payload_summary={"message": message},
@@ -208,19 +215,21 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
             )
             if built is not None:
                 new_plan, confirmation_summary, provenance = built
-                _clear_pending(sid, config.data_dir, status="resolved")
+                _clear_pending(thread_id, config.data_dir, user_id=sid, status="resolved")
                 _save_pending_confirmation(
-                    sid,
+                    thread_id,
                     config.data_dir,
                     new_plan,
+                    user_id=sid,
                     blocking_task_id=new_plan.tasks[0].task_id,
                     confirmation_summary=confirmation_summary,
                     original_message=str(pending.get("original_message") or message),
                     provenance=provenance,
                 )
                 record_audit_event(
-                    sid,
+                    thread_id,
                     config.data_dir,
+                    user_id=sid,
                     event_type="disambiguation_resolved",
                     intent=PMIntent.CREATE_SCHEDULE_EVENT.value,
                     payload_summary={"message": message, "selected": selected},
@@ -240,12 +249,12 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
     if pending:
         extracted_for_guard = extract_pm_plan(message, config)
         if _is_high_confidence_new_request(extracted_for_guard, message, pending):
-            _clear_pending(sid, config.data_dir, status="replaced")
+            _clear_pending(thread_id, config.data_dir, user_id=sid, status="replaced")
             d.wm_outcome = "replaced_new_request"
             pending = None
             plan = extracted_for_guard
         elif _pending_is_stale(pending) and not _pending_message_is_dialogue_reply(message, pending):
-            _clear_pending(sid, config.data_dir, status="replaced")
+            _clear_pending(thread_id, config.data_dir, user_id=sid, status="replaced")
             d.wm_outcome = "replaced_stale"
             pending = None
 
@@ -271,16 +280,18 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
         replay = replay_time_slot_recommendation(pending, config)
         if replay is not None:
             _save_pending_field_choices(
-                sid,
+                thread_id,
                 config.data_dir,
                 replay.plan,
+                user_id=sid,
                 blocking_task_id=replay.blocking_task_id,
                 missing=replay.missing,
                 choices=replay.choices,
             )
             record_audit_event(
-                sid,
+                thread_id,
                 config.data_dir,
+                user_id=sid,
                 event_type="time_slot_recommendation_replay",
                 intent=PMIntent.GENERAL_COACHING.value,
                 payload_summary={"message": message},
@@ -294,7 +305,7 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
             return replay.prompt
 
     if pending and _is_more_options_reply(message):
-        _clear_pending(sid, config.data_dir, status="replaced")
+        _clear_pending(thread_id, config.data_dir, user_id=sid, status="replaced")
         d.wm_outcome = "more_options"
         d.route("more_options", "user asked for more options on pending choices")
         d.wm_after = "cancelled"
@@ -344,8 +355,9 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
         state.extraction_source = plan.source
         state.missing_fields = list(first.missing_fields)
     record_audit_event(
-        sid,
+        thread_id,
         config.data_dir,
+        user_id=sid,
         event_type="classified",
         intent="PLAN" if len(plan.tasks) > 1 else state.intent.value,
         payload_summary={
@@ -384,7 +396,7 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
         d.set_reply(memory_query_reply)
         return memory_query_reply
 
-    semantic_memory_reply = _handle_semantic_memory_turn(message, plan, config, sid, d)
+    semantic_memory_reply = _handle_semantic_memory_turn(message, plan, config, sid, d, thread_id=thread_id)
     if semantic_memory_reply is not None:
         return semantic_memory_reply
 
@@ -396,9 +408,10 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
     if contextual_proposal is not None:
         if contextual_proposal.status == "confirm" and contextual_proposal.plan is not None:
             _save_pending_confirmation(
-                sid,
+                thread_id,
                 config.data_dir,
                 contextual_proposal.plan,
+                user_id=sid,
                 blocking_task_id=contextual_proposal.blocking_task_id,
                 confirmation_summary=contextual_proposal.reply,
                 original_message=contextual_proposal.original_message or message,
@@ -406,8 +419,9 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
                 relevance=contextual_proposal.relevance,
             )
             record_audit_event(
-                sid,
+                thread_id,
                 config.data_dir,
+                user_id=sid,
                 event_type="contextual_schedule_confirmation",
                 intent=PMIntent.CREATE_SCHEDULE_EVENT.value,
                 payload_summary={
@@ -430,8 +444,9 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
             and contextual_proposal.parsed_start
         ):
             _save_pending_disambiguation(
-                sid,
+                thread_id,
                 config.data_dir,
+                user_id=sid,
                 candidates=contextual_proposal.candidates,
                 parsed_date=contextual_proposal.parsed_date,
                 parsed_start=contextual_proposal.parsed_start,
@@ -459,8 +474,9 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
         from .parsing.text import _extract_id as _extract_approval_id
         from .persistence.control_store import list_approval_requests as _list_approval_requests
         has_explicit_id = bool(_extract_approval_id(message))
-        has_control_store_approval = bool(
-            _list_approval_requests(sid, config.data_dir, status="pending", limit=1)
+        _all_pending = _list_approval_requests(sid, config.data_dir, status="pending", limit=10)
+        has_control_store_approval = any(
+            a.payload.get("_thread_id") == thread_id for a in _all_pending
         )
         if not _pending_was_active and not has_control_store_approval and not has_explicit_id:
             d.route("clarify_no_pending_approval", f"{plan.tasks[0].intent.value} without pending confirmation or approval")
@@ -488,16 +504,18 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
         recommendation = build_time_slot_recommendation_proposal(message, config)
         if recommendation is not None:
             _save_pending_field_choices(
-                sid,
+                thread_id,
                 config.data_dir,
                 recommendation.plan,
+                user_id=sid,
                 blocking_task_id=recommendation.blocking_task_id,
                 missing=recommendation.missing,
                 choices=recommendation.choices,
             )
             record_audit_event(
-                sid,
+                thread_id,
                 config.data_dir,
+                user_id=sid,
                 event_type="time_slot_recommendation",
                 intent=state.intent.value,
                 payload_summary={"message": message},
@@ -516,16 +534,18 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
         recommendation = build_time_slot_recommendation_proposal(message, config)
         if recommendation is not None:
             _save_pending_field_choices(
-                sid,
+                thread_id,
                 config.data_dir,
                 recommendation.plan,
+                user_id=sid,
                 blocking_task_id=recommendation.blocking_task_id,
                 missing=recommendation.missing,
                 choices=recommendation.choices,
             )
             record_audit_event(
-                sid,
+                thread_id,
                 config.data_dir,
+                user_id=sid,
                 event_type="time_slot_recommendation",
                 intent=PMIntent.GENERAL_COACHING.value,
                 payload_summary={"message": message},
@@ -561,9 +581,10 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
             d.set_fc_candidates(proposal.choices)
             state.final_reply = proposal.prompt
             _save_pending_field_choices(
-                sid,
+                thread_id,
                 config.data_dir,
                 plan,
+                user_id=sid,
                 blocking_task_id=first_task.task_id,
                 missing=list(plan.global_missing_fields),
                 choices=proposal.choices,
@@ -575,9 +596,10 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
             missing_str = " and ".join(plan.global_missing_fields) if len(plan.global_missing_fields) <= 2 else ", ".join(plan.global_missing_fields[:-1]) + f", and {plan.global_missing_fields[-1]}"
             state.final_reply = f"I'll need {missing_str} to do that."
             _save_pending_plan(
-                sid,
+                thread_id,
                 config.data_dir,
                 plan,
+                user_id=sid,
                 blocking_task_id=plan.tasks[0].task_id if plan.tasks else "",
                 missing=list(plan.global_missing_fields),
             )
@@ -585,8 +607,9 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
             d.wm_after = "active:awaiting_clarification"
             d.memory_written.append("working_memory:awaiting_clarification")
         record_audit_event(
-            sid,
+            thread_id,
             config.data_dir,
+            user_id=sid,
             event_type="field_choices" if proposal is not None else "clarification",
             intent="PLAN",
             payload_summary=plan.global_missing_fields,
@@ -602,7 +625,7 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
             state.final_reply = blocker.question
             # Event/item not found — clear any stale pending state so the next message
             # starts fresh rather than looping through the same failed lookup.
-            _clear_pending(sid, config.data_dir)
+            _clear_pending(thread_id, config.data_dir, user_id=sid)
             d.blocker_type = "lookup_failure"
             d.route("lookup_error", "event/item not found in lookup")
             d.wm_after = "none"
@@ -613,9 +636,10 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
                 d.set_fc_candidates(proposal.choices)
                 state.final_reply = proposal.prompt
                 _save_pending_field_choices(
-                    sid,
+                    thread_id,
                     config.data_dir,
                     plan,
+                    user_id=sid,
                     blocking_task_id=blocker.task.task_id,
                     missing=blocker.missing,
                     choices=proposal.choices,
@@ -626,9 +650,10 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
             else:
                 state.final_reply = blocker.question
                 _save_pending_plan(
-                    sid,
+                    thread_id,
                     config.data_dir,
                     plan,
+                    user_id=sid,
                     blocking_task_id=blocker.task.task_id,
                     missing=blocker.missing,
                 )
@@ -636,8 +661,9 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
                 d.wm_after = "active:awaiting_clarification"
                 d.memory_written.append("working_memory:awaiting_clarification")
         record_audit_event(
-            sid,
+            thread_id,
             config.data_dir,
+            user_id=sid,
             event_type="lookup_clarification" if blocker.is_lookup_failure else (
                 "field_choices" if state.final_reply != blocker.question else "clarification"
             ),
@@ -653,10 +679,10 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, d: TurnDecisio
         d.set_reply(state.final_reply)
         return state.final_reply
 
-    _clear_pending(sid, config.data_dir)
+    _clear_pending(thread_id, config.data_dir, user_id=sid)
     d.route("executed", "no blockers, plan executing")
     d.wm_after = "none"
-    state.final_reply = _execute_pm_plan(plan, config, sid)
+    state.final_reply = _execute_pm_plan(plan, config, sid, thread_id=thread_id)
     d.set_reply(state.final_reply)
     return state.final_reply
 
@@ -709,6 +735,8 @@ def _handle_semantic_memory_turn(
     config: Any,
     session_id: str,
     d: TurnDecision,
+    *,
+    thread_id: str = "",
 ) -> str | None:
     """Persist model/deterministic semantic memories for non-action turns."""
     if _is_explicit_memory_request(message):
@@ -732,8 +760,9 @@ def _handle_semantic_memory_turn(
     d.wm_after = "none"
     d.memory_written.append("semantic_memory")
     record_audit_event(
-        session_id,
+        thread_id or session_id,
         config.data_dir,
+        user_id=session_id if thread_id else "",
         event_type="semantic_memory_saved",
         intent=PMIntent.SAVE_MEMORY.value,
         payload_summary={
@@ -835,9 +864,11 @@ def _is_explicit_memory_request(message: str) -> bool:
     return lower.startswith("remember ") or lower.startswith("remember that ") or "export" in lower
 
 
-def _execute_pm_plan(plan: PMPlanExtraction, config: Any, session_id: str) -> str:
+def _execute_pm_plan(plan: PMPlanExtraction, config: Any, session_id: str, *, thread_id: str = "") -> str:
     results: list[tuple[str, str]] = []
     single_action_plan = len(plan.tasks) == 1
+    _tid = thread_id or session_id
+    _uid = session_id if thread_id else ""
     for step_idx, task in enumerate(plan.tasks, start=1):
         entities = {**task.entities, "_confidence": task.confidence}
         actions = plan_pm_actions(task.intent, entities, config)
@@ -845,17 +876,19 @@ def _execute_pm_plan(plan: PMPlanExtraction, config: Any, session_id: str) -> st
             guarded = apply_approval_policy(action)
             summary = guarded.summary or action.summary or guarded.action_type
             if guarded.requires_approval:
+                approval_payload = {**guarded.payload, "_thread_id": _tid}
                 approval = create_approval_request(
                     session_id,
                     config.data_dir,
                     action_type=guarded.action_type,
-                    payload=guarded.payload,
+                    payload=approval_payload,
                     summary=summary,
                     risk_level=guarded.risk_level,
                 )
                 record_audit_event(
-                    session_id,
+                    _tid,
                     config.data_dir,
+                    user_id=_uid,
                     event_type="approval_created",
                     intent=task.intent.value,
                     action_type=guarded.action_type,
@@ -867,8 +900,9 @@ def _execute_pm_plan(plan: PMPlanExtraction, config: Any, session_id: str) -> st
 
             result = execute_pm_action(guarded, config)
             record_audit_event(
-                session_id,
+                _tid,
                 config.data_dir,
+                user_id=_uid,
                 event_type="action_executed" if result["ok"] else "action_failed",
                 intent=task.intent.value,
                 action_type=guarded.action_type,

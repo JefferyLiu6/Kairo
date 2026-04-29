@@ -9,7 +9,7 @@ from typing import Any
 
 @dataclass
 class WorkingMemory:
-    """Per-session in-process state. Discarded when process restarts."""
+    """Per-user, per-thread in-process state. Discarded when process restarts."""
     turns: list[dict[str, str]] = field(default_factory=list)
     open_threads: list[str] = field(default_factory=list)
     pending_context: str = ""
@@ -47,23 +47,22 @@ class WorkingMemory:
         self.pm_cache.clear()
 
 
-# Module-level registry: session_id → WorkingMemory
-_sessions: dict[str, WorkingMemory] = {}
+# Module-level registry: (user_id, thread_id) → WorkingMemory
+_sessions: dict[tuple[str, str], WorkingMemory] = {}
 
 
-def get_working_memory(session_id: str) -> WorkingMemory:
-    if session_id not in _sessions:
-        _sessions[session_id] = WorkingMemory()
-    return _sessions[session_id]
+def get_working_memory(user_id: str, thread_id: str) -> WorkingMemory:
+    key = (user_id, thread_id)
+    if key not in _sessions:
+        _sessions[key] = WorkingMemory()
+    return _sessions[key]
 
 
 # ── Long-term profile loading ─────────────────────────────────────────────────
 
-def load_profile(vault_dir: str | None) -> str:
-    """Return raw PROFILE.md contents, or empty string if unavailable."""
-    if not vault_dir:
-        return ""
-    path = os.path.join(vault_dir, "PROFILE.md")
+def load_profile(user_data_dir: str) -> str:
+    """Return PROFILE.md from the user's data directory, or empty string."""
+    path = os.path.join(user_data_dir, "PROFILE.md")
     try:
         with open(path, encoding="utf-8") as f:
             return f.read().strip()
@@ -71,10 +70,10 @@ def load_profile(vault_dir: str | None) -> str:
         return ""
 
 
-def build_memory_context(session_id: str, vault_dir: str | None) -> str:
+def build_memory_context(user_id: str, thread_id: str, user_data_dir: str) -> str:
     """Build the memory block injected into every orchestrator prompt."""
-    wm = get_working_memory(session_id)
-    profile = load_profile(vault_dir)
+    wm = get_working_memory(user_id, thread_id)
+    profile = load_profile(user_data_dir)
 
     sections: list[str] = []
 

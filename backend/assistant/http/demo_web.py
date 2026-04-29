@@ -42,7 +42,8 @@ def _require_auth(
 ) -> None:
     token = os.environ.get("GATEWAY_TOKEN", "").strip()
     if not token:
-        return
+        # No token configured → fail closed. Set GATEWAY_TOKEN to use these routes.
+        raise HTTPException(status_code=401, detail="Unauthorized")
     if credentials is None or not hmac.compare_digest(credentials.credentials, token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -50,7 +51,7 @@ def _require_auth(
 def _websocket_authorized(websocket: WebSocket) -> bool:
     token = os.environ.get("GATEWAY_TOKEN", "").strip()
     if not token:
-        return True
+        return False
     header = websocket.headers.get("authorization", "")
     presented = ""
     if header.lower().startswith("bearer "):

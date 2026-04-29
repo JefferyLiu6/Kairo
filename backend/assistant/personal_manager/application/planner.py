@@ -36,7 +36,7 @@ def _normalize_recurrence(rec: Any) -> dict | None:
 
 
 def plan_pm_actions(intent: PMIntent, entities: dict[str, Any], config: Any) -> list[PMAction]:
-    sid = normalize_pm_session_id(config.session_id)
+    sid = getattr(config, "user_id", "") or normalize_pm_session_id(config.session_id)
     if intent == PMIntent.CREATE_TODO:
         title = entities["title"]
         return [action_from_command("todo_add", TodoAddCommand(title=title, due=entities.get("due")), summary=f"Add todo: {title}")]

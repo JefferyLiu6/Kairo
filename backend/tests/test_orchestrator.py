@@ -167,7 +167,7 @@ def test_retry_uses_harness_suggested_prompt_then_humanizes_success(tmp_path, mo
 
 def test_read_fallback_uses_cached_snapshot_without_humanizer(tmp_path, monkeypatch):
     config = _config(tmp_path)
-    orch_memory.get_working_memory(config.session_id).cache_pm(
+    orch_memory.get_working_memory(config.user_id, config.session_id).cache_pm(
         "schedule",
         "Schedule: cached deep work block at 10 AM.",
     )
@@ -217,7 +217,7 @@ def test_read_fallback_uses_cached_snapshot_without_humanizer(tmp_path, monkeypa
 
 def test_write_failure_never_claims_success_and_invalidates_cache(tmp_path, monkeypatch):
     config = _config(tmp_path)
-    wm = orch_memory.get_working_memory(config.session_id)
+    wm = orch_memory.get_working_memory(config.user_id, config.session_id)
     wm.cache_pm("schedule", "Schedule: stale snapshot")
     fallback_logs: list[dict[str, object]] = []
 

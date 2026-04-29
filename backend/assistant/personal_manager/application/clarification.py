@@ -61,11 +61,12 @@ def _pending_path(session_id: str, data_dir: str) -> str:
     return os.path.join(os.path.dirname(pm_db_path(session_id, data_dir)), "pending.json")
 
 
-def _save_pending(session_id: str, data_dir: str, intent: PMIntent, entities: dict[str, Any], missing: list[str]) -> None:
+def _save_pending(session_id: str, data_dir: str, intent: PMIntent, entities: dict[str, Any], missing: list[str], *, user_id: str = "") -> None:
     payload = {"intent": intent.value, "entities": entities, "missing": missing}
     save_working_memory(
         session_id,
         data_dir,
+        user_id=user_id,
         mode="awaiting_freeform",
         source="legacy_pending",
         expected_reply="freeform_answer",
@@ -79,6 +80,7 @@ def _save_pending_plan(
     data_dir: str,
     plan: PMPlanExtraction,
     *,
+    user_id: str = "",
     blocking_task_id: str,
     missing: list[str],
 ) -> None:
@@ -91,6 +93,7 @@ def _save_pending_plan(
     save_working_memory(
         session_id,
         data_dir,
+        user_id=user_id,
         mode="awaiting_clarification",
         source="plan_clarification",
         expected_reply="date_time_or_freeform",
@@ -104,6 +107,7 @@ def _save_pending_field_choices(
     data_dir: str,
     plan: PMPlanExtraction,
     *,
+    user_id: str = "",
     blocking_task_id: str,
     missing: list[str],
     choices: list[dict[str, Any]],
@@ -118,6 +122,7 @@ def _save_pending_field_choices(
     save_working_memory(
         session_id,
         data_dir,
+        user_id=user_id,
         mode="awaiting_choice",
         source=_pending_choice_source(plan, choices),
         expected_reply="choice_index_or_freeform",
@@ -130,6 +135,7 @@ def _save_pending_disambiguation(
     session_id: str,
     data_dir: str,
     *,
+    user_id: str = "",
     candidates: list[dict[str, Any]],
     parsed_date: str,
     parsed_start: str,
@@ -147,6 +153,7 @@ def _save_pending_disambiguation(
     save_working_memory(
         session_id,
         data_dir,
+        user_id=user_id,
         mode="awaiting_disambiguation",
         source="contextual_schedule_disambiguation",
         expected_reply="activity_label",
@@ -160,6 +167,7 @@ def _save_pending_confirmation(
     data_dir: str,
     plan: PMPlanExtraction,
     *,
+    user_id: str = "",
     blocking_task_id: str,
     confirmation_summary: str,
     original_message: str,
@@ -179,6 +187,7 @@ def _save_pending_confirmation(
     save_working_memory(
         session_id,
         data_dir,
+        user_id=user_id,
         mode="awaiting_confirmation",
         source="contextual_schedule",
         expected_reply="yes_no_or_correction",
@@ -187,8 +196,8 @@ def _save_pending_confirmation(
     )
 
 
-def _load_pending(session_id: str, data_dir: str) -> dict[str, Any] | None:
-    record = load_active_working_memory(session_id, data_dir)
+def _load_pending(session_id: str, data_dir: str, *, user_id: str = "") -> dict[str, Any] | None:
+    record = load_active_working_memory(session_id, data_dir, user_id=user_id)
     if record is not None:
         return _pending_payload_from_working_memory(record)
 
@@ -199,7 +208,7 @@ def _load_pending(session_id: str, data_dir: str) -> dict[str, Any] | None:
         return None
     if not isinstance(legacy, dict):
         return None
-    migrated = _save_legacy_pending_as_working_memory(session_id, data_dir, legacy)
+    migrated = _save_legacy_pending_as_working_memory(session_id, data_dir, legacy, user_id=user_id)
     try:
         os.remove(_pending_path(session_id, data_dir))
     except FileNotFoundError:
@@ -207,8 +216,8 @@ def _load_pending(session_id: str, data_dir: str) -> dict[str, Any] | None:
     return _pending_payload_from_working_memory(migrated)
 
 
-def _clear_pending(session_id: str, data_dir: str, *, status: str = "resolved") -> None:
-    clear_active_working_memory(session_id, data_dir, status=status)
+def _clear_pending(session_id: str, data_dir: str, *, user_id: str = "", status: str = "resolved") -> None:
+    clear_active_working_memory(session_id, data_dir, user_id=user_id, status=status)
     try:
         os.remove(_pending_path(session_id, data_dir))
     except FileNotFoundError:
@@ -233,6 +242,8 @@ def _save_legacy_pending_as_working_memory(
     session_id: str,
     data_dir: str,
     payload: dict[str, Any],
+    *,
+    user_id: str = "",
 ) -> WorkingMemoryRecord:
     pending_type = payload.get("type")
     if pending_type == "field_choices":
@@ -250,6 +261,7 @@ def _save_legacy_pending_as_working_memory(
     return save_working_memory(
         session_id,
         data_dir,
+        user_id=user_id,
         mode=mode,
         source=source,
         expected_reply=expected_reply,

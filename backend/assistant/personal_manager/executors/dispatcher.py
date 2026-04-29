@@ -16,7 +16,7 @@ from .todo import execute_todo_action
 
 
 def execute_pm_action(action: PMAction, config: Any) -> dict[str, Any]:
-    sid = normalize_pm_session_id(config.session_id)
+    sid = getattr(config, "user_id", "") or normalize_pm_session_id(config.session_id)
     data_dir = config.data_dir
     try:
         validate_action_payload(action)

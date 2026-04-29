@@ -20,6 +20,7 @@ from ..persistence.control_store import (
 
 class _ApprovalConfig:
     def __init__(self, *, session_id: str, data_dir: str, vault_dir: Optional[str] = None) -> None:
+        self.user_id = session_id  # already the effective uid stored at approval creation time
         self.session_id = session_id
         self.data_dir = data_dir
         self.vault_dir = vault_dir
@@ -82,15 +83,23 @@ def reject_pm_request(
 
 
 def approve_from_chat(message: str, config: Any) -> str:
-    sid = normalize_pm_session_id(config.session_id)
+    sid = getattr(config, "user_id", "") or normalize_pm_session_id(config.session_id)
+    thread_id = normalize_pm_session_id(config.session_id)
     approval_id = _extract_id(message)
     if not approval_id:
         pending = list_approval_requests(sid, config.data_dir, status="pending", limit=10)
-        if not pending:
+        # Scope generic approval to the current thread only.
+        thread_pending = [a for a in pending if a.payload.get("_thread_id") == thread_id]
+        if not thread_pending:
             return "You don't have any pending approvals right now."
-        if len(pending) > 1:
-            return _format_pending_choices("approve", pending)
-        approval_id = pending[0].id
+        if len(thread_pending) > 1:
+            return _format_pending_choices("approve", thread_pending)
+        approval_id = thread_pending[0].id
+    else:
+        # Explicit ID — verify the approval belongs to this thread before executing.
+        record = find_approval_request(config.data_dir, approval_id, session_id=sid)
+        if record is None or record.payload.get("_thread_id") != thread_id:
+            return f"No approval request found for id {approval_id}."
     return approve_pm_request(
         approval_id,
         config.data_dir,
@@ -100,15 +109,23 @@ def approve_from_chat(message: str, config: Any) -> str:
 
 
 def reject_from_chat(message: str, config: Any) -> str:
-    sid = normalize_pm_session_id(config.session_id)
+    sid = getattr(config, "user_id", "") or normalize_pm_session_id(config.session_id)
+    thread_id = normalize_pm_session_id(config.session_id)
     approval_id = _extract_id(message)
     if not approval_id:
         pending = list_approval_requests(sid, config.data_dir, status="pending", limit=10)
-        if not pending:
+        # Scope generic rejection to the current thread only.
+        thread_pending = [a for a in pending if a.payload.get("_thread_id") == thread_id]
+        if not thread_pending:
             return "You don't have any pending approvals right now."
-        if len(pending) > 1:
-            return _format_pending_choices("reject", pending)
-        approval_id = pending[0].id
+        if len(thread_pending) > 1:
+            return _format_pending_choices("reject", thread_pending)
+        approval_id = thread_pending[0].id
+    else:
+        # Explicit ID — verify the approval belongs to this thread before rejecting.
+        record = find_approval_request(config.data_dir, approval_id, session_id=sid)
+        if record is None or record.payload.get("_thread_id") != thread_id:
+            return f"No approval request found for id {approval_id}."
     return reject_pm_request(approval_id, config.data_dir, session_id=sid)
 
 

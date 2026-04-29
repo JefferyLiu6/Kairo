@@ -3,9 +3,6 @@ from __future__ import annotations
 import importlib
 from datetime import date, datetime, timedelta
 
-from fastapi.testclient import TestClient
-
-from assistant.http.pm_app import app
 from assistant.personal_manager.calendar.google import GoogleCalendarProvider
 from assistant.personal_manager.calendar.service import CalendarService, format_google_calendar_for_context
 from assistant.personal_manager.calendar.store import (
@@ -677,12 +674,12 @@ def test_pm_schedule_update_resolves_google_before_local_when_connected(tmp_path
     assert actions[0].payload["updates"][0]["id"] != "local1"
 
 
-def test_google_calendar_accounts_route_redacts_tokens(tmp_path, monkeypatch):
+def test_google_calendar_accounts_route_redacts_tokens(tmp_path, monkeypatch, authed_client):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    account = _account(tmp_path)
+    # Create the account under the mock user's id (authed_client uses "test-user-id")
+    account = _account(tmp_path, session_id="test-user-id")
 
-    client = TestClient(app)
-    res = client.get("/personal-manager/google-calendar/accounts", params={"sessionId": "pm-demo"})
+    res = authed_client.get("/personal-manager/google-calendar/accounts")
 
     assert res.status_code == 200
     body = res.json()
@@ -691,11 +688,11 @@ def test_google_calendar_accounts_route_redacts_tokens(tmp_path, monkeypatch):
     assert "refresh" not in res.text
 
 
-def test_google_calendar_events_route_returns_mirror_events(tmp_path, monkeypatch):
+def test_google_calendar_events_route_returns_mirror_events(tmp_path, monkeypatch, authed_client):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    account = _account(tmp_path)
+    account = _account(tmp_path, session_id="test-user-id")
     upsert_mirror_event(
-        "pm-demo",
+        "test-user-id",
         str(tmp_path),
         account_id=account.id,
         provider="google",
@@ -711,10 +708,9 @@ def test_google_calendar_events_route_returns_mirror_events(tmp_path, monkeypatc
         raw={"private": "not returned"},
     )
 
-    client = TestClient(app)
-    res = client.get(
+    res = authed_client.get(
         "/personal-manager/google-calendar/events",
-        params={"sessionId": "demo", "start": "2026-04-20", "end": "2026-04-21"},
+        params={"start": "2026-04-20", "end": "2026-04-21"},
     )
 
     assert res.status_code == 200
@@ -738,7 +734,7 @@ def test_google_oauth_flow_disables_auto_pkce_for_web_client(monkeypatch):
     assert flow.autogenerate_code_verifier is False
 
 
-def test_google_calendar_sync_route_uses_service(tmp_path, monkeypatch):
+def test_google_calendar_sync_route_uses_service(tmp_path, monkeypatch, authed_client):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     seen: list[str] = []
 
@@ -749,15 +745,14 @@ def test_google_calendar_sync_route_uses_service(tmp_path, monkeypatch):
     app_module = importlib.import_module("assistant.http.pm_app")
     monkeypatch.setattr(app_module.CalendarService, "sync_google_accounts", fake_sync)
 
-    client = TestClient(app)
-    res = client.post("/personal-manager/google-calendar/sync", params={"sessionId": "demo"})
+    res = authed_client.post("/personal-manager/google-calendar/sync")
 
     assert res.status_code == 200
-    assert seen == ["pm-demo"]
+    assert seen == ["test-user-id"]
     assert res.json()["sync"][0]["synced"] == 2
 
 
-def test_google_calendar_auto_sync_route_uses_stale_gate(tmp_path, monkeypatch):
+def test_google_calendar_auto_sync_route_uses_stale_gate(tmp_path, monkeypatch, authed_client):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     seen: list[tuple[str, int | None]] = []
 
@@ -768,13 +763,12 @@ def test_google_calendar_auto_sync_route_uses_stale_gate(tmp_path, monkeypatch):
     app_module = importlib.import_module("assistant.http.pm_app")
     monkeypatch.setattr(app_module.CalendarService, "sync_google_accounts_if_stale", fake_auto_sync)
 
-    client = TestClient(app)
-    res = client.post(
+    res = authed_client.post(
         "/personal-manager/google-calendar/auto-sync",
-        params={"sessionId": "demo", "staleSeconds": "12"},
+        params={"staleSeconds": "12"},
     )
 
     assert res.status_code == 200
-    assert seen == [("pm-demo", 12)]
+    assert seen == [("test-user-id", 12)]
     assert res.json()["skipped"] is False
     assert res.json()["sync"][0]["synced"] == 1

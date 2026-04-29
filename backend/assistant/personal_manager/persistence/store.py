@@ -8,7 +8,6 @@ Schedule and private metadata are stored per-session under:
 """
 from __future__ import annotations
 
-import base64
 import json
 import os
 import uuid
@@ -110,9 +109,9 @@ class PrivateMetadata(BaseModel):
 
 # ── Path helpers ───────────────────────────────────────────────────────────────
 
-def _pm_dir(session_id: str, data_dir: str) -> str:
-    encoded = base64.urlsafe_b64encode(session_id.encode()).decode().rstrip("=")
-    return os.path.join(data_dir, "personal-manager", encoded)
+def _pm_dir(user_id: str, data_dir: str) -> str:
+    """Return the per-user data directory: data/users/<user_id>/"""
+    return os.path.join(data_dir, "users", user_id)
 
 
 def _schedule_path(session_id: str, data_dir: str) -> str:

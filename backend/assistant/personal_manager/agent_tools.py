@@ -59,7 +59,7 @@ def _private_patch_value_arg_to_str(value: Any) -> str:
 
 
 def _build_tools(config: Any) -> list[Any]:
-    sid = config.session_id
+    sid = getattr(config, "user_id", "") or config.session_id  # user_id for path/storage
     data_dir = config.data_dir
     vault = config.vault_dir
     pm_db = os.path.join(_pm_dir(sid, data_dir), "pm.db")

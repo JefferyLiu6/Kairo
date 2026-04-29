@@ -8,11 +8,9 @@ from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 from pydantic import ValidationError
 
-from assistant.http.pm_app import app
 import assistant.personal_manager.agent as pm_agent
 import assistant.personal_manager.workflow as pm_workflow
 from assistant.personal_manager.agent import PMConfig, run_pm
@@ -602,7 +600,7 @@ def test_react_fallback_is_tool_free(tmp_path, monkeypatch):
     def fail_build_tools(_config):
         raise AssertionError("fallback must not build Kairo tools")
 
-    monkeypatch.setattr(pm_agent, "_get_checkpointer", lambda _data_dir: object())
+    monkeypatch.setattr(pm_agent, "_get_checkpointer", lambda _uid, _data_dir: object())
     monkeypatch.setattr(pm_agent, "build_llm", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(pm_agent, "has_api_key", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(pm_agent, "_build_context_block", lambda _config: "No saved context.")
@@ -1788,7 +1786,7 @@ def test_model_assisted_delete_vague_alex_event_requires_approval(tmp_path, monk
     approvals = list_approval_requests("pm-demo", str(tmp_path), status="pending")
     assert "Approval required" in reply
     assert approvals[0].action_type == "schedule_remove"
-    assert approvals[0].payload == {"ids": ["alex1"]}
+    assert approvals[0].payload.get("ids") == ["alex1"]
 
 
 def test_model_assisted_extraction_handles_todo_journal_and_memory(tmp_path, monkeypatch):
@@ -2091,32 +2089,192 @@ def test_low_confidence_model_extraction_falls_back_to_regex(tmp_path, monkeypat
     assert todos.items[0].title == "call John"
 
 
-def test_approval_endpoints_round_trip(tmp_path, monkeypatch):
+def test_approval_endpoints_round_trip(tmp_path, monkeypatch, authed_client):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    cfg = _cfg(tmp_path)
+    cfg = PMConfig(
+        user_id="test-user-id",
+        provider="openai",
+        model="unused",
+        data_dir=str(tmp_path),
+        session_id="pm-demo",
+    )
     save_schedule(
         ScheduleData(entries=[ScheduleEntry(id="dentist1", title="Dentist appointment")]),
-        "pm-demo",
+        "test-user-id",
         str(tmp_path),
     )
     run_pm("Delete my dentist appointment", cfg)
-    approval = list_approval_requests("pm-demo", str(tmp_path), status="pending")[0]
-    client = TestClient(app)
+    approval = list_approval_requests("test-user-id", str(tmp_path), status="pending")[0]
 
-    listed = client.get(
-        "/personal-manager/approvals",
-        params={"sessionId": "pm-demo"},
-    )
-    approved = client.post(
-        f"/personal-manager/approvals/{approval.id}/approve",
-        params={"sessionId": "pm-demo"},
-    )
+    listed = authed_client.get("/personal-manager/approvals")
+    approved = authed_client.post(f"/personal-manager/approvals/{approval.id}/approve")
 
     assert listed.status_code == 200
     assert listed.json()["approvals"][0]["id"] == approval.id
     assert approved.status_code == 200
     assert approved.json()["ok"] is True
-    assert load_schedule("pm-demo", str(tmp_path)).entries == []
+    assert load_schedule("test-user-id", str(tmp_path)).entries == []
+
+
+
+def test_cross_thread_approval_isolation(tmp_path, monkeypatch):
+    """Generic approve/reject from thread B must not execute thread A's pending approval."""
+    from assistant.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
+
+    uid = "test-user-cross"
+    cfg_a = PMConfig(user_id=uid, provider="openai", model="unused",
+                     data_dir=str(tmp_path), session_id="pm-thread-a")
+    cfg_b = PMConfig(user_id=uid, provider="openai", model="unused",
+                     data_dir=str(tmp_path), session_id="pm-thread-b")
+
+    # Create an approval directly, mimicking what _execute_pm_plan does:
+    # it stores _thread_id = normalize_pm_session_id(config.session_id) in the payload.
+    from assistant.personal_manager.domain.session import normalize_pm_session_id
+    thread_a_id = normalize_pm_session_id("pm-thread-a")
+
+    approval = create_approval_request(
+        uid,
+        str(tmp_path),
+        action_type="schedule_remove",
+        payload={"ids": ["event-123"], "_thread_id": thread_a_id},
+        summary="Remove breakfast",
+        risk_level="high",
+    )
+
+    # Thread B sends generic "approve" — must be blocked (sees no pending for its thread).
+    result_b = approve_from_chat("approve", cfg_b)
+    assert "pending" in result_b.lower(), f"Thread B should see no pending: {result_b!r}"
+    assert "approval required" not in result_b.lower(), "Thread B must not execute thread A's approval"
+
+    # Thread B sends generic "reject" — must also be blocked.
+    result_b_reject = reject_from_chat("reject", cfg_b)
+    assert "pending" in result_b_reject.lower(), f"Thread B should see no pending: {result_b_reject!r}"
+
+    # The approval must still be pending — thread B did not execute it.
+    remaining = list_approval_requests(uid, str(tmp_path), status="pending")
+    assert any(a.id == approval.id for a in remaining), "Thread B should not have consumed thread A's approval"
+
+    # Thread A's generic approve should succeed.
+    result_a = approve_from_chat("approve", cfg_a)
+    # approval_flow tries to execute it; the executor will fail because the event
+    # doesn't exist in an empty schedule, but what matters is that it was *claimed*
+    # (not blocked by the thread filter).
+    executed = list_approval_requests(uid, str(tmp_path))
+    assert not any(a.id == approval.id and a.status == "pending" for a in executed), \
+        "Thread A's approve should have claimed its own approval"
+
+
+def test_cross_thread_guard_blocks_approve_intent(tmp_path, monkeypatch):
+    """The APPROVE_ACTION guard in run_typed_pm_turn must not see thread A's approval from thread B."""
+    from assistant.personal_manager.domain.session import normalize_pm_session_id
+    from assistant.personal_manager.workflow import run_typed_pm_turn
+
+    uid = "test-user-guard"
+    thread_a_id = normalize_pm_session_id("pm-thread-a-guard")
+
+    # Create an approval scoped to thread A.
+    create_approval_request(
+        uid,
+        str(tmp_path),
+        action_type="schedule_remove",
+        payload={"ids": ["ev-1"], "_thread_id": thread_a_id},
+        summary="Remove lunch",
+        risk_level="high",
+    )
+
+    # Thread B sends "approve" through the full typed-PM turn.
+    cfg_b = PMConfig(user_id=uid, provider="openai", model="unused",
+                     data_dir=str(tmp_path), session_id="pm-thread-b-guard")
+    reply = run_typed_pm_turn("approve", cfg_b)
+
+    # The guard should report no pending action — not try to execute thread A's approval.
+    assert reply is not None
+    assert "no pending" in reply.lower() or "pending" in reply.lower(), \
+        f"Expected no-pending reply from thread B, got: {reply!r}"
+
+
+def test_explicit_id_cross_thread_approval_blocked(tmp_path):
+    """approve <id> from thread B must not execute thread A's approval even with an explicit ID."""
+    from assistant.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
+    from assistant.personal_manager.domain.session import normalize_pm_session_id
+
+    uid = "test-user-explicit-id"
+    thread_a_id = normalize_pm_session_id("pm-thread-explicit-a")
+
+    cfg_a = PMConfig(user_id=uid, provider="openai", model="unused",
+                     data_dir=str(tmp_path), session_id="pm-thread-explicit-a")
+    cfg_b = PMConfig(user_id=uid, provider="openai", model="unused",
+                     data_dir=str(tmp_path), session_id="pm-thread-explicit-b")
+
+    approval = create_approval_request(
+        uid,
+        str(tmp_path),
+        action_type="schedule_remove",
+        payload={"ids": ["event-xyz"], "_thread_id": thread_a_id},
+        summary="Remove yoga",
+        risk_level="high",
+    )
+
+    # Thread B explicitly provides the approval ID — must be blocked.
+    result_b = approve_from_chat(f"approve {approval.id}", cfg_b)
+    assert "no approval" in result_b.lower(), f"Thread B with explicit ID should be blocked: {result_b!r}"
+
+    result_b_reject = reject_from_chat(f"reject {approval.id}", cfg_b)
+    assert "no approval" in result_b_reject.lower(), f"Thread B reject with explicit ID should be blocked: {result_b_reject!r}"
+
+    # Approval must still be pending.
+    remaining = list_approval_requests(uid, str(tmp_path), status="pending")
+    assert any(a.id == approval.id for a in remaining), "Approval should still be pending after thread B's attempts"
+
+    # Thread A can claim it by explicit ID.
+    result_a = approve_from_chat(f"approve {approval.id}", cfg_a)
+    executed = list_approval_requests(uid, str(tmp_path))
+    assert not any(a.id == approval.id and a.status == "pending" for a in executed), \
+        "Thread A should have claimed its approval by explicit ID"
+
+
+def test_conversation_log_persists_typed_turns(tmp_path):
+    """run_pm must append human+assistant messages to conversation_log for typed PM turns."""
+    from assistant.personal_manager.agent import run_pm, get_thread_messages
+    from assistant.personal_manager.persistence.control_store import list_conversation_turns
+
+    config = PMConfig(provider="openai", model="unused", data_dir=str(tmp_path), session_id="pm-log-test")
+    uid = "pm-log-test"  # user_id defaults to session_id when not set
+    thread_id = "pm-log-test"
+
+    run_pm("Add a task: buy milk", config)
+
+    turns = list_conversation_turns(uid, thread_id, str(tmp_path))
+    assert len(turns) == 2, f"Expected 2 entries (user + assistant), got: {turns}"
+    assert turns[0]["role"] == "user"
+    assert "buy milk" in turns[0]["content"]
+    assert turns[1]["role"] == "assistant"
+
+    # get_thread_messages should return the same data for the HTTP endpoint.
+    msgs = get_thread_messages(uid, thread_id, str(tmp_path))
+    assert msgs == turns
+
+
+def test_conversation_log_isolated_by_thread(tmp_path):
+    """Conversation logs are scoped per thread_id within a user."""
+    from assistant.personal_manager.agent import run_pm, get_thread_messages
+
+    uid = "pm-log-isolation"
+    cfg_a = PMConfig(user_id=uid, provider="openai", model="unused",
+                     data_dir=str(tmp_path), session_id="pm-thread-log-a")
+    cfg_b = PMConfig(user_id=uid, provider="openai", model="unused",
+                     data_dir=str(tmp_path), session_id="pm-thread-log-b")
+
+    run_pm("Add task: walk dog", cfg_a)
+    run_pm("Add task: feed cat", cfg_b)
+
+    msgs_a = get_thread_messages(uid, "pm-thread-log-a", str(tmp_path))
+    msgs_b = get_thread_messages(uid, "pm-thread-log-b", str(tmp_path))
+
+    assert any("walk dog" in m["content"] for m in msgs_a)
+    assert not any("walk dog" in m["content"] for m in msgs_b)
+    assert any("feed cat" in m["content"] for m in msgs_b)
+    assert not any("feed cat" in m["content"] for m in msgs_a)
 
 
 def test_eval_fixture_is_well_formed():

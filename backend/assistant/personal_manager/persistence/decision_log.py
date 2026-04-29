@@ -69,8 +69,8 @@ CREATE INDEX IF NOT EXISTS idx_tdl_session_created
 """
 
 
-def init_decision_log(session_id: str, data_dir: str) -> None:
-    with _ctrl_conn(pm_db_path(session_id, data_dir)) as conn:
+def init_decision_log(session_id: str, data_dir: str, *, user_id: str = "") -> None:
+    with _ctrl_conn(pm_db_path(session_id, data_dir, user_id=user_id)) as conn:
         conn.executescript(_SCHEMA)
 
 
@@ -164,20 +164,20 @@ class TurnDecision:
     def set_reply(self, reply: str) -> None:
         self.reply_preview = reply[:300]
 
-    def persist(self, data_dir: str) -> None:
+    def persist(self, data_dir: str, *, user_id: str = "") -> None:
         try:
             duration_ms = int((time.monotonic() - self._started_at) * 1000)
-            _write_decision(self, data_dir, duration_ms)
+            _write_decision(self, data_dir, duration_ms, user_id=user_id)
         except Exception:
             pass  # Never crash the turn just because logging failed
 
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
-def _write_decision(d: TurnDecision, data_dir: str, duration_ms: int) -> None:
-    init_decision_log(d.session_id, data_dir)
+def _write_decision(d: TurnDecision, data_dir: str, duration_ms: int, *, user_id: str = "") -> None:
+    init_decision_log(d.session_id, data_dir, user_id=user_id)
     now = datetime.now(timezone.utc).isoformat()
-    with _ctrl_conn(pm_db_path(d.session_id, data_dir)) as conn:
+    with _ctrl_conn(pm_db_path(d.session_id, data_dir, user_id=user_id)) as conn:
         conn.execute(
             """
             INSERT INTO turn_decision_log (
@@ -309,10 +309,11 @@ def list_turn_decisions(
     session_id: str,
     data_dir: str,
     *,
+    user_id: str = "",
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    init_decision_log(session_id, data_dir)
-    with _ctrl_conn(pm_db_path(session_id, data_dir)) as conn:
+    init_decision_log(session_id, data_dir, user_id=user_id)
+    with _ctrl_conn(pm_db_path(session_id, data_dir, user_id=user_id)) as conn:
         rows = conn.execute(
             """
             SELECT * FROM turn_decision_log
@@ -321,6 +322,22 @@ def list_turn_decisions(
             LIMIT ?
             """,
             (session_id, max(1, min(limit, 200))),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def list_all_turn_decisions(
+    user_id: str,
+    data_dir: str,
+    *,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Return all turn decisions for a user regardless of thread."""
+    init_decision_log(user_id, data_dir)
+    with _ctrl_conn(pm_db_path(user_id, data_dir)) as conn:
+        rows = conn.execute(
+            "SELECT * FROM turn_decision_log ORDER BY created_at DESC LIMIT ?",
+            (max(1, min(limit, 200)),),
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
 
