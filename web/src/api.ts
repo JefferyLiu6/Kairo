@@ -1,6 +1,6 @@
 import type { ScheduleData } from "./types";
 
-// Production support: set VITE_API_BASE to the backend origin (e.g. https://api.example.com).
+// Production support: set VITE_API_BASE=/api and proxy through Vercel rewrites.
 const _API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
 // CSRF token — fetched from /auth/csrf on mount, injected on state-changing requests.
