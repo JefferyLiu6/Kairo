@@ -15,11 +15,15 @@ services:
       VAULT_DIR: /vault
 
       # ── Security ──────────────────────────────────────────────────────────────
-      GATEWAY_TOKEN: "${GATEWAY_TOKEN:?Set a strong random GATEWAY_TOKEN}"
+      SESSION_SECRET: "${SESSION_SECRET:?Set SESSION_SECRET to a random 32-byte secret}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-true}"
+      COOKIE_SAMESITE: "${COOKIE_SAMESITE:-none}"
       CORS_ORIGINS: "${CORS_ORIGINS:?Set CORS_ORIGINS to your frontend origin}"
+      ENABLE_DEMO_WEB_ROUTES: "${ENABLE_DEMO_WEB_ROUTES:-0}"
+      # Optional legacy token, used only when ENABLE_DEMO_WEB_ROUTES=1.
+      GATEWAY_TOKEN: "${GATEWAY_TOKEN:-}"
 
-      # ── Demo ──────────────────────────────────────────────────────────────────
-      DEMO_SESSION_LIMIT: "${DEMO_SESSION_LIMIT:-6}"
+      # ── Abuse controls ────────────────────────────────────────────────────────
       RATE_LIMIT_RPM: "${RATE_LIMIT_RPM:-60}"
 
       # ── LLM ───────────────────────────────────────────────────────────────────
@@ -53,7 +57,6 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         VITE_API_BASE: "${VITE_API_BASE:?Set VITE_API_BASE to the backend origin}"
-        VITE_GATEWAY_TOKEN: "${VITE_GATEWAY_TOKEN:?Set VITE_GATEWAY_TOKEN for the demo frontend}"
     ports:
       - "80:80"
     depends_on:
