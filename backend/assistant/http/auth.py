@@ -12,8 +12,6 @@ import time
 from collections import defaultdict, deque
 
 from fastapi import APIRouter, HTTPException, Request, Response
-
-_log = logging.getLogger(__name__)
 from pydantic import BaseModel, field_validator
 
 from assistant.persistence.user_store import (
@@ -24,9 +22,10 @@ from assistant.persistence.user_store import (
     delete_expired_demo_users,
     delete_session,
     get_session_user,
-    get_user_by_email,
     init_users_db,
 )
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

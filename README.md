@@ -9,7 +9,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-UI-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-227%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-274%20passing-2ea44f)
 ![Evals](https://img.shields.io/badge/evals-252%2F252-2ea44f)
 
 Try it out: https://kairo-mu-two.vercel.app
@@ -38,7 +38,7 @@ Live app: [kairo-hazel.vercel.app](https://kairo-hazel.vercel.app)
 | What is it? | A full-stack Kairo agent for calendar, todos, habits, journal, memory, and Google Calendar sync. |
 | What makes it hard? | Natural-language requests can mutate private personal state, so the system must separate understanding from permission, execution, and auditability. |
 | What did I build? | A React UI, FastAPI backend, orchestrator, typed PM workflow, approval policy, SQLite persistence, eval harness, security doc, deployment path, and decision-trace panel. |
-| Proof it works | 227 pytest tests, 252/252 cases on the current offline eval suite, 1518/1518 scoped eval checks, screenshots, adversarial tests, and Docker Compose deployment docs. |
+| Proof it works | 274 pytest tests, 252/252 cases on the current offline eval suite, 1518/1518 scoped eval checks, screenshots, adversarial tests, and Docker Compose deployment docs. |
 
 ## Highlights
 
@@ -49,7 +49,7 @@ Live app: [kairo-hazel.vercel.app](https://kairo-hazel.vercel.app)
 | Safety model | Destructive and privacy-sensitive actions require approval before execution |
 | State model | SQLite-backed app state, pending dialogue memory, preference memory, and audit log |
 | Frontend | React 19, TypeScript strict mode, Vite, calendar UI, approval UX, decision trace panel |
-| Verification | `make verify`: 227 pytest tests, 252/252 cases on the current offline eval suite, 1518/1518 scoped eval checks, lint, smoke, web build |
+| Verification | `make verify`: 274 pytest tests, 252/252 cases on the current offline eval suite, 1518/1518 scoped eval checks, lint, smoke, web build |
 
 ## Contents
 
@@ -123,10 +123,11 @@ Required production/demo env vars:
 | Variable | Purpose |
 | -------- | ------- |
 | `PUBLIC_URL` | Public backend origin, used for Google OAuth redirect derivation |
-| `GATEWAY_TOKEN` | Bearer token required by backend routes when set |
-| `CORS_ORIGINS` | Comma-separated frontend origins allowed to call the backend |
+| `SESSION_SECRET` | Secret used to sign Google OAuth state |
+| `COOKIE_SECURE` | Set to `true` for production HTTPS cookies |
+| `COOKIE_SAMESITE` | Use `strict` for same-origin deploys or `none` for intentional cross-origin frontend/backend deploys |
+| `CORS_ORIGINS` | Explicit comma-separated frontend origins allowed to call the backend with cookies |
 | `VITE_API_BASE` | Backend origin embedded into the frontend build |
-| `VITE_GATEWAY_TOKEN` | Demo-only frontend bearer token matching `GATEWAY_TOKEN` |
 | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Live model provider for orchestrator/model fallback paths |
 
 Optional deploy flags:
@@ -135,19 +136,21 @@ Optional deploy flags:
 | -------- | ------- | ------- |
 | `MODEL` | provider default | Main orchestrator/model-extraction model |
 | `PM_MODEL` | `MODEL` fallback | Cheaper/faster delegated PM model |
-| `DEMO_SESSION_LIMIT` | `6` | Max orchestrator calls per demo session |
-| `RATE_LIMIT_RPM` | `60` | Per-IP requests per minute; `0` disables this limiter |
+| `RATE_LIMIT_RPM` | `60` | Per-IP and per-user PM requests per minute; `0` disables this limiter |
+| `ENABLE_DEMO_WEB_ROUTES` | `0` | Enables legacy local workspace/terminal demo routes only when explicitly set |
+| `GATEWAY_TOKEN` | unset | Required only if legacy demo web routes are enabled |
 | `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` | unset | Enables Google Calendar OAuth |
 | `GOOGLE_CALENDAR_REDIRECT_URI` | derived from `PUBLIC_URL` | Override OAuth callback URL |
 
 Data storage:
 
 - Docker uses named volumes: `pm_data` mounted at `/data` and `pm_vault` at `/vault`.
-- `/data` contains per-session JSON state, SQLite `pm.db` files, decision traces,
-  audit events, approvals, calendar mirrors, and fallback logs.
-- `/vault` contains shared profile memory such as `PROFILE.md`.
-- Workspace file editing/running endpoints are not enabled in the public Docker
-  Compose path. Do not set `WORKSPACE_DIR` for an internet-facing portfolio demo.
+- `/data/users.db` stores account, auth-session, and chat-thread metadata.
+- `/data/users/<user_id>/` contains each user's PM SQLite files, profile, decision
+  traces, audit events, approvals, conversation logs, calendar mirrors, and
+  fallback logs.
+- Workspace file editing/running endpoints are legacy local-development routes.
+  Keep `ENABLE_DEMO_WEB_ROUTES=0` for an internet-facing portfolio demo.
 - These stores are intentionally gitignored and should be backed up or destroyed
   according to the sensitivity of the demo data.
 
@@ -155,13 +158,12 @@ Do not expose publicly:
 
 - Do not commit `.env`, `.env.production`, provider keys, Google OAuth secrets, or
   populated `data/`, `backend/data/`, `vault/`, `backend/vault/`, or workspace volumes.
-- Do not treat `VITE_GATEWAY_TOKEN` as production-grade auth. Vite variables are
-  embedded into browser JavaScript, so this is acceptable only for a constrained
-  demo. A real public deployment should put the backend behind server-side auth,
-  a reverse proxy, or a backend-for-frontend that keeps privileged tokens off the
-  client.
-- Do not enable workspace endpoints or mount a writable workspace on a public demo.
-- Do not leave `CORS_ORIGINS=*` with credentials or real personal data.
+- Do not put backend secrets in `VITE_*` variables. Vite variables are embedded
+  into browser JavaScript.
+- Do not enable legacy workspace/terminal routes or mount a writable workspace on
+  a public demo.
+- Do not deploy credentialed wildcard CORS. Cross-origin cookies require an
+  explicit `CORS_ORIGINS` value.
 
 ## Evaluate the Project
 
@@ -272,7 +274,7 @@ are not claims of general natural-language coverage or production security.
 
 | Metric | Result |
 | ------ | ------ |
-| Unit tests | **227 passing**, 0 xfail |
+| Unit tests | **274 passing**, 0 xfail |
 | Adversarial tests | **68 passing** |
 | Current offline eval cases | **252/252 (100%)** |
 | Current offline eval checks | **1518/1518 (100%)** |
@@ -339,7 +341,7 @@ adversarial failures. After patching, the full suite is green.
 
 | Suite | Before | After |
 | ----- | ------ | ----- |
-| Unit tests | 182 passed, 14 xfail | **227 passed, 0 xfail** |
+| Unit tests | 182 passed, 14 xfail | **274 passed, 0 xfail** |
 | Eval adversarial suite | 13/16 (81%) | **16/16 (100%)** |
 | Eval approval safety | 19/25 (76%) | **25/25 (100%)** |
 | Eval overall | 203/216 (94%) | **252/252 (100%)** |
@@ -362,24 +364,31 @@ Current report: [`eval-report.md`](eval-report.md). Regression coverage:
 
 Security details are in [`SECURITY.md`](SECURITY.md). In short:
 
+- users authenticate with email/password and HTTP-only cookie sessions
+- user data is scoped by `user_id`; conversation state is scoped by `thread_id`
+- state-changing cookie-auth routes require CSRF protection
+- credentialed CORS requires explicit origins, never wildcard origins
 - prompt-injection-like messages are blocked before workflow routing
 - private/sensitive memory has a separate storage path
 - destructive actions require approval
 - sensitive web-search requests are blocked behind a high-risk approval
-- demo deployments support bearer auth, CORS restrictions, rate limits, and demo call limits
+- demo accounts are temporary, seeded with synthetic data, and blocked from Google
+  Calendar connection
 
-This is still a portfolio demo, not a production multi-tenant service.
+This is still a portfolio demo, not a fully hardened production multi-tenant service.
 
 ## Known Limitations
 
-- No real user accounts or tenant isolation beyond session IDs.
+- CSRF tokens and rate-limit buckets are process-local, so multi-worker
+  production deployments need a shared store.
 - SQLite files are not encrypted at rest by this project.
+- Demo-account cleanup is opportunistic, not a dedicated scheduled job.
 - Google Calendar sync is limited; full two-way conflict resolution is not implemented.
 - Deterministic replies return whole; only fallback/model paths stream token-by-token.
 - Eval coverage focuses on workflow behavior and safety shape, not model-generated prose quality.
 - Live orchestrator routing, translation, harness judging, and humanization quality depends on model behavior and is not fully graded by the offline eval suite.
 - The learning loop is narrow: mostly time-window preferences, not broad behavioral modeling.
-- Public deployment needs a server-side auth boundary; do not ship privileged secrets in `VITE_*` variables.
+- Legacy workspace/terminal routes should remain disabled in public deployments.
 
 ## Project Layout
 
