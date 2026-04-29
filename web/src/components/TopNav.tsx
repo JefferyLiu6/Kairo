@@ -7,7 +7,7 @@ type Props = {
   onStopAgent?: () => void;
   agentBusy?: boolean;
   onNewChat: () => void;
-  user?: { displayName: string; email: string };
+  user?: { displayName: string; email: string; creditsRemaining: number };
   onLogout?: () => void;
 };
 
@@ -99,6 +99,10 @@ export function TopNav({
         </button>
         {user && (
           <div className="topnav-user">
+            <span className={`topnav-credits${user.creditsRemaining <= 0 ? " exhausted" : ""}`}>
+              <span className="topnav-credits-count">{user.creditsRemaining}</span>
+              <span className="topnav-credits-label">credits</span>
+            </span>
             <span className="topnav-user-name" title={user.email}>{user.displayName}</span>
             {onLogout && (
               <button className="topnav-action-btn topnav-logout-btn" onClick={onLogout} title="Sign out">

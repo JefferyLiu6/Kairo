@@ -6,6 +6,7 @@ export type AuthUser = {
   email: string;
   displayName: string;
   isDemo: boolean;
+  creditsRemaining: number;
 };
 
 type AuthContextValue = {
@@ -14,6 +15,7 @@ type AuthContextValue = {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, displayName: string) => Promise<void>;
   tryDemo: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -49,13 +51,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const u = await authMe();
+    setUser(u);
+  }, []);
+
   const logout = useCallback(async () => {
     await authLogout();
     setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, tryDemo, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, tryDemo, refreshUser, logout }}>
       {children}
     </AuthContext.Provider>
   );

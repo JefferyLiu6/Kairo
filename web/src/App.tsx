@@ -32,7 +32,7 @@ function DemoBanner() {
 }
 
 function MainApp() {
-  const { user, logout } = useAuth();
+  const { user, refreshUser, logout } = useAuth();
   const [mode, setMode] = useState<Mode>("personal-manager");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -122,6 +122,7 @@ function MainApp() {
   const handleSubmit = useCallback(async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     if (!text || busy) return;
+    if (user && user.creditsRemaining <= 0) return;
 
     const sessionId = sessionIdRef.current;
 
@@ -161,6 +162,7 @@ function MainApp() {
           "personal-manager",
           resetAssistantMsg,
         );
+        await refreshUser();
         setScheduleRefreshNonce((n) => n + 1);
         setPmPetRewardNonce((n) => n + 1);
       }
@@ -184,7 +186,12 @@ function MainApp() {
       const errMsg = err instanceof Error ? err.message : "Something went wrong.";
       const displayMsg = errMsg.includes("429")
         ? "Rate limit reached — please wait a moment before sending another message."
+        : errMsg.toLowerCase().includes("credit")
+          ? "No credits left. Sign up with a new account or try another demo later."
         : `_${errMsg}_`;
+      if (errMsg.toLowerCase().includes("credit")) {
+        refreshUser().catch(() => {});
+      }
       setMessages((prev) =>
         prev.map((m) => m.id === assistantId ? { ...m, content: displayMsg } : m),
       );
@@ -197,7 +204,7 @@ function MainApp() {
       setBusy(false);
       abortRef.current = null;
     }
-  }, [input, busy, mode]);
+  }, [input, busy, mode, user, refreshUser]);
 
   const handleAction = useCallback((text: string) => {
     handleSubmit(text);
@@ -287,7 +294,7 @@ function MainApp() {
                 value={input}
                 onChange={setInput}
                 onSubmit={handleSubmit}
-                disabled={busy}
+                disabled={busy || (user?.creditsRemaining ?? 1) <= 0}
                 onStop={busy ? handleStop : undefined}
                 speechSupported={speech.supported}
                 isListening={speech.isListening}

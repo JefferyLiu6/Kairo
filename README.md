@@ -9,7 +9,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-UI-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-274%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-280%20passing-2ea44f)
 ![Evals](https://img.shields.io/badge/evals-252%2F252-2ea44f)
 
 Try it out: https://kairo-hazel.vercel.app
@@ -38,7 +38,7 @@ Live app: [kairo-hazel.vercel.app](https://kairo-hazel.vercel.app)
 | What is it? | A full-stack Kairo agent for calendar, todos, habits, journal, memory, and Google Calendar sync. |
 | What makes it hard? | Natural-language requests can mutate private personal state, so the system must separate understanding from permission, execution, and auditability. |
 | What did I build? | A React UI, FastAPI backend, orchestrator, typed PM workflow, approval policy, SQLite persistence, eval harness, security doc, deployment path, and decision-trace panel. |
-| Proof it works | 274 pytest tests, 252/252 cases on the current offline eval suite, 1518/1518 scoped eval checks, screenshots, adversarial tests, and Docker Compose deployment docs. |
+| Proof it works | 280 pytest tests, 252/252 cases on the current offline eval suite, 1518/1518 scoped eval checks, screenshots, adversarial tests, and Docker Compose deployment docs. |
 
 ## Highlights
 
@@ -49,7 +49,7 @@ Live app: [kairo-hazel.vercel.app](https://kairo-hazel.vercel.app)
 | Safety model | Destructive and privacy-sensitive actions require approval before execution |
 | State model | SQLite-backed app state, pending dialogue memory, preference memory, and audit log |
 | Frontend | React 19, TypeScript strict mode, Vite, calendar UI, approval UX, decision trace panel |
-| Verification | `make verify`: 274 pytest tests, 252/252 cases on the current offline eval suite, 1518/1518 scoped eval checks, lint, smoke, web build |
+| Verification | `make verify`: 280 pytest tests, 252/252 cases on the current offline eval suite, 1518/1518 scoped eval checks, lint, smoke, web build |
 
 ## Contents
 
@@ -137,6 +137,10 @@ Optional deploy flags:
 | `MODEL` | provider default | Main orchestrator/model-extraction model |
 | `PM_MODEL` | `MODEL` fallback | Cheaper/faster delegated PM model |
 | `RATE_LIMIT_RPM` | `60` | Per-IP and per-user PM requests per minute; `0` disables this limiter |
+| `PM_DEMO_RATE_LIMIT_RPM` / `PM_DEMO_RATE_LIMIT_DAILY` | `20` / `100` | Stricter PM chat limits for temporary demo users |
+| `AUTH_DEMO_RATE_LIMIT_RPM` / `AUTH_DEMO_RATE_LIMIT_DAILY` | `2` / `25` | Public demo-account creation limits by IP |
+| `AUTH_LOGIN_EMAIL_LIMIT_15M` | `5` | Login attempts per email hash per 15 minutes |
+| `TRUST_PROXY_HEADERS` | `false` | Trust `CF-Connecting-IP` / `X-Forwarded-For` only behind a trusted proxy |
 | `ENABLE_DEMO_WEB_ROUTES` | `0` | Enables legacy local workspace/terminal demo routes only when explicitly set |
 | `GATEWAY_TOKEN` | unset | Required only if legacy demo web routes are enabled |
 | `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` | unset | Enables Google Calendar OAuth |
@@ -149,6 +153,8 @@ Data storage:
 - `/data/users/<user_id>/` contains each user's PM SQLite files, profile, decision
   traces, audit events, approvals, conversation logs, calendar mirrors, and
   fallback logs.
+- New accounts start with 10 credits. Demo accounts start with 5 credits. Each
+  accepted chat turn consumes one account credit.
 - Workspace file editing/running endpoints are legacy local-development routes.
   Keep `ENABLE_DEMO_WEB_ROUTES=0` for an internet-facing portfolio demo.
 - These stores are intentionally gitignored and should be backed up or destroyed
@@ -274,7 +280,7 @@ are not claims of general natural-language coverage or production security.
 
 | Metric | Result |
 | ------ | ------ |
-| Unit tests | **274 passing**, 0 xfail |
+| Unit tests | **280 passing**, 0 xfail |
 | Adversarial tests | **68 passing** |
 | Current offline eval cases | **252/252 (100%)** |
 | Current offline eval checks | **1518/1518 (100%)** |
@@ -341,7 +347,7 @@ adversarial failures. After patching, the full suite is green.
 
 | Suite | Before | After |
 | ----- | ------ | ----- |
-| Unit tests | 182 passed, 14 xfail | **274 passed, 0 xfail** |
+| Unit tests | 182 passed, 14 xfail | **280 passed, 0 xfail** |
 | Eval adversarial suite | 13/16 (81%) | **16/16 (100%)** |
 | Eval approval safety | 19/25 (76%) | **25/25 (100%)** |
 | Eval overall | 203/216 (94%) | **252/252 (100%)** |
@@ -365,6 +371,7 @@ Current report: [`eval-report.md`](eval-report.md). Regression coverage:
 Security details are in [`SECURITY.md`](SECURITY.md). In short:
 
 - users authenticate with email/password and HTTP-only cookie sessions
+- new users receive 10 credits; demo users receive 5 credits
 - user data is scoped by `user_id`; conversation state is scoped by `thread_id`
 - state-changing cookie-auth routes require CSRF protection
 - credentialed CORS requires explicit origins, never wildcard origins
@@ -379,8 +386,10 @@ This is still a portfolio demo, not a fully hardened production multi-tenant ser
 
 ## Known Limitations
 
-- CSRF tokens and rate-limit buckets are process-local, so multi-worker
-  production deployments need a shared store.
+- CSRF tokens are process-local. Rate-limit events use local SQLite, so
+  multi-instance production deployments need a shared store.
+- The credit system is intentionally simple for demo cost control; there is no
+  billing, top-up, or admin grant flow yet.
 - SQLite files are not encrypted at rest by this project.
 - Demo-account cleanup is opportunistic, not a dedicated scheduled job.
 - Google Calendar sync is limited; full two-way conflict resolution is not implemented.

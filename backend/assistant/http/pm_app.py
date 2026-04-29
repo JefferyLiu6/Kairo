@@ -11,7 +11,6 @@ import logging
 import os
 import threading
 import time
-from collections import defaultdict, deque
 from datetime import date, datetime, timezone
 from functools import lru_cache
 from typing import Optional
@@ -21,6 +20,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from assistant.http.rate_limit import (
+    RateLimitRule,
+    enforce_rate_limit,
+    env_limit,
+    request_ip_bucket,
+    user_bucket,
+)
 from assistant.shared.llm_env import load_default_llm_from_env
 from assistant.personal_manager.agent import PMConfig, astream_pm, run_pm
 from assistant.personal_manager.presentation.approval_preview import approval_response
@@ -52,7 +58,7 @@ from assistant.personal_manager.workflow import (
     normalize_pm_session_id,
     reject_pm_request,
 )
-from assistant.persistence.user_store import User, init_users_db
+from assistant.persistence.user_store import User, consume_user_credit, init_users_db
 from assistant.http.auth import is_valid_csrf_token, require_user, router as auth_router
 
 _log = logging.getLogger(__name__)
@@ -151,32 +157,41 @@ async def _csrf_middleware(request: Request, call_next):
     return await call_next(request)
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
-# Process-local sliding-window buckets. Fine for a single-process deploy; a
-# multi-worker setup needs a shared counter (e.g. Redis) for correct enforcement.
+# SQLite-backed limits survive process restarts. A high-scale multi-worker setup
+# should move this to Redis, but SQLite is enough for a single-process demo.
 
-_rate_lock = threading.Lock()
-_ip_buckets: dict[str, deque] = defaultdict(deque)
-_user_buckets: dict[str, deque] = defaultdict(deque)
+def _pm_rules(user: User) -> list[RateLimitRule]:
+    if user.is_demo:
+        return [
+            RateLimitRule(env_limit("PM_DEMO_RATE_LIMIT_RPM", 20), 60, "pm/demo/minute"),
+            RateLimitRule(env_limit("PM_DEMO_RATE_LIMIT_DAILY", 100), 86400, "pm/demo/day"),
+        ]
+    return [RateLimitRule(env_limit("RATE_LIMIT_RPM", 60), 60, "pm/minute")]
 
 
-def _rate_limit(request: Request, user: User) -> None:
-    rpm_str = os.environ.get("RATE_LIMIT_RPM", "60").strip()
-    try:
-        rpm = int(rpm_str)
-    except ValueError:
-        rpm = 60
-    if rpm <= 0:
-        return
-    now = time.time()
-    ip = request.client.host if request.client else "unknown"
-    with _rate_lock:
-        for bucket_map, key in ((_ip_buckets, ip), (_user_buckets, user.id)):
-            bucket = bucket_map[key]
-            while bucket and now - bucket[0] > 60:
-                bucket.popleft()
-            if len(bucket) >= rpm:
-                raise HTTPException(status_code=429, detail="Rate limit exceeded")
-            bucket.append(now)
+def _rate_limit(request: Request, user: User | None = None) -> None:
+    buckets = [request_ip_bucket(request, "pm_ip")]
+    rules = [RateLimitRule(env_limit("RATE_LIMIT_RPM", 60), 60, "pm/minute")]
+    if user is not None:
+        buckets.append(user_bucket(user.id, "pm_user"))
+        rules = _pm_rules(user)
+    enforce_rate_limit(
+        _service_data_dir(),
+        buckets,
+        rules,
+        detail="Rate limit exceeded",
+    )
+
+
+def _consume_credit_or_402(user: User) -> int:
+    remaining = consume_user_credit(_service_data_dir(), user.id)
+    if remaining is None:
+        raise HTTPException(
+            status_code=402,
+            detail="No credits remaining. Create a new account or try a demo session later.",
+        )
+    user.credits_remaining = remaining
+    return remaining
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -408,6 +423,7 @@ def health():
 def pm_chat(req: PMChatRequest, request: Request):
     user = require_user(request)
     _rate_limit(request, user)
+    _consume_credit_or_402(user)
     thread_id = normalize_pm_session_id(req.session_id)
     config = PMConfig(
         user_id=user.id,
@@ -426,6 +442,7 @@ def pm_chat(req: PMChatRequest, request: Request):
 async def pm_stream(req: PMChatRequest, request: Request):
     user = require_user(request)
     _rate_limit(request, user)
+    _consume_credit_or_402(user)
     thread_id = normalize_pm_session_id(req.session_id)
     config = PMConfig(
         user_id=user.id,
@@ -451,6 +468,7 @@ async def pm_stream(req: PMChatRequest, request: Request):
 async def orchestrator_stream(req: PMChatRequest, request: Request):
     user = require_user(request)
     _rate_limit(request, user)
+    _consume_credit_or_402(user)
     from assistant.orchestrator.agent import OrchestratorConfig, astream_orchestrator
     from assistant.persistence.user_store import ensure_thread
     thread_id = normalize_pm_session_id(req.session_id)
