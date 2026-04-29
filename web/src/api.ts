@@ -1,4 +1,4 @@
-import type { Mode, ScheduleData } from "./types";
+import type { ScheduleData } from "./types";
 
 // Production support: set VITE_API_BASE to the backend origin (e.g. https://api.example.com).
 const _API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
@@ -202,29 +202,6 @@ export async function streamChat(
   return ""; // unreachable
 }
 
-/** Send a non-streaming request to the backend chat API. */
-export async function sendChat(
-  message: string,
-  sessionId: string,
-  mode: Mode,
-  signal?: AbortSignal,
-): Promise<string> {
-  const res = await apiFetch("/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, sessionId, mode }),
-    signal,
-  });
-
-  if (!res.ok) {
-    const err = await res.text().catch(() => res.statusText);
-    throw new Error(`${res.status}: ${err}`);
-  }
-
-  const data = (await res.json()) as { reply: string };
-  return data.reply;
-}
-
 /** Delete a PM session (thread) by ID. */
 export async function deleteSession(sessionId: string): Promise<boolean> {
   const res = await apiFetch(`/personal-manager/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
@@ -255,29 +232,6 @@ export async function fetchSession(sessionId: string): Promise<ServerMessage[]> 
   } catch {
     return [];
   }
-}
-
-export type CodingSessionEntry = {
-  sessionId: string;
-  messageCount: number;
-  task: string;
-  createdAt: string;
-};
-
-/** Fetch list of all coding agent sessions. */
-export async function fetchCodingSessions(): Promise<CodingSessionEntry[]> {
-  const res = await apiFetch("/sessions/coding");
-  if (!res.ok) return [];
-  const data = (await res.json()) as { sessions: CodingSessionEntry[] };
-  return data.sessions ?? [];
-}
-
-/** Fetch user/assistant messages from a coding agent session. */
-export async function fetchCodingSession(sessionId: string): Promise<ServerMessage[]> {
-  const res = await apiFetch(`/sessions/coding/${encodeURIComponent(sessionId)}`);
-  if (!res.ok) return [];
-  const data = (await res.json()) as { messages: ServerMessage[] };
-  return data.messages ?? [];
 }
 
 /** Load the Kairo schedule for the chat session (server applies `pm-` prefix). */
