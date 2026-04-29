@@ -130,6 +130,10 @@ to a shared store such as Redis.
 Demo accounts are for public portfolio exploration with synthetic data only.
 They are not intended for real private user data.
 
+The public portfolio frontend may default unauthenticated visitors into demo
+mode. Backend signup/login endpoints remain available for deployments with
+durable storage, but they are not the primary public free-tier flow.
+
 ## Credits
 
 Kairo uses a simple account-level credit system to control public-demo cost.
