@@ -220,6 +220,27 @@ export async function streamChat(
   return ""; // unreachable
 }
 
+export type PetState = { xp: number; energy: number; bond: number; focusStreak: number };
+
+/** Fetch the persisted Kairo pet state for the current user. */
+export async function fetchPmPet(): Promise<PetState | null> {
+  try {
+    const res = await apiFetch("/personal-manager/pet");
+    if (!res.ok) return null;
+    return res.json() as Promise<PetState>;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the Kairo pet state for the current user. */
+export async function savePmPet(state: PetState): Promise<void> {
+  await apiFetch("/personal-manager/pet", {
+    method: "PUT",
+    body: JSON.stringify(state),
+  });
+}
+
 /** Delete a PM session (thread) by ID. */
 export async function deleteSession(sessionId: string): Promise<boolean> {
   const res = await apiFetch(`/personal-manager/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });

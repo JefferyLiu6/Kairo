@@ -107,6 +107,15 @@ def init_control_store(session_id: str, data_dir: str, *, user_id: str = "") -> 
             );
             CREATE INDEX IF NOT EXISTS idx_conversation_log_thread
                 ON conversation_log(thread_id, id);
+
+            CREATE TABLE IF NOT EXISTS pet_state (
+                user_id      TEXT PRIMARY KEY,
+                xp           INTEGER NOT NULL DEFAULT 0,
+                energy       INTEGER NOT NULL DEFAULT 72,
+                bond         INTEGER NOT NULL DEFAULT 18,
+                focus_streak INTEGER NOT NULL DEFAULT 0,
+                updated_at   TEXT NOT NULL
+            );
             """
         )
 
@@ -539,3 +548,49 @@ def delete_thread_data(user_id: str, thread_id: str, data_dir: str) -> None:
             # Both LangGraph checkpoint tables are keyed by thread_id.
             for table in ("writes", "checkpoints"):
                 conn.execute(f"DELETE FROM {table} WHERE thread_id = ?", (thread_id,))  # noqa: S608
+
+
+# ── Pet state ──────────────────────────────────────────────────────────────────
+
+_PET_DEFAULTS: dict[str, int] = {"xp": 0, "energy": 72, "bond": 18, "focusStreak": 0}
+
+
+def get_pet_state(user_id: str, data_dir: str) -> dict[str, int]:
+    """Return the persisted pet state for a user, or defaults if not yet saved."""
+    init_control_store(user_id, data_dir)
+    with _conn(pm_db_path(user_id, data_dir)) as conn:
+        row = conn.execute(
+            "SELECT xp, energy, bond, focus_streak FROM pet_state WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return dict(_PET_DEFAULTS)
+    return {
+        "xp": int(row["xp"]),
+        "energy": int(row["energy"]),
+        "bond": int(row["bond"]),
+        "focusStreak": int(row["focus_streak"]),
+    }
+
+
+def save_pet_state(user_id: str, data_dir: str, state: dict) -> None:
+    """Persist the pet state for a user."""
+    init_control_store(user_id, data_dir)
+    xp = max(0, int(state.get("xp", 0)))
+    energy = max(0, min(100, int(state.get("energy", 72))))
+    bond = max(0, min(100, int(state.get("bond", 18))))
+    focus_streak = max(0, int(state.get("focusStreak", 0)))
+    with _conn(pm_db_path(user_id, data_dir)) as conn:
+        conn.execute(
+            """
+            INSERT INTO pet_state (user_id, xp, energy, bond, focus_streak, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                xp = excluded.xp,
+                energy = excluded.energy,
+                bond = excluded.bond,
+                focus_streak = excluded.focus_streak,
+                updated_at = excluded.updated_at
+            """,
+            (user_id, xp, energy, bond, focus_streak, _now()),
+        )
