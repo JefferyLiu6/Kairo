@@ -131,9 +131,9 @@ Required production/demo env vars:
 | `PUBLIC_URL` | Public backend origin, used for Google OAuth redirect derivation |
 | `SESSION_SECRET` | Secret used to sign Google OAuth state |
 | `COOKIE_SECURE` | Set to `true` for production HTTPS cookies |
-| `COOKIE_SAMESITE` | Use `strict` for same-origin deploys or `none` for intentional cross-origin frontend/backend deploys |
+| `COOKIE_SAMESITE` | Use `lax` when Vercel proxies `/api` to the backend; use `none` only for direct cross-origin API calls |
 | `CORS_ORIGINS` | Explicit comma-separated frontend origins allowed to call the backend with cookies |
-| `VITE_API_BASE` | Backend origin embedded into the frontend build |
+| `VITE_API_BASE` | Browser-facing API base. Use `/api` with the Vercel rewrite. |
 | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Live model provider for orchestrator/model fallback paths |
 
 Optional deploy flags:
@@ -161,6 +161,8 @@ Data storage:
   fallback logs.
 - New accounts start with 10 credits. Demo accounts start with 5 credits. Each
   accepted chat turn consumes one account credit.
+- The Vercel deployment should proxy `/api/*` to the Render backend through
+  `web/vercel.json`. This keeps auth cookies first-party on mobile browsers.
 - Workspace file editing/running endpoints are legacy local-development routes.
   Keep `ENABLE_DEMO_WEB_ROUTES=0` for an internet-facing portfolio demo.
 - These stores are intentionally gitignored and should be backed up or destroyed
@@ -174,8 +176,8 @@ Do not expose publicly:
   into browser JavaScript.
 - Do not enable legacy workspace/terminal routes or mount a writable workspace on
   a public demo.
-- Do not deploy credentialed wildcard CORS. Cross-origin cookies require an
-  explicit `CORS_ORIGINS` value.
+- Do not deploy credentialed wildcard CORS. Prefer same-origin `/api` proxying;
+  direct cross-origin cookies require an explicit `CORS_ORIGINS` value.
 
 ## Evaluate the Project
 
