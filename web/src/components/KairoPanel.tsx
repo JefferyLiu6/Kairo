@@ -1,13 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { fetchPmPet, savePmPet } from "../api";
+import type { PetState } from "../api";
 
 type PetMood = "idle" | "happy" | "focused" | "working" | "celebrating" | "sleepy";
-
-type PetState = {
-  xp: number;
-  energy: number;
-  bond: number;
-  focusStreak: number;
-};
 
 
 type Props = {
@@ -31,7 +26,6 @@ const INITIAL_STATE: PetState = {
   focusStreak: 0,
 };
 
-
 function clamp(value: number, min = 0, max = 100) {
   return Math.min(max, Math.max(min, value));
 }
@@ -45,7 +39,7 @@ function normalizeState(raw: Partial<PetState>): PetState {
   };
 }
 
-function loadPetState(): PetState {
+function loadLocalPetState(): PetState {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return INITIAL_STATE;
@@ -85,19 +79,27 @@ export function KairoPanel({
   onCalendarFull,
   onToggleTrace,
 }: Props) {
-  const [pet, setPet] = useState<PetState>(() => loadPetState());
+  const [pet, setPet] = useState<PetState>(() => loadLocalPetState());
   const [mood, setMood] = useState<PetMood>("idle");
   const lastRewardNonce = useRef(0);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const level = useMemo(() => levelFromXp(pet.xp), [pet.xp]);
   const activeMood: PetMood = busy ? "working" : pet.energy < 18 ? "sleepy" : mood;
 
+  // Hydrate from the server on mount — overwrites the localStorage fast-paint.
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(pet));
-    } catch {
-      // Browser storage can be unavailable in private contexts.
-    }
+    fetchPmPet().then((remote) => {
+      if (remote) setPet(normalizeState(remote));
+    });
+  }, []);
+
+  // Write-through: cache locally for instant reloads, persist to server debounced.
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pet)); } catch { /* private mode */ }
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => { savePmPet(pet); }, 1500);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [pet]);
 
   useEffect(() => {

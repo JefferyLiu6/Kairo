@@ -559,6 +559,27 @@ def get_pm_upcoming(request: Request, sessionId: str = "default", days: int = 1)
     return {"events": events}
 
 
+class PetStateRequest(BaseModel):
+    xp: int = 0
+    energy: int = 72
+    bond: int = 18
+    focusStreak: int = 0
+
+
+@app.get("/personal-manager/pet")
+def get_pm_pet(request: Request) -> dict:
+    user = require_user(request)
+    from assistant.personal_manager.persistence.control_store import get_pet_state
+    return get_pet_state(user.id, _service_data_dir())
+
+
+@app.put("/personal-manager/pet", status_code=204)
+def save_pm_pet(body: PetStateRequest, request: Request) -> None:
+    user = require_user(request)
+    from assistant.personal_manager.persistence.control_store import save_pet_state
+    save_pet_state(user.id, _service_data_dir(), body.model_dump())
+
+
 @app.get("/personal-manager/schedule/{session_id}")
 def get_pm_schedule(session_id: str, request: Request):
     user = require_user(request)
