@@ -4,7 +4,7 @@
 
 # Kairo
 
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![CI](https://github.com/JefferyLiu6/Kairo/actions/workflows/ci.yml/badge.svg)](https://github.com/JefferyLiu6/Kairo/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-UI-61DAFB?logo=react&logoColor=black)
@@ -12,7 +12,7 @@
 ![Tests](https://img.shields.io/badge/tests-274%20passing-2ea44f)
 ![Evals](https://img.shields.io/badge/evals-252%2F252-2ea44f)
 
-Try it out: https://kairo-mu-two.vercel.app
+Try it out: https://kairo-hazel.vercel.app
 
 Kairo is a full-stack AI agent that lets natural language update calendar,
 tasks, habits, journal, memory, and Google Calendar data without giving the
