@@ -28,6 +28,8 @@ not just fluent chat.
 Live app: [kairo-hazel.vercel.app](https://kairo-hazel.vercel.app)
 
 > Portfolio demo only. Do not enter real personal data.
+> The public frontend starts in temporary demo mode by default because the free
+> deployment does not provide durable SQLite storage.
 
 ![Kairo demo: natural-language calendar update, approval gate, decision trace, and mobile calendar](docs/demo/kairo-demo.gif)
 
@@ -97,6 +99,10 @@ make dev
 ```
 
 Open `http://localhost:5173`.
+
+The local app still supports email/password signup and login. The public
+portfolio frontend redirects login/signup routes into demo mode so visitors can
+try Kairo without creating durable accounts.
 
 The deterministic workflow, tests, evals, and smoke test do not require API keys.
 The `/orchestrator/stream` web-chat path, live fallback, and model extraction
