@@ -7,13 +7,17 @@ import re
 import secrets
 import shutil
 import sqlite3
-import threading
-import time
-from collections import defaultdict, deque
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, field_validator
 
+from assistant.http.rate_limit import (
+    RateLimitRule,
+    email_bucket,
+    enforce_rate_limit,
+    env_limit,
+    request_ip_bucket,
+)
 from assistant.persistence.user_store import (
     User,
     create_demo_user,
@@ -76,24 +80,57 @@ def _data_dir() -> str:
 
 
 # ── Auth-route rate limiting ──────────────────────────────────────────────────
-# Separate, stricter bucket from the per-user PM rate limiter.
-# Defaults: 10 attempts per IP per minute on login/signup/demo.
-# Process-local: same multi-worker caveat as _csrf_tokens above.
+# SQLite-backed so public demo abuse controls survive process restarts.
 
-_auth_rate_lock = threading.Lock()
-_auth_ip_buckets: dict[str, deque] = defaultdict(deque)
+def _auth_rate_limit(
+    request: Request,
+    rules: list[RateLimitRule],
+    *extra_buckets: str,
+    include_ip: bool = True,
+    ip_kind: str = "auth_ip",
+) -> None:
+    buckets = [*extra_buckets]
+    if include_ip:
+        buckets.insert(0, request_ip_bucket(request, ip_kind))
+    enforce_rate_limit(
+        _data_dir(),
+        buckets,
+        rules,
+        detail="Too many requests. Please try again later.",
+    )
 
 
-def _auth_rate_limit(request: Request, rpm: int = 10) -> None:
-    ip = request.client.host if request.client else "unknown"
-    now = time.time()
-    with _auth_rate_lock:
-        bucket = _auth_ip_buckets[ip]
-        while bucket and now - bucket[0] > 60:
-            bucket.popleft()
-        if len(bucket) >= rpm:
-            raise HTTPException(status_code=429, detail="Too many requests — try again later")
-        bucket.append(now)
+def _signup_rules() -> list[RateLimitRule]:
+    return [
+        RateLimitRule(env_limit("AUTH_SIGNUP_RATE_LIMIT_RPM", 5), 60, "signup/minute"),
+        RateLimitRule(env_limit("AUTH_SIGNUP_RATE_LIMIT_HOURLY", 20), 3600, "signup/hour"),
+        RateLimitRule(env_limit("AUTH_SIGNUP_RATE_LIMIT_DAILY", 50), 86400, "signup/day"),
+    ]
+
+
+def _login_ip_rules() -> list[RateLimitRule]:
+    return [
+        RateLimitRule(env_limit("AUTH_LOGIN_RATE_LIMIT_RPM", 10), 60, "login/minute"),
+        RateLimitRule(env_limit("AUTH_LOGIN_RATE_LIMIT_HOURLY", 50), 3600, "login/hour"),
+    ]
+
+
+def _login_email_rules() -> list[RateLimitRule]:
+    return [
+        RateLimitRule(env_limit("AUTH_LOGIN_EMAIL_LIMIT_15M", 5), 15 * 60, "login/email/15m"),
+    ]
+
+
+def _csrf_rules() -> list[RateLimitRule]:
+    return [RateLimitRule(env_limit("AUTH_CSRF_RATE_LIMIT_RPM", 30), 60, "csrf/minute")]
+
+
+def _demo_rules() -> list[RateLimitRule]:
+    return [
+        RateLimitRule(env_limit("AUTH_DEMO_RATE_LIMIT_RPM", 2), 60, "demo/minute"),
+        RateLimitRule(env_limit("AUTH_DEMO_RATE_LIMIT_HOURLY", 10), 3600, "demo/hour"),
+        RateLimitRule(env_limit("AUTH_DEMO_RATE_LIMIT_DAILY", 25), 86400, "demo/day"),
+    ]
 
 
 # ── Dependency: extract current user from cookie ──────────────────────────────
@@ -152,13 +189,14 @@ class UserResponse(BaseModel):
     email: str
     display_name: str
     is_demo: bool = False
+    credits_remaining: int = 0
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.post("/signup", status_code=200)
 def signup(req: SignupRequest, request: Request) -> dict:
-    _auth_rate_limit(request)
+    _auth_rate_limit(request, _signup_rules(), ip_kind="auth_signup_ip")
     data_dir = _data_dir()
     init_users_db(data_dir)
 
@@ -179,7 +217,13 @@ def signup(req: SignupRequest, request: Request) -> dict:
 @router.post("/login", response_model=UserResponse)
 def login(req: LoginRequest, request: Request, response: Response) -> UserResponse:
     from assistant.persistence.user_store import verify_password
-    _auth_rate_limit(request)
+    _auth_rate_limit(request, _login_ip_rules(), ip_kind="auth_login_ip")
+    _auth_rate_limit(
+        request,
+        _login_email_rules(),
+        email_bucket(req.email, "auth_login_email"),
+        include_ip=False,
+    )
     data_dir = _data_dir()
     init_users_db(data_dir)
 
@@ -189,7 +233,13 @@ def login(req: LoginRequest, request: Request, response: Response) -> UserRespon
 
     token = create_session(data_dir, user.id)
     _set_auth_cookie(response, token)
-    return UserResponse(id=user.id, email=user.email, display_name=user.display_name, is_demo=False)
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        is_demo=False,
+        credits_remaining=user.credits_remaining,
+    )
 
 
 @router.post("/logout", status_code=204)
@@ -203,7 +253,13 @@ def logout(request: Request, response: Response) -> None:
 @router.get("/me", response_model=UserResponse)
 def me(request: Request) -> UserResponse:
     user = require_user(request)
-    return UserResponse(id=user.id, email=user.email, display_name=user.display_name, is_demo=user.is_demo)
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        is_demo=user.is_demo,
+        credits_remaining=user.credits_remaining,
+    )
 
 
 def _session_id_from_request(request: Request) -> str | None:
@@ -219,6 +275,7 @@ def _session_id_from_request(request: Request) -> str | None:
 def csrf_token(request: Request) -> dict:
     """Issue a CSRF token bound to the current session cookie."""
     require_user(request)
+    _auth_rate_limit(request, _csrf_rules(), ip_kind="auth_csrf_ip")
     sid = _session_id_from_request(request)
     if not sid:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -374,7 +431,7 @@ def _cleanup_demo_data(data_dir: str, user_id: str) -> None:
 @router.post("/demo", response_model=UserResponse, status_code=201)
 def demo(request: Request, response: Response) -> UserResponse:
     """Create an ephemeral demo account with seeded data and a 24-hour session."""
-    _auth_rate_limit(request, rpm=5)  # stricter — each call writes files
+    _auth_rate_limit(request, _demo_rules(), ip_kind="auth_demo_ip")
     data_dir = _data_dir()
     init_users_db(data_dir)
 
@@ -409,4 +466,10 @@ def demo(request: Request, response: Response) -> UserResponse:
         max_age=24 * 3600,
         path="/",
     )
-    return UserResponse(id=user.id, email=user.email, display_name=user.display_name, is_demo=True)
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        is_demo=True,
+        credits_remaining=user.credits_remaining,
+    )

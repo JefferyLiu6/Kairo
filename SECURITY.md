@@ -103,21 +103,24 @@ Do not deploy a public app with credentialed wildcard CORS.
 
 ## Rate Limiting and Abuse Controls
 
-Kairo applies process-local sliding-window rate limits.
+Kairo applies SQLite-backed sliding-window rate limits.
 
 - Auth routes are rate-limited by IP.
+- Login is also rate-limited by email hash.
 - `/auth/demo` has a stricter limit because each request creates seeded data.
 - Personal-manager routes are rate-limited by IP and user id.
+- Demo users have stricter PM chat limits than regular accounts.
 
-These limits are suitable for a single-process portfolio deployment. For
-multi-worker or high-traffic production deployments, move rate-limit counters to
-a shared store.
+These limits persist across process restarts on a single backend instance. For
+multi-instance or high-traffic production deployments, move rate-limit counters
+to a shared store such as Redis.
 
 ## Demo Accounts
 
 `POST /auth/demo` creates an ephemeral demo account with seeded sample data.
 
 - Demo users are marked with `is_demo=true`.
+- Demo users start with 5 credits.
 - Demo accounts expire after 24 hours.
 - Expired demo users are rejected at session lookup time.
 - Expired demo users are swept when new demo accounts are created.
@@ -126,6 +129,18 @@ a shared store.
 
 Demo accounts are for public portfolio exploration with synthetic data only.
 They are not intended for real private user data.
+
+## Credits
+
+Kairo uses a simple account-level credit system to control public-demo cost.
+
+- New registered users start with 10 credits.
+- Demo users start with 5 credits.
+- Each accepted chat/stream turn consumes one credit.
+- Requests with no remaining credits return `402`.
+
+Credits are stored on the user row in `users.db`. This is demo cost control, not
+a billing system.
 
 ## Legacy Development Routes
 
@@ -235,9 +250,13 @@ served from the same origin.
 This project is portfolio/demo software, not a fully hardened production
 multi-tenant service.
 
-- CSRF tokens and rate-limit buckets are process-local.
+- CSRF tokens are process-local.
+- Rate-limit events are stored in local SQLite for a single backend instance;
+  multi-instance deployments need a shared store.
 - Local SQLite files are not encrypted at rest by this project.
 - Demo-account cleanup is opportunistic, not a dedicated scheduled job.
+- Credits are fixed at account creation; there is no billing, top-up, or admin
+  grant flow yet.
 - Google Calendar sync is limited; full two-way conflict resolution is not
   implemented.
 - The prompt-injection and privacy guards are regression-tested, but no static

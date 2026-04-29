@@ -20,10 +20,28 @@ function apiFetch(path: string, init?: RequestInit): Promise<Response> {
 
 // ── Auth API ──────────────────────────────────────────────────────────────────
 
-export type AuthUser = { id: string; email: string; displayName: string; isDemo: boolean };
+export type AuthUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  isDemo: boolean;
+  creditsRemaining: number;
+};
 
-function _parseUser(data: { id: string; email: string; display_name: string; is_demo?: boolean }): AuthUser {
-  return { id: data.id, email: data.email, displayName: data.display_name, isDemo: data.is_demo ?? false };
+function _parseUser(data: {
+  id: string;
+  email: string;
+  display_name: string;
+  is_demo?: boolean;
+  credits_remaining?: number;
+}): AuthUser {
+  return {
+    id: data.id,
+    email: data.email,
+    displayName: data.display_name,
+    isDemo: data.is_demo ?? false,
+    creditsRemaining: data.credits_remaining ?? 0,
+  };
 }
 
 export async function authCsrf(): Promise<void> {
@@ -144,7 +162,7 @@ export async function streamChat(
       if (!res.ok) {
         const body = await res.text().catch(() => res.statusText);
         let msg = `${res.status}: ${body}`;
-        if (res.status === 429) {
+        if (res.status === 402 || res.status === 429) {
           try { msg = (JSON.parse(body) as { detail: string }).detail; } catch { /* keep raw */ }
         }
         throw new Error(msg);

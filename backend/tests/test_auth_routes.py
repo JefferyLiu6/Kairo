@@ -12,18 +12,11 @@ from assistant.persistence.user_store import init_users_db
 
 @pytest.fixture(autouse=True)
 def _reset_process_local_state():
-    """Clear process-local rate-limit buckets and CSRF tokens between tests."""
+    """Clear process-local CSRF tokens between tests."""
     import assistant.http.auth as _auth
-    import assistant.http.pm_app as _pm
-    _auth._auth_ip_buckets.clear()
     _auth._csrf_tokens.clear()
-    _pm._ip_buckets.clear()
-    _pm._user_buckets.clear()
     yield
-    _auth._auth_ip_buckets.clear()
     _auth._csrf_tokens.clear()
-    _pm._ip_buckets.clear()
-    _pm._user_buckets.clear()
 
 
 # ── Client fixture ────────────────────────────────────────────────────────────
@@ -96,6 +89,7 @@ def test_login_success_sets_cookie(client):
     data = res.json()
     assert data["email"] == "user@example.com"
     assert data["is_demo"] is False
+    assert data["credits_remaining"] == 10
     assert "kairo_session" in res.cookies
 
 
@@ -119,6 +113,22 @@ def test_login_error_does_not_reveal_internals(client):
     assert "sqlite" not in detail.lower()
 
 
+def test_login_email_rate_limit_is_email_scoped(client, monkeypatch):
+    monkeypatch.setenv("AUTH_LOGIN_RATE_LIMIT_RPM", "100")
+    monkeypatch.setenv("AUTH_LOGIN_RATE_LIMIT_HOURLY", "100")
+    monkeypatch.setenv("AUTH_LOGIN_EMAIL_LIMIT_15M", "2")
+
+    assert _login(client, email="target@example.com").status_code == 401
+    assert _login(client, email="target@example.com").status_code == 401
+
+    limited = _login(client, email="target@example.com")
+    assert limited.status_code == 429
+    assert int(limited.headers["Retry-After"]) > 0
+
+    # Same IP can still try a different email because the stricter bucket is per email hash.
+    assert _login(client, email="other@example.com").status_code == 401
+
+
 # ── /auth/me ──────────────────────────────────────────────────────────────────
 
 def test_me_unauthenticated_401(client):
@@ -132,6 +142,16 @@ def test_me_authenticated_returns_user(client):
     res = client.get("/auth/me")
     assert res.status_code == 200
     assert res.json()["email"] == "user@example.com"
+    assert res.json()["credits_remaining"] == 10
+
+
+def test_auth_demo_starts_with_five_credits(client, monkeypatch):
+    monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_RPM", "100")
+    res = client.post("/auth/demo")
+    assert res.status_code == 201
+    data = res.json()
+    assert data["is_demo"] is True
+    assert data["credits_remaining"] == 5
 
 
 # ── Logout ────────────────────────────────────────────────────────────────────
@@ -208,6 +228,19 @@ def test_csrf_token_different_each_fetch(client):
     assert t1 != t2
 
 
+def test_auth_demo_rate_limit_has_retry_after(client, monkeypatch):
+    monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_RPM", "1")
+    monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_HOURLY", "100")
+    monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_DAILY", "100")
+
+    first = client.post("/auth/demo")
+    assert first.status_code == 201
+
+    second = client.post("/auth/demo")
+    assert second.status_code == 429
+    assert int(second.headers["Retry-After"]) > 0
+
+
 def test_pm_post_without_csrf_token_is_403(client):
     """PM state-changing routes must reject requests without a CSRF token."""
     _signup(client)
@@ -232,6 +265,62 @@ def test_pm_post_with_valid_csrf_token_passes_csrf_check(client, monkeypatch):
     )
     # CSRF passed; may fail for other reasons (no LLM key) — just not 403.
     assert res.status_code != 403
+
+
+def test_demo_user_pm_rate_limit_uses_demo_policy(client, monkeypatch):
+    monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_RPM", "100")
+    monkeypatch.setenv("PM_DEMO_RATE_LIMIT_RPM", "100")
+    monkeypatch.setenv("PM_DEMO_RATE_LIMIT_DAILY", "1")
+
+    demo = client.post("/auth/demo")
+    assert demo.status_code == 201
+    csrf = client.get("/auth/csrf").json()["csrf_token"]
+
+    payload = {"message": "Add task to smoke test", "session_id": "demo-limit"}
+    first = client.post("/personal-manager/chat", json=payload, headers={"X-CSRF-Token": csrf})
+    assert first.status_code == 200
+
+    second = client.post("/personal-manager/chat", json=payload, headers={"X-CSRF-Token": csrf})
+    assert second.status_code == 429
+    assert int(second.headers["Retry-After"]) > 0
+
+
+def test_pm_chat_consumes_one_credit(client):
+    _signup(client)
+    _login(client)
+    csrf = client.get("/auth/csrf").json()["csrf_token"]
+
+    res = client.post(
+        "/personal-manager/chat",
+        json={"message": "Add task to smoke test", "session_id": "credit-test"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert res.status_code == 200
+
+    me = client.get("/auth/me")
+    assert me.status_code == 200
+    assert me.json()["credits_remaining"] == 9
+
+
+def test_pm_chat_returns_402_when_credits_exhausted(client):
+    _signup(client)
+    _login(client)
+    from assistant.persistence.user_store import get_user_by_email, _conn
+    import os
+
+    data_dir = os.environ["DATA_DIR"]
+    user = get_user_by_email(data_dir, "user@example.com")
+    with _conn(data_dir) as db:
+        db.execute("UPDATE users SET credits_remaining = 0 WHERE id = ?", (user.id,))
+
+    csrf = client.get("/auth/csrf").json()["csrf_token"]
+    res = client.post(
+        "/personal-manager/chat",
+        json={"message": "Add task to smoke test", "session_id": "credit-empty"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert res.status_code == 402
+    assert "credits" in res.json()["detail"].lower()
 
 
 # ── Thread deletion data isolation ───────────────────────────────────────────

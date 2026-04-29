@@ -16,6 +16,7 @@ class User:
     email: str
     display_name: str
     is_demo: bool = False
+    credits_remaining: int = 0
 
 
 @dataclass
@@ -55,7 +56,8 @@ CREATE TABLE IF NOT EXISTS users (
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL,
     is_demo         INTEGER NOT NULL DEFAULT 0,
-    demo_expires_at TEXT
+    demo_expires_at TEXT,
+    credits_remaining INTEGER NOT NULL DEFAULT 10
 );
 
 CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -88,12 +90,19 @@ def init_users_db(data_dir: str) -> None:
     for stmt in (
         "ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN demo_expires_at TEXT",
+        "ALTER TABLE users ADD COLUMN credits_remaining INTEGER NOT NULL DEFAULT 10",
     ):
         try:
             conn.execute(stmt)
             conn.commit()
         except sqlite3.OperationalError:
             pass
+    conn.execute(
+        "UPDATE users SET credits_remaining = ? "
+        "WHERE is_demo = 1 AND credits_remaining > ?",
+        (DEMO_INITIAL_CREDITS, DEMO_INITIAL_CREDITS),
+    )
+    conn.commit()
     conn.close()
 
 
@@ -118,7 +127,12 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+USER_INITIAL_CREDITS = 10
+DEMO_INITIAL_CREDITS = 5
+
+
 # ── User CRUD ─────────────────────────────────────────────────────────────────
+
 
 def create_user(data_dir: str, email: str, password: str, display_name: str) -> User:
     from argon2 import PasswordHasher
@@ -128,33 +142,49 @@ def create_user(data_dir: str, email: str, password: str, display_name: str) -> 
     now = _now()
     with _conn(data_dir) as db:
         db.execute(
-            "INSERT INTO users (id, email, password_hash, display_name, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (uid, email.lower().strip(), password_hash, display_name, now, now),
+            "INSERT INTO users "
+            "(id, email, password_hash, display_name, created_at, updated_at, credits_remaining) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (uid, email.lower().strip(), password_hash, display_name, now, now, USER_INITIAL_CREDITS),
         )
-    return User(id=uid, email=email.lower().strip(), display_name=display_name)
+    return User(
+        id=uid,
+        email=email.lower().strip(),
+        display_name=display_name,
+        credits_remaining=USER_INITIAL_CREDITS,
+    )
 
 
 def get_user_by_email(data_dir: str, email: str) -> Optional[User]:
     with _conn(data_dir) as db:
         row = db.execute(
-            "SELECT id, email, display_name FROM users WHERE email = ?",
+            "SELECT id, email, display_name, COALESCE(is_demo, 0) as is_demo, "
+            "COALESCE(credits_remaining, 0) as credits_remaining "
+            "FROM users WHERE email = ?",
             (email.lower().strip(),),
         ).fetchone()
     if row is None:
         return None
-    return User(id=row["id"], email=row["email"], display_name=row["display_name"])
+    return User(
+        id=row["id"], email=row["email"], display_name=row["display_name"],
+        is_demo=bool(row["is_demo"]), credits_remaining=int(row["credits_remaining"]),
+    )
 
 
 def get_user_by_id(data_dir: str, user_id: str) -> Optional[User]:
     with _conn(data_dir) as db:
         row = db.execute(
-            "SELECT id, email, display_name FROM users WHERE id = ?",
+            "SELECT id, email, display_name, COALESCE(is_demo, 0) as is_demo, "
+            "COALESCE(credits_remaining, 0) as credits_remaining "
+            "FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     if row is None:
         return None
-    return User(id=row["id"], email=row["email"], display_name=row["display_name"])
+    return User(
+        id=row["id"], email=row["email"], display_name=row["display_name"],
+        is_demo=bool(row["is_demo"]), credits_remaining=int(row["credits_remaining"]),
+    )
 
 
 def verify_password(data_dir: str, email: str, password: str) -> Optional[User]:
@@ -167,7 +197,9 @@ def verify_password(data_dir: str, email: str, password: str) -> Optional[User]:
         from argon2.exceptions import InvalidHash as InvalidHashError  # type: ignore[attr-defined]
     with _conn(data_dir) as db:
         row = db.execute(
-            "SELECT id, email, password_hash, display_name FROM users WHERE email = ?",
+            "SELECT id, email, password_hash, display_name, COALESCE(is_demo, 0) as is_demo, "
+            "COALESCE(credits_remaining, 0) as credits_remaining "
+            "FROM users WHERE email = ?",
             (email.lower().strip(),),
         ).fetchone()
     if row is None:
@@ -177,7 +209,30 @@ def verify_password(data_dir: str, email: str, password: str) -> Optional[User]:
         ph.verify(row["password_hash"], password)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         return None
-    return User(id=row["id"], email=row["email"], display_name=row["display_name"])
+    return User(
+        id=row["id"], email=row["email"], display_name=row["display_name"],
+        is_demo=bool(row["is_demo"]), credits_remaining=int(row["credits_remaining"]),
+    )
+
+
+def consume_user_credit(data_dir: str, user_id: str) -> int | None:
+    """Consume one account credit. Return remaining credits, or None if exhausted."""
+    with _conn(data_dir) as db:
+        cursor = db.execute(
+            "UPDATE users SET credits_remaining = credits_remaining - 1, updated_at = ? "
+            "WHERE id = ? AND credits_remaining > 0",
+            (_now(), user_id),
+        )
+        if cursor.rowcount == 0:
+            return None
+        row = db.execute(
+            "SELECT credits_remaining FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    remaining = int(row["credits_remaining"])
+    return remaining if remaining >= 0 else None
 
 
 # ── Session CRUD ──────────────────────────────────────────────────────────────
@@ -208,7 +263,8 @@ def get_session_user(data_dir: str, raw_token: str) -> Optional[User]:
     with _conn(data_dir) as db:
         row = db.execute(
             "SELECT s.id as sid, s.expires_at, u.id, u.email, u.display_name, "
-            "       COALESCE(u.is_demo, 0) as is_demo, u.demo_expires_at "
+            "       COALESCE(u.is_demo, 0) as is_demo, u.demo_expires_at, "
+            "       COALESCE(u.credits_remaining, 0) as credits_remaining "
             "FROM auth_sessions s JOIN users u ON u.id = s.user_id "
             "WHERE s.token_hash = ?",
             (token_hash,),
@@ -224,7 +280,7 @@ def get_session_user(data_dir: str, raw_token: str) -> Optional[User]:
         )
     return User(
         id=row["id"], email=row["email"], display_name=row["display_name"],
-        is_demo=bool(row["is_demo"]),
+        is_demo=bool(row["is_demo"]), credits_remaining=int(row["credits_remaining"]),
     )
 
 
@@ -295,11 +351,18 @@ def create_demo_user(data_dir: str) -> tuple[User, str]:
     with _conn(data_dir) as db:
         db.execute(
             "INSERT INTO users "
-            "(id, email, password_hash, display_name, created_at, updated_at, is_demo, demo_expires_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
-            (uid, email, "", "Demo User", now, now, expires),
+            "(id, email, password_hash, display_name, created_at, updated_at, "
+            "is_demo, demo_expires_at, credits_remaining) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+            (uid, email, "", "Demo User", now, now, expires, DEMO_INITIAL_CREDITS),
         )
-    user = User(id=uid, email=email, display_name="Demo User", is_demo=True)
+    user = User(
+        id=uid,
+        email=email,
+        display_name="Demo User",
+        is_demo=True,
+        credits_remaining=DEMO_INITIAL_CREDITS,
+    )
     token = create_session(data_dir, uid)
     return user, token
 

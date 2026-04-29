@@ -47,7 +47,7 @@ export function InputBar({
         <textarea
           ref={ref}
           className="input-textarea"
-          placeholder={isListening ? "Listening…" : disabled && !onStop ? "No credits left — refresh for a new session" : modeConfig.placeholder}
+          placeholder={isListening ? "Listening…" : disabled && !onStop ? "No credits left — sign up or try demo later" : modeConfig.placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKey}
