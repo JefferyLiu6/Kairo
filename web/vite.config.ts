@@ -9,15 +9,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/ws/terminal": { target: apiOrigin.replace(/^http/, "ws"), ws: true },
-      "/chat": apiOrigin,
-      "/sessions": apiOrigin,
-      "/master": apiOrigin,
-      "/workspace": apiOrigin,
       "/health": apiOrigin,
       "/personal-manager": apiOrigin,
       "/orchestrator": apiOrigin,
-      "/demo": apiOrigin,
       "/auth": apiOrigin,
     },
   },
