@@ -5,8 +5,10 @@ Ollama Cloud (same as TS when OLLAMA_API_KEY is set):
   OLLAMA_API_KEY   → provider=ollama, base_url=https://ollama.com, Bearer auth
   MODEL            → defaults to gpt-oss:120b if unset
 
-Local Ollama (TS: OLLAMA=1 or OLLAMA_BASE_URL):
-  OLLAMA=1 / OLLAMA_BASE_URL  → provider=ollama, no API key, native port 11434
+Local Ollama:
+  OLLAMA=1                    → provider=ollama, no API key, native port 11434
+  OLLAMA_BASE_URL             → local ollama base URL; also selects ollama only
+                                when no higher-priority provider key is set
   MODEL             → defaults to llama3.2 if unset
 
 Anthropic / OpenAI fallbacks match TS ordering.
@@ -72,7 +74,8 @@ def with_retry(fn: Callable[[], T], max_attempts: int | None = None) -> T:
 
 def load_default_llm_from_env() -> dict[str, Any]:
     ollama_cloud_key = os.environ.get("OLLAMA_API_KEY", "").strip()
-    use_ollama = _truthy("OLLAMA") or bool(os.environ.get("OLLAMA_BASE_URL", "").strip())
+    local_ollama_flag = _truthy("OLLAMA")
+    local_ollama_base = os.environ.get("OLLAMA_BASE_URL", "").strip()
 
     if ollama_cloud_key:
         base = os.environ.get("OLLAMA_BASE_URL", "https://ollama.com").strip() or "https://ollama.com"
@@ -84,8 +87,8 @@ def load_default_llm_from_env() -> dict[str, Any]:
             "model": model,
         }
 
-    if use_ollama:
-        base = (os.environ.get("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").rstrip("/")
+    if local_ollama_flag:
+        base = (local_ollama_base or "http://127.0.0.1:11434").rstrip("/")
         model = os.environ.get("MODEL", "").strip() or "llama3.2"
         return {
             "provider": "ollama",
@@ -110,6 +113,15 @@ def load_default_llm_from_env() -> dict[str, Any]:
             "api_key": openai_key,
             "base_url": base or None,
             "model": os.environ.get("MODEL", "").strip() or "gpt-4o-mini",
+        }
+
+    if local_ollama_base:
+        model = os.environ.get("MODEL", "").strip() or "llama3.2"
+        return {
+            "provider": "ollama",
+            "api_key": None,
+            "base_url": local_ollama_base.rstrip("/"),
+            "model": model,
         }
 
     # No LLM-related env — HTTP handlers use their own Pydantic defaults.
