@@ -247,7 +247,7 @@ def _authed_client_with_csrf(client):
 
 def test_delete_session_purges_transcript(tmp_path, monkeypatch):
     """Deleting a PM thread must remove its conversation_log rows."""
-    from assistant.persistence.user_store import init_users_db, create_user, create_session, ensure_thread
+    from assistant.persistence.user_store import init_users_db, create_user, ensure_thread
     from assistant.personal_manager.persistence.control_store import (
         append_conversation_turn, list_conversation_turns, delete_thread_data,
     )
@@ -281,11 +281,9 @@ def test_get_messages_returns_404_after_delete(client, monkeypatch):
     _login(client)
 
     # Seed a thread directly via the persistence layer.
-    import assistant.http.pm_app as pm
     from assistant.persistence.user_store import get_user_by_email, ensure_thread
     from assistant.personal_manager.persistence.control_store import append_conversation_turn
 
-    data_dir = client.app.dependency_overrides.get("DATA_DIR", None)
     # DATA_DIR is set via monkeypatch.setenv in the client fixture; read it back.
     import os
     data_dir = os.environ["DATA_DIR"]

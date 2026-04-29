@@ -5,6 +5,7 @@ import base64
 import contextlib
 import hashlib
 import hmac
+import importlib
 import json
 import logging
 import os
@@ -14,14 +15,6 @@ from collections import defaultdict, deque
 from datetime import date, datetime, timezone
 from functools import lru_cache
 from typing import Optional
-
-_log = logging.getLogger(__name__)
-
-try:
-    from dotenv import find_dotenv, load_dotenv
-    load_dotenv(find_dotenv(usecwd=False), override=False)
-except ImportError:
-    pass
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,6 +54,20 @@ from assistant.personal_manager.workflow import (
 )
 from assistant.persistence.user_store import User, init_users_db
 from assistant.http.auth import is_valid_csrf_token, require_user, router as auth_router
+
+_log = logging.getLogger(__name__)
+
+
+def _load_dotenv_if_available() -> None:
+    try:
+        dotenv = importlib.import_module("dotenv")
+    except ImportError:
+        return
+    dotenv.load_dotenv(dotenv.find_dotenv(usecwd=False), override=False)
+
+
+_load_dotenv_if_available()
+
 
 @contextlib.asynccontextmanager
 async def _lifespan(application: FastAPI):
@@ -409,7 +416,7 @@ def pm_chat(req: PMChatRequest, request: Request):
     )
     try:
         reply = run_pm(req.message, config)
-    except Exception as exc:
+    except Exception:
         _log.exception("pm_chat error for user %s", user.id)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
     return PMChatResponse(session_id=thread_id, reply=reply)

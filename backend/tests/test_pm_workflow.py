@@ -2155,7 +2155,7 @@ def test_cross_thread_approval_isolation(tmp_path, monkeypatch):
     assert any(a.id == approval.id for a in remaining), "Thread B should not have consumed thread A's approval"
 
     # Thread A's generic approve should succeed.
-    result_a = approve_from_chat("approve", cfg_a)
+    approve_from_chat("approve", cfg_a)
     # approval_flow tries to execute it; the executor will fail because the event
     # doesn't exist in an empty schedule, but what matters is that it was *claimed*
     # (not blocked by the thread filter).
@@ -2227,7 +2227,7 @@ def test_explicit_id_cross_thread_approval_blocked(tmp_path):
     assert any(a.id == approval.id for a in remaining), "Approval should still be pending after thread B's attempts"
 
     # Thread A can claim it by explicit ID.
-    result_a = approve_from_chat(f"approve {approval.id}", cfg_a)
+    approve_from_chat(f"approve {approval.id}", cfg_a)
     executed = list_approval_requests(uid, str(tmp_path))
     assert not any(a.id == approval.id and a.status == "pending" for a in executed), \
         "Thread A should have claimed its approval by explicit ID"

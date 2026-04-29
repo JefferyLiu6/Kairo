@@ -4,7 +4,6 @@ COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate && pnpm install --frozen-lockfile
 COPY . .
 ARG VITE_API_BASE
-ARG VITE_GATEWAY_TOKEN
 RUN pnpm build
 
 FROM nginx:alpine

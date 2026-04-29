@@ -523,7 +523,7 @@ def _seed_workflow_state(case: PMEvalCase, config: EvalPMConfig) -> None:
             session_id,
             config.data_dir,
             action_type="schedule_remove",
-            payload={"ids": ["dentist1"]},
+            payload={"ids": ["dentist1"], "_thread_id": session_id},
             summary="Remove schedule event: Dentist appointment",
             risk_level="medium",
         )
