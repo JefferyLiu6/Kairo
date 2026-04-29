@@ -1,10 +1,12 @@
-"""Kairo FastAPI app for the standalone demo."""
+"""Kairo FastAPI app — with user account system."""
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import hmac
 import json
+import logging
 import os
 import threading
 import time
@@ -13,16 +15,17 @@ from datetime import date, datetime, timezone
 from functools import lru_cache
 from typing import Optional
 
+_log = logging.getLogger(__name__)
+
 try:
     from dotenv import find_dotenv, load_dotenv
     load_dotenv(find_dotenv(usecwd=False), override=False)
 except ImportError:
     pass
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, Security
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, StreamingResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from assistant.shared.llm_env import load_default_llm_from_env
@@ -35,7 +38,6 @@ from assistant.personal_manager.calendar.google import (
 from assistant.personal_manager.calendar.service import CalendarService, CalendarWriteUnavailableError
 from assistant.personal_manager.calendar.store import (
     disconnect_calendar_account,
-    list_calendar_account_sessions,
     list_calendar_accounts,
     upsert_calendar_account,
 )
@@ -43,10 +45,12 @@ from assistant.personal_manager.persistence.control_store import (
     get_approval_request,
     list_approval_requests,
     list_audit_events,
+    list_all_audit_events,
 )
-from assistant.personal_manager.persistence.decision_log import list_turn_decisions
+from assistant.personal_manager.persistence.decision_log import list_turn_decisions, list_all_turn_decisions
 from assistant.personal_manager.persistence.store import (
     ScheduleData,
+    get_upcoming_events,
     load_schedule as _load_schedule,
     save_schedule as _save_schedule,
 )
@@ -55,87 +59,100 @@ from assistant.personal_manager.workflow import (
     normalize_pm_session_id,
     reject_pm_request,
 )
+from assistant.persistence.user_store import User, init_users_db
+from assistant.http.auth import is_valid_csrf_token, require_user, router as auth_router
 
-app = FastAPI(title="Kairo Demo", version="1.0.0")
-
-
-def _ensure_demo_seeded(session_id: str) -> None:
-    """Seed a demo session on first use if it has no data yet."""
+@contextlib.asynccontextmanager
+async def _lifespan(application: FastAPI):
+    from assistant.shared.agent_trace import ensure_agent_trace_logging
+    ensure_agent_trace_logging()
+    init_users_db(_service_data_dir())
+    interval = _calendar_background_sync_seconds()
+    if interval > 0:
+        global _calendar_auto_sync_thread
+        _calendar_auto_sync_stop.clear()
+        _calendar_auto_sync_thread = threading.Thread(
+            target=_calendar_auto_sync_loop, daemon=True,
+        )
+        _calendar_auto_sync_thread.start()
+    print("\n" + "=" * 56)
+    print("  Kairo")
+    print("  http://localhost:5173  ← open this in your browser")
+    print("=" * 56 + "\n")
+    yield
+    _calendar_auto_sync_stop.set()
     try:
-        import base64
-        data_dir = os.environ.get("DATA_DIR", "./data")
-        vault_dir = os.environ.get("VAULT_DIR", "./vault")
-        encoded = base64.urlsafe_b64encode(f"pm-{session_id}".encode()).decode().rstrip("=")
-        db_path = os.path.join(data_dir, "personal-manager", encoded, "pm.db")
-        if not os.path.exists(db_path):
-            import sys
-            scripts_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "../../scripts"))
-            if scripts_dir not in sys.path:
-                sys.path.insert(0, scripts_dir)
-            # Also ensure backend root is on path
-            backend_root = os.path.normpath(os.path.join(os.path.dirname(__file__), "../.."))
-            if backend_root not in sys.path:
-                sys.path.insert(0, backend_root)
-            from seed_demo import seed_session
-            seed_session(session_id, data_dir, vault_dir)
-    except Exception as e:
-        print(f"[demo seed] failed: {e}")
+        from assistant.shared.sync_executor import shutdown_sync_workers
+        shutdown_sync_workers()
+    except Exception:
+        pass
+
+
+app = FastAPI(title="Kairo", version="2.0.0", lifespan=_lifespan)
+app.include_router(auth_router)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
+# Credentials (cookies) must never be paired with a wildcard origin — the browser
+# CORS spec forbids it, and Starlette works around it by reflecting the Origin header,
+# which is equivalent to granting every site credentialed access.
+#
+# Rules:
+#   CORS_ORIGINS unset or "*"  → allow_origins=["*"], allow_credentials=False
+#                                (non-credentialed; fine for public read-only APIs;
+#                                 local dev uses the Vite proxy so CORS never fires)
+#   CORS_ORIGINS=https://…     → allow_origins=[explicit list], allow_credentials=True
+#                                (production: set this to your frontend's exact origin)
 
-_cors_raw = os.environ.get("CORS_ORIGINS", "*").strip()
-_cors_origins = (
-    ["*"] if _cors_raw == "*" else [o.strip() for o in _cors_raw.split(",") if o.strip()]
-)
+
+def _cors_config(raw: str = "") -> tuple[list[str], bool]:
+    """Return (allow_origins, allow_credentials) given a raw CORS_ORIGINS string.
+
+    Invariant: allow_credentials is True only when origins is an explicit list.
+    Never pair credentials with a wildcard — Starlette reflects the Origin header
+    in that case, granting every site credentialed access.
+    """
+    val = raw.strip()
+    if val and val != "*":
+        return ([o.strip() for o in val.split(",") if o.strip()], True)
+    return (["*"], False)
+
+
+_cors_origins, _cors_credentials = _cors_config(os.environ.get("CORS_ORIGINS", ""))
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=(_cors_raw != "*"),
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "X-CSRF-Token"],
+    expose_headers=["*"],
 )
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
 
-_bearer = HTTPBearer(auto_error=False)
+_CSRF_EXEMPT_PATHS = {"/auth/signup", "/auth/login", "/auth/demo"}
 
 
-def _require_auth(
-    credentials: HTTPAuthorizationCredentials | None = Security(_bearer),
-) -> None:
-    token = os.environ.get("GATEWAY_TOKEN", "").strip()
-    if not token:
-        return
-    if credentials is None or not hmac.compare_digest(credentials.credentials, token):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
+@app.middleware("http")
+async def _csrf_middleware(request: Request, call_next):
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        # Signup, login, and demo are pre-auth — no CSRF token exists yet.
+        # All other state-changing routes (including /auth/logout) require one.
+        if request.url.path not in _CSRF_EXEMPT_PATHS:
+            token = request.headers.get("X-CSRF-Token", "")
+            if not is_valid_csrf_token(token, request):
+                return JSONResponse({"detail": "Invalid or missing CSRF token"}, status_code=403)
+    return await call_next(request)
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
+# Process-local sliding-window buckets. Fine for a single-process deploy; a
+# multi-worker setup needs a shared counter (e.g. Redis) for correct enforcement.
 
 _rate_lock = threading.Lock()
-_rate_buckets: dict[str, deque] = defaultdict(deque)
-
-# ── Demo session call limit ───────────────────────────────────────────────────
-
-_demo_call_counts: dict[str, int] = defaultdict(int)
-DEMO_SESSION_LIMIT = int(os.environ.get("DEMO_SESSION_LIMIT", "6"))
+_ip_buckets: dict[str, deque] = defaultdict(deque)
+_user_buckets: dict[str, deque] = defaultdict(deque)
 
 
-def _check_demo_limit(session_id: str) -> None:
-    """Raise 429 if this demo session has exhausted its call budget."""
-    if not session_id.startswith("demo"):
-        return
-    with _rate_lock:
-        _demo_call_counts[session_id] += 1
-        count = _demo_call_counts[session_id]
-    if count > DEMO_SESSION_LIMIT:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Demo limit reached ({DEMO_SESSION_LIMIT} messages). Refresh to start a new session.",
-        )
-
-
-def _rate_limit(request: Request) -> None:
+def _rate_limit(request: Request, user: User) -> None:
     rpm_str = os.environ.get("RATE_LIMIT_RPM", "60").strip()
     try:
         rpm = int(rpm_str)
@@ -146,12 +163,13 @@ def _rate_limit(request: Request) -> None:
     now = time.time()
     ip = request.client.host if request.client else "unknown"
     with _rate_lock:
-        bucket = _rate_buckets[ip]
-        while bucket and now - bucket[0] > 60:
-            bucket.popleft()
-        if len(bucket) >= rpm:
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        bucket.append(now)
+        for bucket_map, key in ((_ip_buckets, ip), (_user_buckets, user.id)):
+            bucket = bucket_map[key]
+            while bucket and now - bucket[0] > 60:
+                bucket.popleft()
+            if len(bucket) >= rpm:
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            bucket.append(now)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -166,10 +184,6 @@ def _llm_defaults() -> tuple[str, str, Optional[str], Optional[str]]:
 
 def _service_data_dir() -> str:
     return os.environ.get("DATA_DIR", "./data")
-
-
-def _service_vault_dir() -> Optional[str]:
-    return os.environ.get("VAULT_DIR") or None
 
 
 def _now() -> str:
@@ -190,7 +204,6 @@ def _google_calendar_redirect_uri() -> str:
     explicit = os.environ.get("GOOGLE_CALENDAR_REDIRECT_URI", "").strip()
     if explicit:
         return explicit
-    # Auto-derive from PUBLIC_URL if set (e.g. https://api.example.com)
     public = os.environ.get("PUBLIC_URL", "").strip().rstrip("/")
     if public:
         return f"{public}/personal-manager/google-calendar/callback"
@@ -200,18 +213,19 @@ def _google_calendar_redirect_uri() -> str:
 
 def _google_state_secret() -> str:
     secret = (
-        os.environ.get("GOOGLE_CALENDAR_STATE_SECRET", "").strip()
+        os.environ.get("SESSION_SECRET", "").strip()
+        or os.environ.get("GOOGLE_CALENDAR_STATE_SECRET", "").strip()
         or os.environ.get("GATEWAY_TOKEN", "").strip()
         or os.environ.get("GOOGLE_CALENDAR_CLIENT_SECRET", "").strip()
     )
     if not secret:
-        raise HTTPException(status_code=503, detail="GOOGLE_CALENDAR_STATE_SECRET is required")
+        raise HTTPException(status_code=503, detail="SESSION_SECRET is required")
     return secret
 
 
-def _sign_google_state(session_id: str, *, ttl_seconds: int = 600) -> str:
+def _sign_google_state(user_id: str, *, ttl_seconds: int = 600) -> str:
     payload = {
-        "sessionId": normalize_pm_session_id(session_id),
+        "userId": user_id,
         "exp": int(time.time()) + ttl_seconds,
         "nonce": os.urandom(8).hex(),
     }
@@ -223,6 +237,7 @@ def _sign_google_state(session_id: str, *, ttl_seconds: int = 600) -> str:
 
 
 def _verify_google_state(state: str) -> str:
+    """Returns user_id."""
     try:
         raw, sig = state.split(".", 1)
     except ValueError:
@@ -237,7 +252,7 @@ def _verify_google_state(state: str) -> str:
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
     if int(payload.get("exp", 0)) < int(time.time()):
         raise HTTPException(status_code=400, detail="Expired OAuth state")
-    return normalize_pm_session_id(str(payload.get("sessionId", "")))
+    return str(payload.get("userId", ""))
 
 
 def _build_google_oauth_flow(scopes: list[str]):
@@ -313,10 +328,23 @@ def _calendar_background_sync_seconds() -> int:
 
 
 def _run_calendar_auto_sync_once() -> None:
+    """Sync Google Calendar for all non-expired users in the users DB."""
     data_dir = _service_data_dir()
-    for sid in list_calendar_account_sessions(data_dir, provider="google"):
+    try:
+        from assistant.persistence.user_store import _conn as _users_conn
+        now = datetime.now(timezone.utc).isoformat()
+        with _users_conn(data_dir) as db:
+            rows = db.execute(
+                "SELECT id FROM users WHERE is_demo = 0 "
+                "OR demo_expires_at IS NULL OR demo_expires_at > ?",
+                (now,),
+            ).fetchall()
+        user_ids = [r["id"] for r in rows]
+    except Exception:
+        return
+    for uid in user_ids:
         try:
-            CalendarService(sid, data_dir).sync_google_accounts_if_stale()
+            CalendarService(uid, data_dir).sync_google_accounts_if_stale()
         except Exception:
             continue
 
@@ -328,40 +356,11 @@ def _calendar_auto_sync_loop() -> None:
         _calendar_auto_sync_stop.wait(interval)
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    from assistant.shared.agent_trace import ensure_agent_trace_logging
-    ensure_agent_trace_logging()
-    interval = _calendar_background_sync_seconds()
-    if interval > 0:
-        global _calendar_auto_sync_thread
-        _calendar_auto_sync_stop.clear()
-        _calendar_auto_sync_thread = threading.Thread(
-            target=_calendar_auto_sync_loop, daemon=True,
-        )
-        _calendar_auto_sync_thread.start()
-    print("\n" + "=" * 56)
-    print("  Kairo — Demo")
-    print("  http://localhost:5173  ← open this in your browser")
-    print("  Demo sessions auto-seeded on first message")
-    print("=" * 56 + "\n")
-
-
-@app.on_event("shutdown")
-def _shutdown() -> None:
-    _calendar_auto_sync_stop.set()
-    try:
-        from assistant.shared.sync_executor import shutdown_sync_workers
-        shutdown_sync_workers()
-    except Exception:
-        pass
-
-
 # ── Models ────────────────────────────────────────────────────────────────────
 
 class PMChatRequest(BaseModel):
     message: str
-    session_id: str = "demo"
+    session_id: str = "default"  # thread ID (chat conversation identifier)
     provider: str = Field(default_factory=lambda: _llm_defaults()[0])
     model: str = Field(default_factory=lambda: _llm_defaults()[1])
     base_url: Optional[str] = Field(default_factory=lambda: _llm_defaults()[3])
@@ -395,64 +394,66 @@ class GoogleCalendarEventPatchRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "mode": "pm-demo"}
+    return {"status": "ok"}
 
 
 @app.post("/personal-manager/chat", response_model=PMChatResponse)
-def pm_chat(req: PMChatRequest, _auth: None = Depends(_require_auth), _rl: None = Depends(_rate_limit)):
-    sid = f"pm-{req.session_id}" if not req.session_id.startswith("pm-") else req.session_id
-    config = PMConfig(provider=req.provider, model=req.model, api_key=req.api_key,
-                      base_url=req.base_url, data_dir=_service_data_dir(),
-                      vault_dir=_service_vault_dir(), session_id=sid)
+def pm_chat(req: PMChatRequest, request: Request):
+    user = require_user(request)
+    _rate_limit(request, user)
+    thread_id = normalize_pm_session_id(req.session_id)
+    config = PMConfig(
+        user_id=user.id,
+        provider=req.provider, model=req.model, api_key=req.api_key,
+        base_url=req.base_url, data_dir=_service_data_dir(), session_id=thread_id,
+    )
     try:
         reply = run_pm(req.message, config)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-    return PMChatResponse(session_id=sid, reply=reply)
+        _log.exception("pm_chat error for user %s", user.id)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+    return PMChatResponse(session_id=thread_id, reply=reply)
 
 
 @app.post("/personal-manager/stream")
-async def pm_stream(req: PMChatRequest, _auth: None = Depends(_require_auth), _rl: None = Depends(_rate_limit)):
-    sid = f"pm-{req.session_id}" if not req.session_id.startswith("pm-") else req.session_id
-    config = PMConfig(provider=req.provider, model=req.model, api_key=req.api_key,
-                      base_url=req.base_url, data_dir=_service_data_dir(),
-                      vault_dir=_service_vault_dir(), session_id=sid)
+async def pm_stream(req: PMChatRequest, request: Request):
+    user = require_user(request)
+    _rate_limit(request, user)
+    thread_id = normalize_pm_session_id(req.session_id)
+    config = PMConfig(
+        user_id=user.id,
+        provider=req.provider, model=req.model, api_key=req.api_key,
+        base_url=req.base_url, data_dir=_service_data_dir(), session_id=thread_id,
+    )
 
     async def _event_stream():
         try:
             async for kind, value in astream_pm(req.message, config):
                 payload = json.dumps({"type": kind, "data": value}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
-        except Exception as exc:
-            payload = json.dumps({"type": "error", "data": str(exc)}, ensure_ascii=False)
+        except Exception:
+            _log.exception("pm_stream error for user %s", user.id)
+            payload = json.dumps({"type": "error", "data": "An internal error occurred."}, ensure_ascii=False)
             yield f"data: {payload}\n\n"
 
     return StreamingResponse(_event_stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.post("/demo/seed")
-async def demo_seed(req: dict = Body(default={}), _auth: None = Depends(_require_auth)):
-    """Seed a fresh demo session synchronously. Call on new session creation."""
-    session_id = req.get("sessionId", "")
-    if not session_id.startswith("demo"):
-        return {"ok": False, "reason": "not a demo session"}
-    _ensure_demo_seeded(session_id)
-    return {"ok": True}
-
-
 @app.post("/orchestrator/stream")
-async def orchestrator_stream(req: PMChatRequest, _auth: None = Depends(_require_auth), _rl: None = Depends(_rate_limit)):
-    _check_demo_limit(req.session_id)
-    if req.session_id.startswith("demo"):
-        _ensure_demo_seeded(req.session_id)
+async def orchestrator_stream(req: PMChatRequest, request: Request):
+    user = require_user(request)
+    _rate_limit(request, user)
     from assistant.orchestrator.agent import OrchestratorConfig, astream_orchestrator
-    sid = f"pm-{req.session_id}" if not req.session_id.startswith("pm-") else req.session_id
+    from assistant.persistence.user_store import ensure_thread
+    thread_id = normalize_pm_session_id(req.session_id)
+    # Register the thread in users.db
+    ensure_thread(_service_data_dir(), user.id, thread_id)
     env = load_default_llm_from_env()
     config = OrchestratorConfig(
-        session_id=sid,
+        user_id=user.id,
+        session_id=thread_id,
         data_dir=_service_data_dir(),
-        vault_dir=_service_vault_dir(),
         provider=env.get("provider", req.provider),
         model=env.get("model", req.model),
         api_key=env.get("api_key") or req.api_key,
@@ -473,8 +474,9 @@ async def orchestrator_stream(req: PMChatRequest, _auth: None = Depends(_require
                 else:
                     continue
                 yield f"data: {payload}\n\n"
-        except Exception as exc:
-            payload = json.dumps({"type": "error", "data": str(exc)}, ensure_ascii=False)
+        except Exception:
+            _log.exception("orchestrator_stream error for user %s", user.id)
+            payload = json.dumps({"type": "error", "data": "An internal error occurred."}, ensure_ascii=False)
             yield f"data: {payload}\n\n"
         yield "data: [DONE]\n\n"
 
@@ -483,72 +485,78 @@ async def orchestrator_stream(req: PMChatRequest, _auth: None = Depends(_require
 
 
 @app.get("/personal-manager/sessions")
-def list_pm_sessions(_auth: None = Depends(_require_auth)) -> dict:
-    import sqlite3 as _sqlite3
-    data_dir = _service_data_dir()
-    sessions: dict[str, dict] = {}
-    db_path = os.path.join(data_dir, "personal-manager", "checkpoints.db")
-    if os.path.exists(db_path):
-        try:
-            conn = _sqlite3.connect(db_path)
-            rows = conn.execute(
-                "SELECT DISTINCT thread_id FROM checkpoints WHERE thread_id LIKE 'pm-%' ORDER BY thread_id"
-            ).fetchall()
-            conn.close()
-            for r in rows:
-                sessions[r[0]] = {"sessionId": r[0]}
-        except Exception:
-            pass
-    return {"sessions": list(sessions.values())}
+def list_pm_sessions(request: Request) -> dict:
+    user = require_user(request)
+    from assistant.persistence.user_store import list_threads
+    threads = list_threads(_service_data_dir(), user.id)
+    return {"sessions": [{"sessionId": t.id, "title": t.title, "lastActiveAt": t.last_active_at} for t in threads]}
 
 
 @app.get("/personal-manager/sessions/{session_id}")
-def get_pm_session(session_id: str, _auth: None = Depends(_require_auth)) -> dict:
-    import sqlite3 as _sqlite3
-    data_dir = _service_data_dir()
-    sid = f"pm-{session_id}" if not session_id.startswith("pm-") else session_id
-    db_path = os.path.join(data_dir, "personal-manager", "checkpoints.db")
-    if not os.path.exists(db_path):
+def get_pm_session(session_id: str, request: Request) -> dict:
+    user = require_user(request)
+    from assistant.persistence.user_store import list_threads
+    thread_id = normalize_pm_session_id(session_id)
+    threads = list_threads(_service_data_dir(), user.id)
+    match = next((t for t in threads if t.id == thread_id), None)
+    if match is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    try:
-        conn = _sqlite3.connect(db_path)
-        row = conn.execute("SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?", (sid,)).fetchone()
-        conn.close()
-        if not row or row[0] == 0:
-            raise HTTPException(status_code=404, detail="Session not found")
-        return {"sessionId": sid, "checkpointCount": row[0]}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    return {"sessionId": match.id, "title": match.title, "lastActiveAt": match.last_active_at}
+
+
+@app.get("/personal-manager/sessions/{session_id}/messages")
+def get_pm_session_messages(session_id: str, request: Request) -> dict:
+    user = require_user(request)
+    from assistant.personal_manager.agent import get_thread_messages
+    from assistant.persistence.user_store import list_threads
+    thread_id = normalize_pm_session_id(session_id)
+    threads = list_threads(_service_data_dir(), user.id)
+    if not any(t.id == thread_id for t in threads):
+        raise HTTPException(status_code=404, detail="Session not found")
+    messages = get_thread_messages(user.id, thread_id, _service_data_dir())
+    return {"messages": messages}
 
 
 @app.delete("/personal-manager/sessions/{session_id}", status_code=204)
-def delete_pm_session(session_id: str, _auth: None = Depends(_require_auth)):
-    pass  # No-op for demo
+def delete_pm_session(session_id: str, request: Request):
+    user = require_user(request)
+    from assistant.persistence.user_store import delete_thread
+    from assistant.personal_manager.persistence.control_store import delete_thread_data
+    thread_id = normalize_pm_session_id(session_id)
+    delete_thread(_service_data_dir(), user.id, thread_id)
+    delete_thread_data(user.id, thread_id, _service_data_dir())
+
+
+@app.get("/personal-manager/upcoming")
+def get_pm_upcoming(request: Request, sessionId: str = "default", days: int = 1):
+    user = require_user(request)
+    events = get_upcoming_events(user.id, _service_data_dir(), days=max(1, min(days, 30)))
+    return {"events": events}
 
 
 @app.get("/personal-manager/schedule/{session_id}")
-def get_pm_schedule(session_id: str, _auth: None = Depends(_require_auth)):
-    sid = f"pm-{session_id}" if not session_id.startswith("pm-") else session_id
-    return _load_schedule(sid, _service_data_dir()).model_dump()
+def get_pm_schedule(session_id: str, request: Request):
+    user = require_user(request)
+    return _load_schedule(user.id, _service_data_dir()).model_dump()
 
 
 @app.put("/personal-manager/schedule/{session_id}", status_code=200)
-def put_pm_schedule(session_id: str, body: ScheduleData, _auth: None = Depends(_require_auth)):
-    sid = f"pm-{session_id}" if not session_id.startswith("pm-") else session_id
-    _save_schedule(body, sid, _service_data_dir())
+def put_pm_schedule(session_id: str, body: ScheduleData, request: Request):
+    user = require_user(request)
+    _save_schedule(body, user.id, _service_data_dir())
     return {"ok": True}
 
 
 @app.get("/personal-manager/google-calendar/connect")
-def connect_google_calendar(sessionId: str = "demo", _auth: None = Depends(_require_auth)):
-    sid = normalize_pm_session_id(sessionId)
+def connect_google_calendar(request: Request, sessionId: str = "default"):
+    user = require_user(request)
+    if user.is_demo:
+        raise HTTPException(status_code=403, detail="Google Calendar is not available in demo accounts.")
     scopes = _google_calendar_scope().split()
     flow = _build_google_oauth_flow(scopes)
     authorization_url, _ = flow.authorization_url(
         access_type="offline", include_granted_scopes="true",
-        prompt="consent", state=_sign_google_state(sid),
+        prompt="consent", state=_sign_google_state(user.id),
     )
     return RedirectResponse(authorization_url)
 
@@ -558,164 +566,178 @@ def google_calendar_callback(request: Request) -> dict:
     state = request.query_params.get("state", "")
     if not state:
         raise HTTPException(status_code=400, detail="Missing OAuth state")
-    sid = _verify_google_state(state)
+    user_id = _verify_google_state(state)
     scopes = _google_calendar_scope().split()
     flow = _build_google_oauth_flow(scopes)
     try:
         flow.fetch_token(authorization_response=str(request.url))
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"OAuth callback failed: {exc}")
+    except Exception:
+        _log.exception("Google OAuth token exchange failed for user %s", user_id)
+        raise HTTPException(status_code=400, detail="OAuth token exchange failed. Please try connecting again.")
     credentials = flow.credentials
     account = upsert_calendar_account(
-        sid, _service_data_dir(), provider="google", account_email="",
+        user_id, _service_data_dir(), provider="google", account_email="",
         calendar_id=os.environ.get("GOOGLE_CALENDAR_ID", "primary").strip() or "primary",
         access_token=credentials.token or "",
         refresh_token=credentials.refresh_token or "",
         token_expiry=credentials.expiry.isoformat() if credentials.expiry else None,
         scopes=list(credentials.scopes or scopes),
     )
-    results = CalendarService(sid, _service_data_dir()).sync_google_accounts()
+    results = CalendarService(user_id, _service_data_dir()).sync_google_accounts()
     return {"ok": True, "account": account.model_dump(),
             "sync": [_sync_result_response(r) for r in results]}
 
 
 @app.get("/personal-manager/google-calendar/accounts")
-def get_google_calendar_accounts(sessionId: str, _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId)
-    accounts = list_calendar_accounts(sid, _service_data_dir(), provider="google")
+def get_google_calendar_accounts(request: Request) -> dict:
+    user = require_user(request)
+    accounts = list_calendar_accounts(user.id, _service_data_dir(), provider="google")
     return {"accounts": [a.model_dump() for a in accounts]}
 
 
 @app.post("/personal-manager/google-calendar/sync")
-def sync_google_calendar(sessionId: str, _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId)
+def sync_google_calendar(request: Request) -> dict:
+    user = require_user(request)
     try:
-        results = CalendarService(sid, _service_data_dir()).sync_google_accounts()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        results = CalendarService(user.id, _service_data_dir()).sync_google_accounts()
+    except Exception:
+        _log.exception("Calendar sync failed for user %s", user.id)
+        raise HTTPException(status_code=502, detail="Calendar sync failed. Please try again.")
     return {"ok": True, "sync": [_sync_result_response(r) for r in results]}
 
 
 @app.post("/personal-manager/google-calendar/auto-sync")
-def auto_sync_google_calendar(sessionId: str, staleSeconds: int = 60, _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId)
+def auto_sync_google_calendar(request: Request, staleSeconds: int = 60) -> dict:
+    user = require_user(request)
     data_dir = _service_data_dir()
-    results = CalendarService(sid, data_dir).sync_google_accounts_if_stale(
+    results = CalendarService(user.id, data_dir).sync_google_accounts_if_stale(
         stale_after_seconds=max(0, min(staleSeconds, 3600))
     )
-    accounts = list_calendar_accounts(sid, data_dir, provider="google")
+    accounts = list_calendar_accounts(user.id, data_dir, provider="google")
     return {"ok": True, "skipped": not results,
             "sync": [_sync_result_response(r) for r in results],
             "accounts": [a.model_dump() for a in accounts]}
 
 
 @app.get("/personal-manager/google-calendar/events")
-def get_google_calendar_events(sessionId: str, start: Optional[str] = None,
-                                end: Optional[str] = None, limit: int = 200,
-                                _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId)
-    events = CalendarService(sid, _service_data_dir()).list_events(
+def get_google_calendar_events(request: Request, start: Optional[str] = None,
+                                end: Optional[str] = None, limit: int = 200) -> dict:
+    user = require_user(request)
+    events = CalendarService(user.id, _service_data_dir()).list_events(
         start=_parse_calendar_date(start), end=_parse_calendar_date(end), limit=limit,
     )
     return {"events": [_calendar_event_response(e) for e in events]}
 
 
 @app.post("/personal-manager/google-calendar/events")
-def create_google_calendar_event(body: GoogleCalendarEventWriteRequest, sessionId: str,
-                                  _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId)
+def create_google_calendar_event(body: GoogleCalendarEventWriteRequest, request: Request) -> dict:
+    user = require_user(request)
     try:
-        event = CalendarService(sid, _service_data_dir()).create_google_event_from_entry(body.model_dump())
+        event = CalendarService(user.id, _service_data_dir()).create_google_event_from_entry(body.model_dump())
     except CalendarWriteUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception:
+        _log.exception("Calendar event create failed for user %s", user.id)
+        raise HTTPException(status_code=502, detail="Failed to create calendar event. Please try again.")
     return {"event": _calendar_event_response_from_event(event)}
 
 
 @app.patch("/personal-manager/google-calendar/events/{provider_event_id}")
 def update_google_calendar_event(provider_event_id: str, body: GoogleCalendarEventPatchRequest,
-                                  sessionId: str, _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId)
+                                  request: Request) -> dict:
+    user = require_user(request)
     try:
-        event = CalendarService(sid, _service_data_dir()).update_google_event(
+        event = CalendarService(user.id, _service_data_dir()).update_google_event(
             provider_event_id, body.model_dump(exclude_none=True),
         )
     except CalendarWriteUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception:
+        _log.exception("Calendar event update failed for user %s, event %s", user.id, provider_event_id)
+        raise HTTPException(status_code=502, detail="Failed to update calendar event. Please try again.")
     return {"event": _calendar_event_response_from_event(event)}
 
 
 @app.delete("/personal-manager/google-calendar/events/{provider_event_id}")
-def delete_google_calendar_event(provider_event_id: str, sessionId: str,
-                                  _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId)
+def delete_google_calendar_event(provider_event_id: str, request: Request) -> dict:
+    user = require_user(request)
     try:
-        CalendarService(sid, _service_data_dir()).delete_google_event(provider_event_id)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        CalendarService(user.id, _service_data_dir()).delete_google_event(provider_event_id)
+    except Exception:
+        _log.exception("Calendar event delete failed for user %s, event %s", user.id, provider_event_id)
+        raise HTTPException(status_code=502, detail="Failed to delete calendar event. Please try again.")
     return {"ok": True}
 
 
 @app.delete("/personal-manager/google-calendar/accounts/{account_id}")
-def disconnect_google_calendar_account(account_id: str, sessionId: str,
-                                        _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId)
-    disconnected = disconnect_calendar_account(sid, _service_data_dir(), account_id)
+def disconnect_google_calendar_account(account_id: str, request: Request) -> dict:
+    user = require_user(request)
+    disconnected = disconnect_calendar_account(user.id, _service_data_dir(), account_id)
     return {"ok": disconnected}
 
 
 @app.get("/personal-manager/approvals")
-def get_pm_approvals(sessionId: str, _auth: None = Depends(_require_auth)) -> dict:
+def get_pm_approvals(request: Request) -> dict:
+    user = require_user(request)
     data_dir = _service_data_dir()
-    sid = normalize_pm_session_id(sessionId)
-    approvals = list_approval_requests(sid, data_dir, limit=50)
+    approvals = list_approval_requests(user.id, data_dir, limit=50)
     return {"approvals": [approval_response(a, data_dir) for a in approvals]}
 
 
 @app.get("/personal-manager/approvals/{approval_id}")
-def get_pm_approval_detail(approval_id: str, sessionId: str,
-                            _auth: None = Depends(_require_auth)) -> dict:
+def get_pm_approval_detail(approval_id: str, request: Request) -> dict:
+    user = require_user(request)
     data_dir = _service_data_dir()
-    sid = normalize_pm_session_id(sessionId)
-    approval = get_approval_request(sid, data_dir, approval_id)
+    approval = get_approval_request(user.id, data_dir, approval_id)
     if approval is None:
         raise HTTPException(status_code=404, detail="Approval not found")
     return approval_response(approval, data_dir, include_preview=True)
 
 
 @app.post("/personal-manager/approvals/{approval_id}/approve")
-def approve_pm_approval_route(approval_id: str, sessionId: Optional[str] = None,
-                               _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId) if sessionId else None
-    result = approve_pm_request(approval_id, _service_data_dir(),
-                                 vault_dir=_service_vault_dir(), session_id=sid)
+def approve_pm_approval_route(approval_id: str, request: Request) -> dict:
+    user = require_user(request)
+    result = approve_pm_request(approval_id, _service_data_dir(), user_id=user.id)
     return {"ok": not result.lower().startswith(("error:", "no approval")), "reply": result}
 
 
 @app.post("/personal-manager/approvals/{approval_id}/reject")
-def reject_pm_approval_route(approval_id: str, sessionId: Optional[str] = None,
-                              _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId) if sessionId else None
-    result = reject_pm_request(approval_id, _service_data_dir(), session_id=sid)
+def reject_pm_approval_route(approval_id: str, request: Request) -> dict:
+    user = require_user(request)
+    result = reject_pm_request(approval_id, _service_data_dir(), user_id=user.id)
     return {"ok": not result.lower().startswith("no approval"), "reply": result}
 
 
 @app.get("/personal-manager/audit")
-def get_pm_audit(sessionId: str, limit: int = 50, _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId)
-    return {"events": list_audit_events(sid, _service_data_dir(), limit=limit)}
+def get_pm_audit(request: Request, sessionId: str = "", limit: int = 50) -> dict:
+    user = require_user(request)
+    data_dir = _service_data_dir()
+    if sessionId:
+        thread_id = normalize_pm_session_id(sessionId)
+        events = list_audit_events(thread_id, data_dir, user_id=user.id, limit=limit)
+    else:
+        events = list_all_audit_events(user.id, data_dir, limit=limit)
+    return {"events": events}
 
 
 @app.get("/personal-manager/decisions")
-def get_pm_decisions(sessionId: str, limit: int = 20, _auth: None = Depends(_require_auth)) -> dict:
-    sid = normalize_pm_session_id(sessionId)
-    return {"decisions": list_turn_decisions(sid, _service_data_dir(), limit=limit)}
+def get_pm_decisions(request: Request, sessionId: str = "", limit: int = 20) -> dict:
+    user = require_user(request)
+    data_dir = _service_data_dir()
+    if sessionId:
+        thread_id = normalize_pm_session_id(sessionId)
+        decisions = list_turn_decisions(thread_id, data_dir, user_id=user.id, limit=limit)
+    else:
+        decisions = list_all_turn_decisions(user.id, data_dir, limit=limit)
+    return {"decisions": decisions}
 
 
-# ── Demo web router ───────────────────────────────────────────────────────────
-# Chat/stream is Kairo PM-only; workspace routes stay disabled unless configured.
-from assistant.http.demo_web import router as _demo_web_router  # noqa: E402
-app.include_router(_demo_web_router)
+# ── Demo web router (opt-in via env flag for local dev only) ─────────────────
+if os.environ.get("ENABLE_DEMO_WEB_ROUTES", "").strip() not in ("", "0", "false", "no"):
+    from assistant.http.demo_web import router as _demo_web_router  # noqa: E402
+    app.include_router(_demo_web_router)
+    if not os.environ.get("GATEWAY_TOKEN", "").strip():
+        _log.warning(
+            "ENABLE_DEMO_WEB_ROUTES is set but GATEWAY_TOKEN is empty — "
+            "all legacy demo routes will reject requests with 401 until a token is configured."
+        )

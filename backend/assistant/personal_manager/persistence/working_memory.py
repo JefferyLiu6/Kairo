@@ -68,8 +68,8 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
-def _conn(session_id: str, data_dir: str) -> sqlite3.Connection:
-    path = pm_db_path(session_id, data_dir)
+def _conn(session_id: str, data_dir: str, *, user_id: str = "") -> sqlite3.Connection:
+    path = pm_db_path(session_id, data_dir, user_id=user_id)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -89,8 +89,8 @@ def _json_loads(value: str) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {"value": loaded}
 
 
-def init_working_memory_store(session_id: str, data_dir: str) -> None:
-    with _conn(session_id, data_dir) as conn:
+def init_working_memory_store(session_id: str, data_dir: str, *, user_id: str = "") -> None:
+    with _conn(session_id, data_dir, user_id=user_id) as conn:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS working_memory (
@@ -150,6 +150,7 @@ def save_working_memory(
     session_id: str,
     data_dir: str,
     *,
+    user_id: str = "",
     mode: str,
     source: str,
     expected_reply: str,
@@ -159,7 +160,7 @@ def save_working_memory(
     last_updated_at: Optional[str] = None,
     expires_at: Optional[str] = None,
 ) -> WorkingMemoryRecord:
-    init_working_memory_store(session_id, data_dir)
+    init_working_memory_store(session_id, data_dir, user_id=user_id)
     if mode not in WORKING_MEMORY_MODES:
         raise ValueError(f"unsupported working memory mode: {mode}")
     now = _now()
@@ -168,7 +169,7 @@ def save_working_memory(
     updated_dt = _parse_iso(updated) or datetime.now(timezone.utc)
     expires = expires_at or (updated_dt + mode_ttl(mode)).isoformat()
     memory_id = uuid.uuid4().hex[:10]
-    with _conn(session_id, data_dir) as conn:
+    with _conn(session_id, data_dir, user_id=user_id) as conn:
         conn.execute(
             """
             UPDATE working_memory
@@ -202,10 +203,10 @@ def save_working_memory(
     return _row_to_record(row)
 
 
-def load_active_working_memory(session_id: str, data_dir: str) -> Optional[WorkingMemoryRecord]:
-    init_working_memory_store(session_id, data_dir)
+def load_active_working_memory(session_id: str, data_dir: str, *, user_id: str = "") -> Optional[WorkingMemoryRecord]:
+    init_working_memory_store(session_id, data_dir, user_id=user_id)
     now = datetime.now(timezone.utc)
-    with _conn(session_id, data_dir) as conn:
+    with _conn(session_id, data_dir, user_id=user_id) as conn:
         rows = conn.execute(
             """
             SELECT * FROM working_memory
@@ -235,13 +236,14 @@ def clear_active_working_memory(
     session_id: str,
     data_dir: str,
     *,
+    user_id: str = "",
     status: str = "resolved",
 ) -> None:
-    init_working_memory_store(session_id, data_dir)
+    init_working_memory_store(session_id, data_dir, user_id=user_id)
     if status not in WORKING_MEMORY_STATUSES - {"active"}:
         raise ValueError(f"unsupported working memory clear status: {status}")
     now = _now()
-    with _conn(session_id, data_dir) as conn:
+    with _conn(session_id, data_dir, user_id=user_id) as conn:
         conn.execute(
             """
             UPDATE working_memory

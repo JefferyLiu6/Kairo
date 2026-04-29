@@ -78,8 +78,8 @@ export function HistoryPanel({ mode: _mode, currentSessionId, onLoad, onNew, onC
                   onClick={() => { onLoad(s.sessionId, "personal-manager"); onClose(); }}
                   onKeyDown={(e) => { if (e.key === "Enter") { onLoad(s.sessionId, "personal-manager"); onClose(); } }}
                 >
-                  <div className="history-item-id">{formatChatId(s.sessionId)}</div>
-                  <div className="history-item-count">{s.messageCount} message{s.messageCount !== 1 ? "s" : ""}</div>
+                  <div className="history-item-id">{s.title || formatChatId(s.sessionId)}</div>
+                  <div className="history-item-count">{s.createdAt ? new Date(s.createdAt).toLocaleDateString() : ""}</div>
                   <button
                     className="history-item-delete"
                     onClick={(e) => handleDelete(s.sessionId, e)}

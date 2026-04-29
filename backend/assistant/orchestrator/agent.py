@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from assistant.shared.llm_env import build_llm
 from assistant.personal_manager.agent import PMConfig, astream_pm
 
-from .memory import build_memory_context, get_working_memory
+from .memory import build_memory_context, get_working_memory, load_profile
 from .prompts import (
     HARNESS_SYSTEM,
     HUMANIZER_SYSTEM,
@@ -31,7 +31,8 @@ from .harness import (
 
 @dataclass
 class OrchestratorConfig:
-    session_id: str
+    session_id: str           # chat thread identifier
+    user_id: str = ""         # owner identity (from auth cookie)
     data_dir: str = "./data"
     vault_dir: Optional[str] = None
     # Orchestrator model (reasoning + humanization)
@@ -47,6 +48,7 @@ class OrchestratorConfig:
 
     def pm_config(self) -> PMConfig:
         return PMConfig(
+            user_id=self.user_id,
             provider=self.pm_provider,
             model=self.pm_model,
             api_key=self.pm_api_key,
@@ -224,7 +226,7 @@ def _log_turn(
     try:
         from assistant.personal_manager.persistence.decision_log import log_orchestrator_turn
         log_orchestrator_turn(
-            config.session_id,
+            config.user_id or config.session_id,
             config.data_dir,
             message=message,
             route=route,
@@ -256,13 +258,12 @@ async def astream_orchestrator(
       ("done",     str) — full reply
     """
     _turn_start = time.monotonic()
-    wm = get_working_memory(config.session_id)
-    vault_dir = config.vault_dir
-    memory_ctx = build_memory_context(config.session_id, vault_dir)
-    profile = ""
-    if vault_dir:
-        from .memory import load_profile
-        profile = load_profile(vault_dir)
+    wm = get_working_memory(config.user_id, config.session_id)
+    # Per-user profile lives at data/users/<user_id>/PROFILE.md
+    from assistant.personal_manager.persistence.store import _pm_dir
+    user_data_dir = _pm_dir(config.user_id, config.data_dir)
+    memory_ctx = build_memory_context(config.user_id, config.session_id, user_data_dir)
+    profile = load_profile(user_data_dir)
 
     # ── Step 1: route ─────────────────────────────────────────────────────────
     yield ("progress", "Thinking…")
@@ -344,7 +345,7 @@ async def astream_orchestrator(
         reply = build_fallback_reply(action, final_verdict, cached)
         log_fallback(
             config.data_dir,
-            config.session_id,
+            config.user_id or config.session_id,
             user_message=message,
             action=action,
             pm_output=pm_output,

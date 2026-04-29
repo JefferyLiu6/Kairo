@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { TopNav } from "./components/TopNav";
 import { ChatWindow } from "./components/ChatWindow";
 import { InputBar } from "./components/InputBar";
@@ -6,7 +7,11 @@ import { HistoryPanel } from "./components/HistoryPanel";
 import { SchedulePanel } from "./components/SchedulePanel";
 import { DecisionTracePanel } from "./components/DecisionTracePanel";
 import { KairoPanel } from "./components/KairoPanel";
-import { streamChat, fetchSession, seedDemoSession } from "./api";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { LoginPage } from "./pages/LoginPage";
+import { SignupPage } from "./pages/SignupPage";
+import { streamChat, fetchSession } from "./api";
 import { useSpeech } from "./hooks/useSpeech";
 import type { Message, Mode } from "./types";
 
@@ -14,14 +19,20 @@ function makeId() {
   return crypto.randomUUID();
 }
 
-const _PM_SESSION_KEY = "pm-session-id";
 function getOrCreateSessionId(): string {
-  const id = "demo-" + crypto.randomUUID();
-  try { localStorage.setItem(_PM_SESSION_KEY, id); } catch {}
-  return id;
+  return crypto.randomUUID();
 }
 
-export default function App() {
+function DemoBanner() {
+  return (
+    <div className="demo-banner">
+      Demo account — data resets after 24 hours. Google Calendar and other integrations are disabled.
+    </div>
+  );
+}
+
+function MainApp() {
+  const { user, logout } = useAuth();
   const [mode, setMode] = useState<Mode>("personal-manager");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -34,8 +45,6 @@ export default function App() {
   const [pmPetRewardNonce, setPmPetRewardNonce] = useState(0);
   const [agentActivity, setAgentActivity] = useState<string | null>(null);
   const [progressSteps, setProgressSteps] = useState<string[]>([]);
-  const [callCount, setCallCount] = useState(0);
-  const CALL_LIMIT = 6;
   const sessionIdRef = useRef<string>(getOrCreateSessionId());
   const abortRef = useRef<AbortController | null>(null);
   const speech = useSpeech();
@@ -60,11 +69,9 @@ export default function App() {
     }
   }, [messages]);
 
-  // Seed the current demo session on mount, then refresh schedule
+  // Refresh schedule on mount
   useEffect(() => {
-    seedDemoSession(sessionIdRef.current).then(() =>
-      setScheduleRefreshNonce((n) => n + 1)
-    );
+    setScheduleRefreshNonce((n) => n + 1);
   }, []);
 
   const handleMode = useCallback((m: Mode) => {
@@ -83,16 +90,13 @@ export default function App() {
 
   const handleNewPmSession = useCallback(() => {
     abortRef.current?.abort();
-    const id = "demo-" + crypto.randomUUID();
-    try { localStorage.setItem(_PM_SESSION_KEY, id); } catch {}
-    sessionIdRef.current = id;
+    sessionIdRef.current = crypto.randomUUID();
     setMessages([]);
     setInput("");
     setBusy(false);
     setAgentActivity(null);
     setProgressSteps([]);
-    setCallCount(0);
-    seedDemoSession(id).then(() => setScheduleRefreshNonce((n) => n + 1));
+    setScheduleRefreshNonce((n) => n + 1);
   }, []);
 
   const handleStop = useCallback(() => {
@@ -118,7 +122,6 @@ export default function App() {
   const handleSubmit = useCallback(async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     if (!text || busy) return;
-    if (callCount >= CALL_LIMIT) return;
 
     const sessionId = sessionIdRef.current;
 
@@ -131,7 +134,6 @@ export default function App() {
     setBusy(true);
     setAgentActivity("starting…");
     setProgressSteps(["starting…"]);
-    setCallCount((n) => n + 1);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -180,9 +182,8 @@ export default function App() {
         return;
       }
       const errMsg = err instanceof Error ? err.message : "Something went wrong.";
-      const isRateLimit = errMsg.includes("429") || errMsg.toLowerCase().includes("limit reached") || errMsg.toLowerCase().includes("demo limit");
-      const displayMsg = isRateLimit
-        ? "You've used all your demo credits. Refresh the page to start a new session."
+      const displayMsg = errMsg.includes("429")
+        ? "Rate limit reached — please wait a moment before sending another message."
         : `_${errMsg}_`;
       setMessages((prev) =>
         prev.map((m) => m.id === assistantId ? { ...m, content: displayMsg } : m),
@@ -196,7 +197,7 @@ export default function App() {
       setBusy(false);
       abortRef.current = null;
     }
-  }, [input, busy, mode, callCount]);
+  }, [input, busy, mode]);
 
   const handleAction = useCallback((text: string) => {
     handleSubmit(text);
@@ -225,10 +226,11 @@ export default function App() {
         }
         agentBusy={busy}
         onStopAgent={handleStop}
-        onClear={handleClear}
-        callCount={callCount}
-        callLimit={CALL_LIMIT}
+        onNewChat={mode === "personal-manager" ? handleNewPmSession : handleClear}
+        user={user ?? undefined}
+        onLogout={logout}
       />
+      {user?.isDemo && <DemoBanner />}
 
       <div className="main">
         {/* Full-screen calendar mode */}
@@ -285,7 +287,7 @@ export default function App() {
                 value={input}
                 onChange={setInput}
                 onSubmit={handleSubmit}
-                disabled={busy || callCount >= CALL_LIMIT}
+                disabled={busy}
                 onStop={busy ? handleStop : undefined}
                 speechSupported={speech.supported}
                 isListening={speech.isListening}
@@ -349,5 +351,25 @@ export default function App() {
       )}
 
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <MainApp />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AuthProvider>
   );
 }

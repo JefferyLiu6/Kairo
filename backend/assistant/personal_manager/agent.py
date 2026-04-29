@@ -54,6 +54,7 @@ from .persistence.store import (
     load_private,
 )
 from .domain.session import normalize_pm_session_id
+from .persistence.control_store import append_conversation_turn, list_conversation_turns
 from .persistence.decision_log import TurnDecision
 from .workflow import run_typed_pm_turn
 
@@ -132,64 +133,66 @@ context unless the user specifically asks for it. Keep replies concise.
 
 @dataclasses.dataclass
 class PMConfig:
+    user_id: str = ""             # owner identity (UUID from users table)
     provider: str = "openai"
     model: str = "gpt-oss:120b"
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     data_dir: str = "./data"
     vault_dir: Optional[str] = None
-    session_id: str = "default"
+    session_id: str = "default"   # chat thread identifier
     on_progress: Optional[Callable[[str], None]] = None
 
 
 # ── Path helpers ───────────────────────────────────────────────────────────────
 
-def _pm_db_path(session_id: str, data_dir: str) -> str:
-    return os.path.join(_pm_dir(session_id, data_dir), "pm.db")
+def _pm_db_path(user_id: str, data_dir: str) -> str:
+    return os.path.join(_pm_dir(user_id, data_dir), "pm.db")
 
 
-def _checkpoints_db_path(data_dir: str) -> str:
-    path = os.path.join(data_dir, "personal-manager", "checkpoints.db")
+def _checkpoints_db_path(user_id: str, data_dir: str) -> str:
+    path = os.path.join(_pm_dir(user_id, data_dir), "checkpoints.db")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return path
 
 
-# ── Sync checkpointer singleton (SqliteSaver) ──────────────────────────────────
+# ── Per-user checkpointer caches ──────────────────────────────────────────────
 
-_sync_checkpointer: Optional[SqliteSaver] = None
+_sync_checkpointers: dict[str, SqliteSaver] = {}
 _sync_checkpointer_lock = threading.Lock()
 
 
-def _get_checkpointer(data_dir: str) -> SqliteSaver:
-    global _sync_checkpointer
+def _get_checkpointer(user_id: str, data_dir: str) -> SqliteSaver:
     with _sync_checkpointer_lock:
-        if _sync_checkpointer is None:
-            conn = sqlite3.connect(_checkpoints_db_path(data_dir), check_same_thread=False)
-            _sync_checkpointer = SqliteSaver(conn)
-        return _sync_checkpointer
+        if user_id not in _sync_checkpointers:
+            conn = sqlite3.connect(_checkpoints_db_path(user_id, data_dir), check_same_thread=False)
+            _sync_checkpointers[user_id] = SqliteSaver(conn)
+        return _sync_checkpointers[user_id]
 
 
-# ── Async checkpointer singleton (AsyncSqliteSaver) ───────────────────────────
+_async_checkpointers: dict[str, Any] = {}
+_async_checkpointer_lock = threading.Lock()
 
-_async_checkpointer: Optional[Any] = None  # AsyncSqliteSaver — imported lazily
+
+async def _get_async_checkpointer(user_id: str, data_dir: str) -> Any:
+    """Lazy per-user AsyncSqliteSaver. WAL mode allows sync and async to coexist."""
+    if user_id in _async_checkpointers:
+        return _async_checkpointers[user_id]
+    import aiosqlite
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    conn = await aiosqlite.connect(_checkpoints_db_path(user_id, data_dir))
+    await conn.execute("PRAGMA journal_mode=WAL")
+    checkpointer = AsyncSqliteSaver(conn)
+    await checkpointer.setup()
+    with _async_checkpointer_lock:
+        _async_checkpointers[user_id] = checkpointer
+    return checkpointer
 
 
-async def _get_async_checkpointer(data_dir: str) -> Any:
-    """
-    Lazy singleton for AsyncSqliteSaver.
-    Shares the same checkpoints.db as the sync checkpointer; WAL mode allows both.
-    """
-    global _async_checkpointer
-    if _async_checkpointer is None:
-        import aiosqlite
-        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-
-        conn = await aiosqlite.connect(_checkpoints_db_path(data_dir))
-        await conn.execute("PRAGMA journal_mode=WAL")
-        checkpointer = AsyncSqliteSaver(conn)
-        await checkpointer.setup()
-        _async_checkpointer = checkpointer
-    return _async_checkpointer
+def get_thread_messages(user_id: str, thread_id: str, data_dir: str) -> list[dict]:
+    """Return the human/assistant message history for a thread from the conversation log."""
+    return list_conversation_turns(user_id, thread_id, data_dir)
 
 
 # ── Context block (shared by run_pm and astream_pm) ───────────────────────────
@@ -202,25 +205,29 @@ def _build_context_block(config: PMConfig) -> str:
         f"Time: {now.strftime('%H:%M %Z')}  "
         f"ISO: {now.isoformat()}"
     )
+    uid = config.user_id or config.session_id
     google_primary = False
     try:
-        google_primary = CalendarService(config.session_id, config.data_dir).has_google_account()
+        google_primary = CalendarService(uid, config.data_dir).has_google_account()
     except Exception:
         google_primary = False
     schedule_ctx = (
-        format_google_calendar_for_context(config.session_id, config.data_dir)
+        format_google_calendar_for_context(uid, config.data_dir)
         if google_primary
-        else format_schedule_for_context(config.session_id, config.data_dir)
+        else format_schedule_for_context(uid, config.data_dir)
     )
-    google_schedule_ctx = "" if google_primary else format_google_calendar_for_context(config.session_id, config.data_dir)
-    todos_ctx = format_todos_for_context(config.session_id, config.data_dir)
-    private_meta = load_private(config.session_id, config.data_dir)
-    habits_ctx = format_habits_for_context(_pm_db_path(config.session_id, config.data_dir))
+    google_schedule_ctx = "" if google_primary else format_google_calendar_for_context(uid, config.data_dir)
+    todos_ctx = format_todos_for_context(uid, config.data_dir)
+    private_meta = load_private(uid, config.data_dir)
+    habits_ctx = format_habits_for_context(_pm_db_path(uid, config.data_dir))
     profile_ctx = ""
-    if config.vault_dir:
-        raw = read_profile(config.vault_dir).strip()
-        if raw:
-            profile_ctx = f"## User profile (long-term memory)\n{raw}"
+    # Per-user profile stored at data/users/<user_id>/PROFILE.md
+    user_data_dir = _pm_dir(uid, config.data_dir)
+    raw_profile = read_profile(user_data_dir).strip()
+    if not raw_profile and config.vault_dir:
+        raw_profile = read_profile(config.vault_dir).strip()
+    if raw_profile:
+        profile_ctx = f"## User profile (long-term memory)\n{raw_profile}"
     return (
         f"{date_ctx}\n\n"
         f"{profile_ctx}\n\n"
@@ -265,6 +272,8 @@ def run_pm(message: str, config: PMConfig) -> str:
     Used by: master agent personal_manager tool (via SYNC_WORKERS executor), HTTP endpoint.
     """
     _pm_progress(config, "Personal manager · started")
+    uid = config.user_id or normalize_pm_session_id(config.session_id)
+    thread_id = normalize_pm_session_id(config.session_id)
 
     sub_tasks = _split_multi_tasks(message)
     if len(sub_tasks) > 1:
@@ -274,18 +283,23 @@ def run_pm(message: str, config: PMConfig) -> str:
             if r is None:
                 r = f"Skipped: '{task}' (not a recognised action)"
             replies.append(r)
-        return "\n".join(replies)
+        combined = "\n".join(replies)
+        append_conversation_turn(uid, thread_id, config.data_dir, message, combined)
+        return combined
 
     typed_reply = run_typed_pm_turn(message, config)
     if typed_reply is not None:
+        append_conversation_turn(uid, thread_id, config.data_dir, message, typed_reply)
         return typed_reply
 
-    return _run_pm_react(message, config)
+    reply = _run_pm_react(message, config)
+    append_conversation_turn(uid, thread_id, config.data_dir, message, reply)
+    return reply
 
 
 def _run_pm_react(message: str, config: PMConfig) -> str:
     """Tool-free fallback for low-risk coaching and general conversation."""
-    sid = normalize_pm_session_id(config.session_id)
+    sid = config.user_id or normalize_pm_session_id(config.session_id)
     d = TurnDecision(session_id=sid, message_preview=message)
     d.route("fallback", "typed path returned None, falling back to react LLM")
     d.wm_after = "none"
@@ -300,7 +314,8 @@ def _run_pm_react(message: str, config: PMConfig) -> str:
         return reply
 
     try:
-        checkpointer = _get_checkpointer(config.data_dir)
+        uid = config.user_id or config.session_id
+        checkpointer = _get_checkpointer(uid, config.data_dir)
         tools: list[Any] = []
         llm = build_llm(config.provider, config.model, config.api_key, config.base_url)
 
@@ -312,7 +327,7 @@ def _run_pm_react(message: str, config: PMConfig) -> str:
             configurable={"thread_id": config.session_id},
             run_name=f"personal_manager/{config.session_id}",
             tags=["personal_manager"],
-            metadata={"agent": "personal_manager", "session_id": config.session_id},
+            metadata={"agent": "personal_manager", "session_id": config.session_id, "user_id": uid},
             callbacks=[UsageTracker(config.session_id, config.data_dir)],
         )
 
@@ -443,14 +458,16 @@ async def astream_pm(
     workflow above.
     """
     _pm_progress(config, "Personal manager · started")
+    uid = config.user_id or config.session_id
+    thread_id = normalize_pm_session_id(config.session_id)
     typed_reply = run_typed_pm_turn(message, config)
     if typed_reply is not None:
+        append_conversation_turn(uid, thread_id, config.data_dir, message, typed_reply)
         yield ("progress", "Personal manager · controlled workflow")
         yield ("token", typed_reply)
         yield ("done", typed_reply)
         return
-
-    checkpointer = await _get_async_checkpointer(config.data_dir)
+    checkpointer = await _get_async_checkpointer(uid, config.data_dir)
     tools: list[Any] = []
     llm = build_llm(config.provider, config.model, config.api_key, config.base_url)
 
@@ -462,7 +479,7 @@ async def astream_pm(
         configurable={"thread_id": config.session_id},
         run_name=f"personal_manager/{config.session_id}",
         tags=["personal_manager"],
-        metadata={"agent": "personal_manager", "session_id": config.session_id},
+        metadata={"agent": "personal_manager", "session_id": config.session_id, "user_id": uid},
         callbacks=[UsageTracker(config.session_id, config.data_dir)],
     )
 
@@ -485,7 +502,9 @@ async def astream_pm(
     if trace_msgs:
         log_react_trace("personal_manager", trace_msgs, session_id=config.session_id)
 
-    yield ("done", "".join(reply_parts))
+    full_reply = "".join(reply_parts)
+    append_conversation_turn(uid, thread_id, config.data_dir, message, full_reply)
+    yield ("done", full_reply)
 
 
 # ── Progress helpers ───────────────────────────────────────────────────────────

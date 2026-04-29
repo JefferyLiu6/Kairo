@@ -17,6 +17,7 @@ _meta_lock = threading.Lock()
 
 
 def profile_path(vault_dir: str) -> str:
+    """Profile path — vault_dir may be a vault dir or a per-user data dir."""
     return os.path.join(vault_dir, _PROFILE_FILENAME)
 
 
