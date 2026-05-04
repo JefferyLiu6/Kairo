@@ -9,6 +9,7 @@ import { DecisionTracePanel } from "./components/DecisionTracePanel";
 import { KairoPanel } from "./components/KairoPanel";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { LandingPage } from "./pages/LandingPage";
 import { streamChat, fetchSession } from "./api";
 import { useSpeech } from "./hooks/useSpeech";
 import type { Message, Mode } from "./types";
@@ -363,10 +364,11 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="/signup" element={<Navigate to="/" replace />} />
         <Route
-          path="/*"
+          path="/app/*"
           element={
             <ProtectedRoute>
               <MainApp />

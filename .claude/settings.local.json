@@ -6,7 +6,11 @@
       "Bash(npx tsc *)",
       "Bash(python3 *)",
       "Bash(uv run *)",
-      "Bash(pnpm exec *)"
+      "Bash(pnpm exec *)",
+      "Bash(pnpm build *)",
+      "Bash(pnpm dev *)",
+      "Bash(curl -s http://localhost:5174/)",
+      "Bash(kill %1)"
     ]
   }
 }
