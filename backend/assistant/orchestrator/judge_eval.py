@@ -22,17 +22,19 @@ def percentile(values: list[float], fraction: float) -> float | None:
 
 def summarize(rows: list[dict]) -> dict:
     scored = [r for r in rows if r["status"] == "ok" and r["label"] != "abstain"]
-    negatives = [r for r in rows if r["expected"] == "fail"]
-    predicted_pass = [r for r in scored if r["label"] == "pass"]
+    labeled = [r for r in rows if r["expected"] is not None]
+    labeled_scored = [r for r in scored if r["expected"] is not None]
+    negatives = [r for r in labeled if r["expected"] == "fail"]
+    predicted_pass = [r for r in labeled_scored if r["label"] == "pass"]
     matrix: dict[str, dict[str, int]] = {}
     for row in rows:
-        bucket = matrix.setdefault(row["expected"], {"pass": 0, "fail": 0, "abstain": 0})
+        bucket = matrix.setdefault(row["expected"] or "unreviewed", {"pass": 0, "fail": 0, "abstain": 0})
         bucket[row["label"]] += 1
     return {
-        "cases": len(rows), "scored": len(scored),
+        "cases": len(rows), "scored": len(scored), "labeled_cases": len(labeled),
         "coverage": len(scored) / len(rows) if rows else None,
-        "agreement_all_cases": sum(r["status"] == "ok" and r["label"] == r["expected"] for r in rows) / len(rows) if rows else None,
-        "agreement_scored": sum(r["label"] == r["expected"] for r in scored) / len(scored) if scored else None,
+        "agreement_all_cases": sum(r["status"] == "ok" and r["label"] == r["expected"] for r in rows) / len(rows) if rows and len(labeled) == len(rows) else None,
+        "agreement_scored": sum(r["label"] == r["expected"] for r in labeled_scored) / len(labeled_scored) if labeled_scored else None,
         "false_pass_rate": sum(r["label"] == "pass" for r in negatives) / len(negatives) if negatives else None,
         "pass_precision": sum(r["expected"] == "pass" for r in predicted_pass) / len(predicted_pass) if predicted_pass else None,
         "invalid": sum(r["status"] == "invalid" for r in rows),
@@ -44,7 +46,29 @@ def summarize(rows: list[dict]) -> dict:
     }
 
 
+def validate_cases(cases: list[dict], *, replay: bool) -> None:
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("Dataset must be a nonempty list")
+    seen = set()
+    for case in cases:
+        if not isinstance(case, dict):
+            raise ValueError("Each case must be an object")
+        for field in ("id", "category", "request", "response", "evidence"):
+            if not isinstance(case.get(field), str) or not case[field].strip():
+                raise ValueError(f"Case requires nonempty string {field}")
+        if case["id"] in seen:
+            raise ValueError("Dataset must have unique case IDs")
+        seen.add(case["id"])
+        if "expected" not in case or case["expected"] not in ("pass", "fail", "abstain", None):
+            raise ValueError("Expected label must be pass, fail, abstain, or null (unreviewed)")
+        if replay and ("replay_verdict" not in case or case["expected"] is None):
+            raise ValueError("Replay requires authored verdicts and expected labels; captured cases need live grading")
+
+
 def run(cases: list[dict], invoke=None, repeats: int = 1) -> dict:
+    validate_cases(cases, replay=invoke is None)
+    if type(repeats) is not int or repeats < 1:
+        raise ValueError("Repeats must be a positive integer")
     rows = []
     for case in cases:
         for repeat in range(repeats):
@@ -79,8 +103,10 @@ def main() -> int:
     args = parser.parse_args()
     cases_bytes = args.cases.read_bytes()
     cases = json.loads(cases_bytes)
-    if not cases or len({c["id"] for c in cases}) != len(cases):
-        parser.error("Dataset must be nonempty with unique IDs")
+    try:
+        validate_cases(cases, replay=not args.live)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.repeats < 1 or args.max_calls < 1 or len(cases) * args.repeats > args.max_calls:
         parser.error("Requested evaluations exceed --max-calls, or limits are nonpositive")
     invoke = None
@@ -111,7 +137,7 @@ def main() -> int:
         "dataset_sha256": hashlib.sha256(cases_bytes).hexdigest(),
         "git_revision": revision, "working_tree_dirty": dirty,
         "provider": args.provider if args.live else None, "model": args.model if args.live else None,
-        "label_source": "author-proposed synthetic labels; not independently human-calibrated",
+        "label_source": "dataset-supplied labels; null means unreviewed; independent review not verified",
         "repeats": args.repeats,
         "scope": "Response-quality grading of fixed fixtures, not end-to-end agent task success",
         "token_usage": usage if args.live else None,
