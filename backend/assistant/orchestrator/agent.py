@@ -67,6 +67,7 @@ def _llm(config: OrchestratorConfig, *, fast: bool = False):
     return build_llm(config.provider, config.model, config.api_key, config.base_url)
 
 
+@observed("llm_invoke")
 def _invoke(llm: Any, system: str, user: str) -> str:
     response = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
     usage = getattr(response, "usage_metadata", None) or {}

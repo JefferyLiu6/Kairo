@@ -94,6 +94,14 @@ def extract_pm_entities(message: str, intent: PMIntent) -> dict[str, Any]:
     if intent in (PMIntent.COMPLETE_TODO, PMIntent.REMOVE_TODO):
         entities["id"] = _extract_id(text)
         entities["query"] = _clean_lookup_query(text)
+        if intent == PMIntent.COMPLETE_TODO:
+            quoted = re.fullmatch(
+                r"mark\s+(?:(?:the|my)\s+)?(?P<quote>['\"])(?P<title>.+)(?P=quote)"
+                r"\s*(?:(?:todo|task)\s+)?(?:as\s+)?(?:done|complete|completed)[.!]?",
+                text, re.IGNORECASE,
+            )
+            if quoted:
+                entities["query"] = quoted.group("title")
         return entities
 
     if intent == PMIntent.CREATE_SCHEDULE_EVENT:

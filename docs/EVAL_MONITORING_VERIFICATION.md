@@ -26,3 +26,18 @@ telemetry isolation/privacy, judge failure handling, and write-retry safeguards.
 No live judge calls, Azure deployment, cloud query execution, or frontend build were performed.
 No frontend files changed. Live reports and Azure validation remain explicit next steps in
 `EVAL_MONITORING.md`. No performance improvement or dollar-cost claim is made.
+
+## Second increment verification
+
+Base revision: `0521e31`. Local Python 3.13.5; same locked dependencies.
+
+- 328 backend tests passed (21 additional cases in this increment).
+- 252/252 existing workflow eval cases and 1,518/1,518 checks passed.
+- 15/15 authored replay labels passed, including one abstention.
+- Capture CLI produced three real deterministic PM response/state pairs. A captured completion
+  failure was reproduced before the fix; after the fix persisted done state changes to true.
+- Comparison CLI self-comparison smoke produced zero metric deltas. This checks plumbing only.
+- Backend lint, compilation, and whitespace checks passed.
+- Local monitoring summaries are covered by tests for missing usage, matched spans, orphan events,
+  duplicate records, and malformed durations. Cloud query validation remains pending.
+- No live judge, external model, Azure resource, or remote CI execution was used in this increment.
