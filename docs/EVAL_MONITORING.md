@@ -169,3 +169,40 @@ quoted completion form and preserves the exact quoted title. Regression tests in
 state and cover titles containing `as done` or an apostrophe. Other completion phrasings still use
 the existing parser. This is a measured deterministic regression fix, not a claim of live-judge
 improvement. See `docs/CAPTURE_FAILURE_CASE.md`.
+
+## Iteration 3: review reference labels without seeing the judge's answer
+
+From `backend`, export a fresh review packet:
+
+```sh
+uv run python -m assistant.orchestrator.label_review export --cases tests/fixtures/judge_cases.json --output ../artifacts/review-v1.json
+```
+
+The packet contains requests, responses, and evidence, plus blank `label`, `rationale`, and
+`reviewer` fields. Labels are `pass`, `fail`, or `abstain` for insufficient evidence. Complete each
+entry yourself or have another reviewer do so. Prior expected labels, replay verdicts, categories,
+descriptive source IDs, and provenance are omitted; neutral case IDs reduce annotation hints.
+The actual text may still make the intended test obvious. This is blinding against stored answers,
+not a guarantee of unbiased independent evaluation.
+
+Import the completed packet into a new dataset:
+
+```sh
+uv run python -m assistant.orchestrator.label_review apply --cases tests/fixtures/judge_cases.json --packet ../artifacts/review-v1.json --output ../artifacts/reviewed-cases-v1.json
+```
+
+The importer checks the example-content hash, case membership, unchanged visible text, labels,
+reviewer identifier, and rationale. Incomplete packets are rejected. It removes stale replay
+verdicts, records the review provenance with `identity_verified: false`, and never modifies the
+source dataset. Output paths must be new, preserving review history. A recorded reviewer name is
+not proof of a human or an independent annotation. No labels are filled automatically.
+
+Use the resulting dataset with explicit live evaluation. Review the packet before seeing judge
+results, reuse exactly the same reviewed dataset for paired runs, and retain disputed cases for
+adjudication. No inter-reviewer reliability metric or adjudication workflow is implemented yet.
+The Desktop review packet supplied with this increment is blank; human review remains pending.
+
+Provider exceptions are now classified before parsing begins. A provider-side ValueError or
+TypeError counts as `provider_error`; a returned malformed response counts as `invalid`. This
+distinction helps identify availability/configuration failures versus judge output-contract failures.
+Neither is a scored answer, and provider exception text stays out of the result.

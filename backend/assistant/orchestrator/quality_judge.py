@@ -55,9 +55,10 @@ def evaluate_response(invoke, request: str, response: str, evidence: str) -> dic
     """One judge attempt; invalid output and provider errors are explicit missing scores."""
     try:
         raw = invoke(RUBRIC, judge_payload(request, response, evidence))
+    except Exception:
+        return {"status": "provider_error", "label": "abstain", "scores": None}
+    try:
         verdict = parse_quality_verdict(raw, response, evidence)
         return {"status": "ok", "label": verdict.label, "scores": verdict.model_dump()}
     except (ValidationError, ValueError, TypeError):
         return {"status": "invalid", "label": "abstain", "scores": None}
-    except Exception:
-        return {"status": "provider_error", "label": "abstain", "scores": None}

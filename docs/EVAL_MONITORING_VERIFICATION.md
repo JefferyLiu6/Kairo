@@ -41,3 +41,14 @@ Base revision: `0521e31`. Local Python 3.13.5; same locked dependencies.
 - Local monitoring summaries are covered by tests for missing usage, matched spans, orphan events,
   duplicate records, and malformed durations. Cloud query validation remains pending.
 - No live judge, external model, Azure resource, or remote CI execution was used in this increment.
+
+## Third increment verification
+
+Base revision: `8b8943d`. Same local environment and dependencies.
+
+- 342 backend tests passed; 14 new cases cover review integrity and provider error classification.
+- After removing descriptive source IDs/categories from packets, all 38 affected review/judge tests passed again.
+- Existing workflow evals: 252/252 cases and 1,518/1,518 checks passed.
+- Judge replay: 15/15 authored labels, including one abstention.
+- Backend lint passed. Review export CLI produced a blank 15-case packet.
+- No human annotations were filled, no live model called, and no Azure resources provisioned.
