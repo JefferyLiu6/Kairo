@@ -6,6 +6,10 @@ from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(usecwd=False))
 
+from assistant.orchestrator.telemetry import configure_telemetry
+
+configure_telemetry()
+
 from assistant.http.pm_app import app  # noqa: F401
 
 

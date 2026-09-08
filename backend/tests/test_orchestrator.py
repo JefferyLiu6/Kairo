@@ -251,7 +251,7 @@ def test_write_failure_never_claims_success_and_invalidates_cache(tmp_path, monk
     reply = _done(events)
 
     assert "couldn't confirm that was saved" in reply
-    assert "check your calendar directly" in reply
+    assert "Check your calendar directly" in reply
     assert "deleted" not in reply.lower()
     assert "write failed" not in reply.lower()
     assert wm.get_cached_pm("schedule") is None
@@ -260,3 +260,48 @@ def test_write_failure_never_claims_success_and_invalidates_cache(tmp_path, monk
 
 async def _async_value(value: str) -> str:
     return value
+
+
+def test_judge_cannot_trigger_a_second_write(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(orch, "_route", lambda *_: True)
+    monkeypatch.setattr(orch, "_translate", lambda *_: StructuredAction(
+        "add_event", None, [], .99, "add prep session", True))
+
+    async def write(*_):
+        calls.append(1)
+        return "Uncertain write result"
+
+    monkeypatch.setattr(orch, "_call_pm", write)
+    monkeypatch.setattr(orch, "_judge", lambda *_: HarnessVerdict(
+        "retry", .99, "try again", "add prep session again", "write_failed"))
+    reply = _done(_run_events("Add prep session", _config(tmp_path)))
+    assert len(calls) == 1
+    assert "before trying again" in reply
+
+
+def test_unavailable_judge_falls_back_without_leaking_exception(tmp_path, monkeypatch):
+    def fail(*_):
+        raise RuntimeError("private provider details")
+    monkeypatch.setattr(orch, "build_llm", fail)
+    action = StructuredAction("show_schedule", None, [], .9, "show schedule", False)
+    result = orch._judge("Show schedule", action, "Interview at 2pm", "", _config(tmp_path))
+    assert result.verdict == "fallback"
+    assert "private" not in result.reason
+
+
+def test_known_write_cannot_retry_even_if_translator_mislabels_it(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(orch, "_route", lambda *_: True)
+    monkeypatch.setattr(orch, "_translate", lambda *_: StructuredAction(
+        "delete_event", None, [], .99, "delete interview", False))
+
+    async def write(*_):
+        calls.append(1)
+        return "Unknown outcome"
+
+    monkeypatch.setattr(orch, "_call_pm", write)
+    monkeypatch.setattr(orch, "_judge", lambda *_: HarnessVerdict(
+        "retry", .99, "repeat", "delete interview", "write_failed"))
+    _run_events("Delete interview", _config(tmp_path))
+    assert len(calls) == 1

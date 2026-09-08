@@ -72,3 +72,7 @@ verify: lint test build-web
 
 clean:
 	rm -rf $(BACKEND_DIR)/data $(WEB_DIR)/node_modules $(WEB_DIR)/dist
+
+.PHONY: eval-judge
+eval-judge:
+	cd $(BACKEND_DIR) && uv run python -m assistant.orchestrator.judge_eval --output ../artifacts/judge-replay.json

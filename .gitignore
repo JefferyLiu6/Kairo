@@ -27,3 +27,5 @@ agent-python/.venv/
 .DS_Store
 web/tsconfig.tsbuildinfo
 web/package-lock.json
+
+artifacts/
