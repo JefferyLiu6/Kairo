@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -20,21 +21,7 @@ class HarnessVerdict:
     failure_type: str     # "empty" | "irrelevant" | "read_failed" | "write_failed" | "null"
 
 
-_EMPTY_PATTERNS = (
-    r"todo list:\s*\(empty\)",
-    r"nothing on the schedule",
-    r"no schedule data",
-    r"schedule:\s*\(empty\)",
-    r"habits:\s*\(none\)",
-    r"^$",
-)
-
 _ERROR_PREFIX = "error:"
-
-
-def _is_empty_output(text: str) -> bool:
-    lower = text.strip().lower()
-    return any(re.search(p, lower) for p in _EMPTY_PATTERNS)
 
 
 def _is_error_output(text: str) -> bool:
@@ -61,14 +48,14 @@ def fast_precheck(action: StructuredAction, pm_output: str) -> HarnessVerdict | 
     if _is_error_output(text):
         failure = "write_failed" if action.is_write else "read_failed"
         return HarnessVerdict(
-            verdict="retry",
+            verdict="fallback" if action.is_write else "retry",
             confidence=0.95,
             reason=f"PM agent returned an error: {text[:120]}",
             suggested_fix=action.pm_prompt,
             failure_type=failure,
         )
 
-    if _is_empty_output(text):
+    if not text:
         return HarnessVerdict(
             verdict="retry",
             confidence=0.90,
@@ -94,6 +81,22 @@ def parse_harness_verdict(raw: str) -> HarnessVerdict:
         match = re.search(r"\{.*\}", raw.strip(), re.DOTALL)
         if match:
             data = json.loads(match.group())
+            if not isinstance(data, dict):
+                raise ValueError("Expected object")
+            required = {"verdict", "confidence", "reason", "suggested_fix", "failure_type"}
+            if set(data) != required:
+                raise ValueError("Unexpected verdict fields")
+            if data["verdict"] not in {"pass", "retry", "fallback"}:
+                raise ValueError("Unknown verdict")
+            confidence = data["confidence"]
+            if type(confidence) not in (int, float) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
+                raise ValueError("Invalid confidence")
+            if any(not isinstance(data[k], str) for k in required - {"confidence"}):
+                raise ValueError("Expected string fields")
+            if data["failure_type"] not in {"empty", "irrelevant", "read_failed", "write_failed", "null"}:
+                raise ValueError("Unknown failure type")
+            if data["verdict"] == "retry" and not data["suggested_fix"].strip():
+                raise ValueError("Retry requires a prompt")
             return HarnessVerdict(
                 verdict=str(data.get("verdict", "fallback")),
                 confidence=float(data.get("confidence", 0.5)),
@@ -101,7 +104,7 @@ def parse_harness_verdict(raw: str) -> HarnessVerdict:
                 suggested_fix=str(data.get("suggested_fix", "")),
                 failure_type=str(data.get("failure_type", "null")),
             )
-    except (json.JSONDecodeError, AttributeError, ValueError):
+    except (json.JSONDecodeError, AttributeError, ValueError, TypeError):
         pass
     return HarnessVerdict(
         verdict="fallback",
@@ -131,7 +134,7 @@ def build_fallback_reply(
         target = _intent_to_noun(action.intent)
         return (
             f"I couldn't confirm that was saved. "
-            f"Please try again or check your {target} directly."
+            f"Check your {target} directly before trying again."
         )
 
     if cached_snapshot:

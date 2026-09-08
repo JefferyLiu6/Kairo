@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+import os
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Optional
 
@@ -10,6 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from assistant.shared.llm_env import build_llm
 from assistant.personal_manager.agent import PMConfig, astream_pm
 
+from .telemetry import emit, observed, span
 from .memory import build_memory_context, get_working_memory, load_profile
 from .prompts import (
     HARNESS_SYSTEM,
@@ -67,11 +69,14 @@ def _llm(config: OrchestratorConfig, *, fast: bool = False):
 
 def _invoke(llm: Any, system: str, user: str) -> str:
     response = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
+    usage = getattr(response, "usage_metadata", None) or {}
+    emit("llm_usage", input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"))
     return str(response.content).strip()
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
 
+@observed("route")
 def _route(message: str, memory_ctx: str, config: OrchestratorConfig) -> bool:
     """Return True if PM agent is needed. Uses heuristic first, LLM if ambiguous."""
     if is_likely_pm_needed(message):
@@ -85,6 +90,7 @@ def _route(message: str, memory_ctx: str, config: OrchestratorConfig) -> bool:
 
 # ── Translator ────────────────────────────────────────────────────────────────
 
+@observed("translate")
 def _translate(message: str, memory_ctx: str, config: OrchestratorConfig) -> StructuredAction:
     llm = _llm(config, fast=True)
     user_prompt = f"User message: {message}\n\nContext:\n{memory_ctx}"
@@ -94,6 +100,7 @@ def _translate(message: str, memory_ctx: str, config: OrchestratorConfig) -> Str
 
 # ── PM agent call (collects streamed tokens) ──────────────────────────────────
 
+@observed("tool")
 async def _call_pm(prompt: str, config: OrchestratorConfig) -> str:
     pm_cfg = config.pm_config()
     pm_cfg.session_id = config.session_id
@@ -108,6 +115,7 @@ async def _call_pm(prompt: str, config: OrchestratorConfig) -> str:
 
 # ── Harness ───────────────────────────────────────────────────────────────────
 
+@observed("judge")
 def _judge(
     message: str,
     action: StructuredAction,
@@ -118,17 +126,29 @@ def _judge(
     # Fast deterministic pre-check first
     quick = fast_precheck(action, pm_output)
     if quick is not None:
+        emit("judge_result", source="deterministic", verdict=quick.verdict)
         return quick
 
-    llm = _llm(config, fast=True)
     user_prompt = (
         f"User message: {message}\n"
         f"Intent: {action.intent}\n"
         f"PM output:\n{pm_output}\n\n"
         f"User profile:\n{profile or '(none)'}"
     )
-    raw = _invoke(llm, HARNESS_SYSTEM, user_prompt)
-    return parse_harness_verdict(raw)
+    try:
+        llm = build_llm(
+            os.getenv("JUDGE_PROVIDER", config.pm_provider),
+            os.getenv("JUDGE_MODEL", config.pm_model),
+            os.getenv("JUDGE_API_KEY") or config.pm_api_key,
+            os.getenv("JUDGE_BASE_URL") or config.pm_base_url,
+        )
+        raw = _invoke(llm, HARNESS_SYSTEM, user_prompt)
+        result = parse_harness_verdict(raw)
+    except Exception:
+        emit("judge_result", source="provider_error", verdict="fallback")
+        return HarnessVerdict("fallback", 0.0, "Judge unavailable", "", "null")
+    emit("judge_result", source="invalid" if result.reason == "Could not parse harness verdict" else "llm", verdict=result.verdict)
+    return result
 
 
 # ── Humanizer ─────────────────────────────────────────────────────────────────
@@ -182,6 +202,7 @@ def _strip_json_blocks(text: str) -> str:
     return ''.join(result).strip()
 
 
+@observed("humanize")
 def _humanize(
     message: str,
     pm_output: str,
@@ -204,6 +225,7 @@ def _humanize(
 
 # ── Direct reply (no PM) ──────────────────────────────────────────────────────
 
+@observed("direct_reply")
 def _direct_reply(message: str, memory_ctx: str, config: OrchestratorConfig) -> str:
     llm = _llm(config)
     system = f"{ORCHESTRATOR_SYSTEM}\n\n## Current context\n{memory_ctx}"
@@ -223,6 +245,7 @@ def _log_turn(
     started_at: float,
     retry_count: int = 0,
 ) -> None:
+    emit("turn_result", outcome="fallback" if verdict and verdict.verdict != "pass" else "completed", retry_count=retry_count)
     try:
         from assistant.personal_manager.persistence.decision_log import log_orchestrator_turn
         log_orchestrator_turn(
@@ -247,7 +270,7 @@ def _log_turn(
 
 # ── Main streaming entry point ────────────────────────────────────────────────
 
-async def astream_orchestrator(
+async def _astream_orchestrator(
     message: str,
     config: OrchestratorConfig,
 ) -> AsyncIterator[tuple[str, str]]:
@@ -319,6 +342,11 @@ async def astream_orchestrator(
             pm_output = f"Error: {exc}"
 
         verdict = _judge(message, current_action, pm_output, profile, config)
+        if verdict.verdict == "retry" and (current_action.is_write or current_action.intent not in {"show_schedule", "show_todos", "show_habits"}):
+            verdict = HarnessVerdict(
+                "fallback", 0.0, "Only allowlisted reads can be retried; automatic retry blocked", "", "write_failed"
+            )
+        emit("tool_verdict", verdict=verdict.verdict, retry_count=retry_count)
         final_verdict = verdict
 
         if verdict.verdict == "pass":
@@ -372,6 +400,12 @@ async def astream_orchestrator(
     )
     yield ("token", reply)
     yield ("done", reply)
+
+
+async def astream_orchestrator(message: str, config: OrchestratorConfig):
+    with span("turn"):
+        async for event in _astream_orchestrator(message, config):
+            yield event
 
 
 def run_orchestrator(message: str, config: OrchestratorConfig) -> str:

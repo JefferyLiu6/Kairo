@@ -420,3 +420,10 @@ This is still a portfolio demo, not a fully hardened production multi-tenant ser
 
 Runtime data is stored under `data/` or `backend/data/` depending on how the app
 is launched. These directories are gitignored and should not be published.
+
+## Judge evaluation and operational monitoring
+
+The response-quality benchmark, runtime judge safeguards, and content-free telemetry are
+documented in [docs/EVAL_MONITORING.md](docs/EVAL_MONITORING.md). Run `make eval-judge`
+for the credential-free replay contract suite. Replay agreement is not live-model accuracy.
+Azure Container Apps monitoring queries are in [docs/monitoring.kql](docs/monitoring.kql).

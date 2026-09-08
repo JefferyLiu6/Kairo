@@ -1,0 +1,44 @@
+// Run each query separately. Replace kairo-api with your Container App name.
+// Classic Log Analytics destination schema; verify columns in your workspace.
+
+// 1. Stage latency and exception rate. Includes judge stage for cost/latency attribution.
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(24h) and ContainerAppName_s == "kairo-api"
+| extend e = parse_json(Log_s)
+| where e.service == "kairo" and e.event == "span"
+| summarize samples=count(), p50_ms=percentile(todouble(e.duration_ms), 50),
+    p95_ms=percentile(todouble(e.duration_ms), 95),
+    errors=countif(tostring(e.outcome) == "error")
+    by stage=tostring(e.stage), bin(TimeGenerated, 15m)
+
+// 2. Business fallback rate (separate from exceptions).
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(24h) and ContainerAppName_s == "kairo-api"
+| extend e = parse_json(Log_s)
+| where e.service == "kairo" and e.event == "turn_result"
+| summarize turns=count(), fallbacks=countif(tostring(e.outcome) == "fallback")
+    by bin(TimeGenerated, 15m)
+| extend fallback_rate=todouble(fallbacks) / turns
+
+// 3. Judge failures and deterministic/model split.
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(24h) and ContainerAppName_s == "kairo-api"
+| extend e = parse_json(Log_s)
+| where e.service == "kairo" and e.event == "judge_result"
+| summarize count() by source=tostring(e.source), verdict=tostring(e.verdict)
+
+// 4. Token totals and coverage. Null usage is missing, never a zero-cost claim.
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(24h) and ContainerAppName_s == "kairo-api"
+| extend e = parse_json(Log_s)
+| where e.service == "kairo" and e.event == "llm_usage"
+| summarize calls=count(), with_usage=countif(isnotnull(e.input_tokens)),
+    input_tokens=sum(tolong(e.input_tokens)), output_tokens=sum(tolong(e.output_tokens))
+
+// 5. One turn's stage timeline.
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(24h) and ContainerAppName_s == "kairo-api"
+| extend e = parse_json(Log_s)
+| where e.service == "kairo" and tostring(e.trace_id) == "REPLACE_TRACE_ID"
+| project TimeGenerated, e
+| order by TimeGenerated asc
