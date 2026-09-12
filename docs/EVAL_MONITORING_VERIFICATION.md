@@ -52,3 +52,15 @@ Base revision: `8b8943d`. Same local environment and dependencies.
 - Judge replay: 15/15 authored labels, including one abstention.
 - Backend lint passed. Review export CLI produced a blank 15-case packet.
 - No human annotations were filled, no live model called, and no Azure resources provisioned.
+
+## Fourth increment verification
+
+Base revision: `787b646`. Same local environment and locked dependencies.
+
+- 349 backend tests passed, including seven final-capture tests.
+- Existing deterministic workflow evaluation: 252/252 cases and 1,518/1,518 checks passed.
+- Actual orchestrator/PM integration with stubbed model responses passes three state checks.
+- Covered false success wording, writes before errors, memory isolation, corrupt snapshots,
+  live opt-in, failure artifacts, and monitoring-summary output.
+- Backend lint and whitespace checks passed. No frontend files changed.
+- No live-model or Azure measurements: relevant credentials and local CLIs are not configured.

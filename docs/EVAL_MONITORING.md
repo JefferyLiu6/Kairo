@@ -206,3 +206,49 @@ Provider exceptions are now classified before parsing begins. A provider-side Va
 TypeError counts as `provider_error`; a returned malformed response counts as `invalid`. This
 distinction helps identify availability/configuration failures versus judge output-contract failures.
 Neither is a scored answer, and provider exception text stays out of the result.
+
+## Iteration 4: capture the final orchestrator response
+
+`final_eval` runs the create/list/complete scenario through the real orchestrator rather than
+capturing only PM output. Every run creates a temporary synthetic user, thread, task store, and
+vault; it removes only its own in-process conversation memory afterward. It checks persisted task
+state separately from final reply wording. Corrupt snapshot data raises an error instead of being
+silently treated as an empty task list. A failed response after a completed write records both facts.
+
+From `backend`, once an endpoint/model is configured:
+
+```sh
+uv run python -m assistant.orchestrator.final_eval --live --provider openai --model YOUR_MODEL --output-dir ../artifacts/final-run-01
+```
+
+Use an existing supported provider (`openai`, `anthropic`, or `ollama`); set `EVAL_API_KEY` and
+`EVAL_BASE_URL` for a custom endpoint, or use the provider-standard credential environment.
+The existing `JUDGE_*` settings still control the runtime harness. Do not put secrets in commands,
+Git, or chat. Native Azure endpoint/deployment/API-version setup is not implemented by this command;
+an Azure endpoint must be compatible with the chosen adapter before running it.
+
+The `--live` flag is mandatory. Three scenario turns can each make multiple model calls, including
+existing SDK/workflow retries, so this is not a three-call or dollar budget. Use an economical
+available model and check provider-side limits. No calls are made by a default offline invocation.
+
+Artifacts in the new output directory:
+
+- `cases.json`: final responses and independent task snapshots, all reference labels unreviewed.
+- `run.json`: state checks, execution errors, durations, model configuration, scenario hash, code revision.
+- `telemetry.jsonl`: the existing content-free orchestrator event stream.
+- `monitor.json`: a local summary of that stream; partial/missing usage remains explicit.
+
+The reply/evidence files contain synthetic task content; unlike telemetry they are content-bearing.
+No valid reply is invented for an execution error or empty response. Those turns stay in the run
+report and reduce capture coverage; they are omitted from the grading dataset. All three turns
+are sequential, so a failed creation can cause later state checks to fail. State success is not a
+response-quality label: a truthful failure disclosure can still be a good answer.
+
+Run label review and a separately selected live judge against `cases.json` next. The exit code is
+nonzero for execution errors or failed state checks. A passing state check does not establish
+truthfulness of the final reply; that is the separate review/judge stage.
+
+Local verification uses actual orchestrator/PM execution with stubbed model responses. Three state
+checks pass in that controlled test. This does not measure live planning, humanization, latency, or
+judge accuracy. At this increment's access check, no relevant credentials, local model CLI, Azure
+CLI, or non-example project environment files were configured. Live and Azure runs remain pending.
