@@ -18,7 +18,7 @@ from .agent import OrchestratorConfig, run_orchestrator
 from .memory import _sessions
 from .telemetry import logger as telemetry_logger
 from .monitor_report import summarize_logs
-from assistant.personal_manager.persistence.store import TodoData, _todos_path
+from assistant.personal_manager.persistence.store import TodoData, _todos_path, todo_add
 
 TITLE = "prepare interview examples"
 SCENARIOS = (
@@ -48,14 +48,17 @@ def state_check(step: str, before: list[dict], after: list[dict]) -> bool:
     raise ValueError("Unknown state check")
 
 
-def capture_final(config: OrchestratorConfig, execute=run_orchestrator) -> dict:
+def capture_final(config: OrchestratorConfig, execute=run_orchestrator, *,
+                  scenarios=SCENARIOS, seed_titles=(), check=state_check) -> dict:
     cases, observations = [], []
     identifier = "eval-" + uuid.uuid4().hex
     with TemporaryDirectory(prefix="kairo-final-eval-") as directory:
         isolated = replace(config, user_id=identifier, session_id=identifier,
                            data_dir=directory, vault_dir=directory)
         try:
-            for step, request in SCENARIOS:
+            for title in seed_titles:
+                todo_add(title, None, isolated.user_id, isolated.data_dir)
+            for step, request in scenarios:
                 before = snapshot(isolated)
                 started = time.perf_counter()
                 status, response = "ok", None
@@ -66,7 +69,7 @@ def capture_final(config: OrchestratorConfig, execute=run_orchestrator) -> dict:
                 except Exception:
                     status = "execution_error"  # No private exception text in artifacts.
                 after = snapshot(isolated)
-                passed = state_check(step, before, after)
+                passed = check(step, before, after)
                 observation = {
                     "id": step, "execution_status": status, "state_check_passed": passed,
                     "duration_ms": round((time.perf_counter() - started) * 1000, 3),
@@ -87,15 +90,58 @@ def capture_final(config: OrchestratorConfig, execute=run_orchestrator) -> dict:
             _sessions.pop((identifier, identifier), None)
     return {
         "cases": cases, "observations": observations,
-        "summary": {"attempted_turns": len(SCENARIOS), "captured_replies": len(cases),
+        "summary": {"attempted_turns": len(scenarios), "captured_replies": len(cases),
                     "state_checks_passed": sum(row["state_check_passed"] for row in observations),
                     "execution_errors": sum(row["execution_status"] != "ok" for row in observations)},
         "scope": "Sequential synthetic task scenario. State success and final response quality are separate; no response labels are inferred.",
     }
 
 
+def _unchanged(_step, before, after):
+    return before == after
+
+
+def _complete_target(_step, before, after):
+    target = [r for r in before if r["title"] == TITLE]
+    if len(target) != 1:
+        return False
+    expected = [{**r, "done": True} if r["id"] == target[0]["id"] else r for r in before]
+    return after == expected
+
+
+def capture_suite(config, execute=run_orchestrator):
+    """Independent seeded cases plus lifecycle and repeated-completion conversations."""
+    definitions = [
+        ("lifecycle", SCENARIOS, (), state_check),
+        ("empty_read", (("list", "List my todos"),), (), _unchanged),
+        ("target_identity", (("complete", f"Mark the '{TITLE}' todo as done"),),
+         (TITLE, "prepare other interview"), _complete_target),
+        ("ambiguous_target", (("clarify", "Mark my interview task done"),),
+         ("technical interview", "behavioural interview"), _unchanged),
+        ("missing_target", (("missing", "Mark the 'nonexistent task' todo as done"),),
+         (TITLE,), _unchanged),
+        ("repeated_completion", (("complete", f"Mark the '{TITLE}' todo as done"),
+                                 ("repeat", f"Mark the '{TITLE}' todo as done")),
+         (TITLE,), _complete_target),
+    ]
+    cases, observations, groups = [], [], []
+    for name, scenarios, seeds, check in definitions:
+        result = capture_final(config, execute, scenarios=scenarios, seed_titles=seeds, check=check)
+        groups.append({"scenario": name, **result["summary"]})
+        for collection in ("cases", "observations"):
+            for row in result[collection]:
+                row["id"] = name + "/" + row["id"]
+                row["scenario"] = name
+            (cases if collection == "cases" else observations).extend(result[collection])
+    return {"cases": cases, "observations": observations, "scenarios": groups,
+            "summary": {key: sum(g[key] for g in groups) for key in
+                        ("attempted_turns", "captured_replies", "state_checks_passed", "execution_errors")},
+            "scope": "Six synthetic development scenarios. Unchanged state does not prove a correct clarification; grade final replies separately."}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--suite", choices=["lifecycle", "expanded"], default="lifecycle")
     parser.add_argument("--live", action="store_true", help="Required: invokes billable models")
     parser.add_argument("--provider", choices=["openai", "anthropic", "ollama"], default="openai")
     parser.add_argument("--model", required=True)
@@ -120,7 +166,7 @@ def main() -> int:
         telemetry_logger.addHandler(handler)
         telemetry_logger.setLevel(logging.INFO)
         try:
-            result = capture_final(config)
+            result = capture_suite(config) if args.suite == "expanded" else capture_final(config)
         finally:
             telemetry_logger.removeHandler(handler)
             telemetry_logger.setLevel(previous_level)
@@ -131,14 +177,17 @@ def main() -> int:
     result["metadata"] = {"mode": "live_final_capture", "provider": args.provider, "model": args.model,
                           "harness_provider": os.getenv("JUDGE_PROVIDER", args.provider),
                           "harness_model": os.getenv("JUDGE_MODEL", args.model),
+                          "suite": args.suite,
                           "created_at": datetime.now(timezone.utc).isoformat(),
-                          "scenario_sha256": hashlib.sha256(json.dumps(SCENARIOS).encode()).hexdigest(),
+                          "scenario_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                           "git_revision": subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
                           "working_tree_dirty": bool(subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout.strip())}
     (args.output_dir / "cases.json").write_text(json.dumps(result["cases"], indent=2) + "\n")
     (args.output_dir / "run.json").write_text(json.dumps(result, indent=2) + "\n")
+    from .eval_report import combine
+    (args.output_dir / "evaluation.json").write_text(json.dumps(combine(result), indent=2) + "\n")
     print(json.dumps(result["summary"], indent=2))
-    return int(result["summary"]["execution_errors"] > 0 or result["summary"]["state_checks_passed"] != len(SCENARIOS))
+    return int(result["summary"]["execution_errors"] > 0 or result["summary"]["state_checks_passed"] != result["summary"].get("attempted_turns", len(SCENARIOS)))
 
 
 if __name__ == "__main__":

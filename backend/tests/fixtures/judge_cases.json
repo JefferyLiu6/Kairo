@@ -181,13 +181,13 @@
     "request": "Did my task save?",
     "response": "Your task was saved.",
     "evidence": "No tool record is available.",
-    "expected": "abstain",
+    "expected": "fail",
     "replay_verdict": {
       "groundedness": 0,
       "relevance": 2,
       "completeness": 1,
-      "abstain": true,
-      "reason": "Synthetic contract fixture: compare the cited excerpt with the provided request and tool evidence.",
+      "abstain": false,
+      "reason": "The supplied record explicitly provides no support for the claimed save; v2 treats unsupported execution success as a groundedness failure.",
       "evidence_quote": "No tool record"
     }
   },
@@ -237,6 +237,22 @@
       "abstain": false,
       "reason": "Synthetic contract fixture: compare the cited excerpt with the provided request and tool evidence.",
       "evidence_quote": "Thursday"
+    }
+  },
+  {
+    "id": "incomplete_evaluation_record",
+    "category": "uncertainty",
+    "request": "Did the change match what we agreed?",
+    "response": "Yes, I applied the agreed change.",
+    "evidence": "Evaluation export is truncated: agreed change, target, and execution record are missing.",
+    "expected": "abstain",
+    "replay_verdict": {
+      "groundedness": 0,
+      "relevance": 0,
+      "completeness": 0,
+      "abstain": true,
+      "reason": "The evaluation record is explicitly truncated; the agreement and execution evidence are unavailable.",
+      "evidence_quote": "Evaluation export is truncated"
     }
   }
 ]

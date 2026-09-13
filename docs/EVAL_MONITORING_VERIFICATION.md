@@ -64,3 +64,30 @@ Base revision: `787b646`. Same local environment and locked dependencies.
   live opt-in, failure artifacts, and monitoring-summary output.
 - Backend lint and whitespace checks passed. No frontend files changed.
 - No live-model or Azure measurements: relevant credentials and local CLIs are not configured.
+
+## Fifth increment verification — September 12, 2026
+
+Base revision: `3eb6f21`. Staged local checkout, existing Python 3.13.5 environment.
+
+- 362 backend tests passed; lint, compilation, and whitespace checks passed.
+- Existing deterministic workflow evals: 252/252 cases, 1,518/1,518 checks passed.
+- Response-quality v2 replay: 16/16 authored labels match, one deliberate abstention.
+- Runtime replay: 11/11 authored decisions match, including three blocked retry requests,
+  one intentional malformed verdict, and one injected provider failure.
+- Real orchestrator/PM with stubbed model replies passes expanded six-scenario/nine-turn state checks.
+- Failure tests verify wrong-task mutation detection, isolated scenario setup, failed-response
+  inclusion in combined denominators, unrelated/incomplete judge-report rejection, separation of
+  abstention and outage, and old-rubric review-packet rejection.
+- Exported eight unreviewed development examples under v2; human annotations remain blank.
+- CI runtime replay step configured but not run on GitHub. No frontend changes/build, API calls,
+  Azure deployment, live quality measurement, or independent human calibration performed.
+
+
+## Sixth increment — September 12, 2026
+
+375 tests passed; lint, compilation and whitespace checks passed. Sixteen quality fixtures replayed twice (32 grades); all authored labels match and outcome/score disagreement is zero. Counterexample tests expose always-pass/always-fail judges, provider outages, unnecessary abstention, and score/status drift. New prompt examples pass the actual strict schema/quote validator. No live model, Azure, or human calibration result is claimed.
+
+
+## Seventh increment — local development runner
+
+All four offline runner stages passed using the existing Python environment: 385 tests, 252 workflow cases / 1,518 checks, 32 quality replay grades, 11 runtime replay decisions. Lint, compilation and whitespace checks passed. Make recipe checked via dry run; fresh dependency setup, live APIs, frontend build and cloud validation not run.

@@ -87,13 +87,23 @@ def extract_pm_entities(message: str, intent: PMIntent) -> dict[str, Any]:
         return entities
 
     if intent == PMIntent.CREATE_TODO:
-        entities["title"] = _clean_todo_title(text)
+        entities["title"] = ("" if re.fullmatch(
+            r"(?:add|create|new)\s+(?:a\s+)?(?:task|todo)(?:\s+to)?[.!]?", text, re.I
+        ) else _clean_todo_title(text))
         entities["due"] = _parse_date(text)
         return entities
 
     if intent in (PMIntent.COMPLETE_TODO, PMIntent.REMOVE_TODO):
         entities["id"] = _extract_id(text)
-        entities["query"] = _clean_lookup_query(text)
+        lookup = re.sub(r"^actually,?\s+", "", text, flags=re.I)
+        # Only strip correction syntax when it brackets a command. Literal title
+        # words (including 'instead') remain intact in ordinary requests.
+        if re.match(r"^actually\b", text, re.I):
+            lookup = re.sub(r"\s+instead[.!]?$", "", lookup, flags=re.I)
+        if intent == PMIntent.COMPLETE_TODO and re.match(r"^mark\b", lookup, re.I):
+            lookup = re.sub(r"\s+(?:as\s+)?(?:done|complete|completed)[.!]?$", "", lookup, flags=re.I)
+        lookup = re.sub(r"\b(task|todo)\s+instead[.!]?$", r"\1", lookup, flags=re.I)
+        entities["query"] = _clean_lookup_query(lookup)
         if intent == PMIntent.COMPLETE_TODO:
             quoted = re.fullmatch(
                 r"mark\s+(?:(?:the|my)\s+)?(?P<quote>['\"])(?P<title>.+)(?P=quote)"

@@ -4,12 +4,13 @@ from pathlib import Path
 import pytest
 
 from assistant.orchestrator import agent
-from assistant.orchestrator.final_eval import TITLE, capture_final, snapshot
+from assistant.orchestrator.final_eval import TITLE, capture_final, capture_suite, snapshot
 from assistant.orchestrator.memory import _sessions
 from assistant.personal_manager.persistence.store import _todos_path, todo_add
 
 
-def test_real_orchestrator_control_flow_with_stubbed_models(monkeypatch):
+@pytest.mark.parametrize("expanded", [False, True])
+def test_real_orchestrator_control_flow_with_stubbed_models(monkeypatch, expanded):
     monkeypatch.setattr(agent, "build_llm", lambda *_: object())
 
     def invoke(_llm, system, payload):
@@ -25,8 +26,9 @@ def test_real_orchestrator_control_flow_with_stubbed_models(monkeypatch):
         raise AssertionError("Unexpected model call")
 
     monkeypatch.setattr(agent, "_invoke", invoke)
-    result = capture_final(agent.OrchestratorConfig(session_id="test", provider="offline", pm_provider="offline"))
-    assert result["summary"] == dict(attempted_turns=3, captured_replies=3, state_checks_passed=3, execution_errors=0)
+    result = (capture_suite if expanded else capture_final)(agent.OrchestratorConfig(session_id="test", provider="offline", pm_provider="offline"))
+    turns = 9 if expanded else 3
+    assert result["summary"] == dict(attempted_turns=turns, captured_replies=turns, state_checks_passed=turns, execution_errors=0), result["observations"]
     assert all(case["response"].startswith("Final reply:") for case in result["cases"])
     assert all(case["expected"] is None for case in result["cases"])
     assert result["observations"][-1]["after"][0]["done"] is True
@@ -100,6 +102,6 @@ def test_cli_packages_failure_evidence_and_monitoring(tmp_path, monkeypatch):
                 "summary": {"execution_errors": 1, "state_checks_passed": 0}}
     monkeypatch.setattr(final_eval, "capture_final", fake_capture)
     assert final_eval.main() == 1
-    assert set(p.name for p in destination.iterdir()) == {"cases.json", "run.json", "monitor.json", "telemetry.jsonl"}
+    assert set(p.name for p in destination.iterdir()) == {"cases.json", "run.json", "monitor.json", "telemetry.jsonl", "evaluation.json"}
     assert json.loads((destination / "monitor.json").read_text())["fallback_rate"] == 1
     assert json.loads((destination / "run.json").read_text())["metadata"]["model"] == "stub"

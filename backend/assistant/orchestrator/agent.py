@@ -14,7 +14,7 @@ from assistant.personal_manager.agent import PMConfig, astream_pm
 from .telemetry import emit, observed, span
 from .memory import build_memory_context, get_working_memory, load_profile
 from .prompts import (
-    HARNESS_SYSTEM,
+    HARNESS_SYSTEM as HARNESS_SYSTEM,
     HUMANIZER_SYSTEM,
     ORCHESTRATOR_SYSTEM,
     ROUTER_SYSTEM,
@@ -25,9 +25,9 @@ from .translator import StructuredAction, build_retry_prompt, parse_translator_r
 from .harness import (
     HarnessVerdict,
     build_fallback_reply,
-    fast_precheck,
+    evaluate_harness,
+    enforce_retry_policy,
     log_fallback,
-    parse_harness_verdict,
 )
 
 
@@ -124,31 +124,17 @@ def _judge(
     profile: str,
     config: OrchestratorConfig,
 ) -> HarnessVerdict:
-    # Fast deterministic pre-check first
-    quick = fast_precheck(action, pm_output)
-    if quick is not None:
-        emit("judge_result", source="deterministic", verdict=quick.verdict)
-        return quick
-
-    user_prompt = (
-        f"User message: {message}\n"
-        f"Intent: {action.intent}\n"
-        f"PM output:\n{pm_output}\n\n"
-        f"User profile:\n{profile or '(none)'}"
-    )
-    try:
+    def invoke(system, payload):
         llm = build_llm(
             os.getenv("JUDGE_PROVIDER", config.pm_provider),
             os.getenv("JUDGE_MODEL", config.pm_model),
             os.getenv("JUDGE_API_KEY") or config.pm_api_key,
             os.getenv("JUDGE_BASE_URL") or config.pm_base_url,
         )
-        raw = _invoke(llm, HARNESS_SYSTEM, user_prompt)
-        result = parse_harness_verdict(raw)
-    except Exception:
-        emit("judge_result", source="provider_error", verdict="fallback")
-        return HarnessVerdict("fallback", 0.0, "Judge unavailable", "", "null")
-    emit("judge_result", source="invalid" if result.reason == "Could not parse harness verdict" else "llm", verdict=result.verdict)
+        return _invoke(llm, system, payload)
+
+    result, source = evaluate_harness(message, action, pm_output, profile, invoke)
+    emit("judge_result", source=source, verdict=result.verdict)
     return result
 
 
@@ -343,10 +329,7 @@ async def _astream_orchestrator(
             pm_output = f"Error: {exc}"
 
         verdict = _judge(message, current_action, pm_output, profile, config)
-        if verdict.verdict == "retry" and (current_action.is_write or current_action.intent not in {"show_schedule", "show_todos", "show_habits"}):
-            verdict = HarnessVerdict(
-                "fallback", 0.0, "Only allowlisted reads can be retried; automatic retry blocked", "", "write_failed"
-            )
+        verdict = enforce_retry_policy(current_action, verdict)
         emit("tool_verdict", verdict=verdict.verdict, retry_count=retry_count)
         final_verdict = verdict
 

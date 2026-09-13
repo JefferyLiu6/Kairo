@@ -8,6 +8,10 @@ from pathlib import Path
 from .judge_eval import summarize
 
 METRICS = (
+    "failure_detection_recall", "good_answer_acceptance", "false_rejection_rate",
+    "uncertainty_recall", "unnecessary_abstention_rate", "usable_verdict_rate",
+    "balanced_decision_accuracy",
+    "judge_abstentions", "grading_failures", "false_pass_rate_scored", "negative_grade_coverage",
     "coverage", "agreement_all_cases", "agreement_scored", "false_pass_rate",
     "pass_precision", "invalid", "provider_errors", "latency_p50_ms", "latency_p95_ms",
 )

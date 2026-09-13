@@ -11,9 +11,15 @@ import subprocess
 import time
 from datetime import datetime, timezone
 
+from .judge_metrics import METRICS_VERSION, reliability_metrics, repeat_metrics
 from .quality_judge import RUBRIC, RUBRIC_VERSION, evaluate_response
 
 DEFAULT_CASES = Path(__file__).parents[2] / "tests/fixtures/judge_cases.json"
+
+
+def content_hash(cases):
+    content = [{k: c[k] for k in ("id", "category", "request", "response", "evidence")} for c in cases]
+    return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
 
 def percentile(values: list[float], fraction: float) -> float | None:
@@ -25,13 +31,21 @@ def summarize(rows: list[dict]) -> dict:
     labeled = [r for r in rows if r["expected"] is not None]
     labeled_scored = [r for r in scored if r["expected"] is not None]
     negatives = [r for r in labeled if r["expected"] == "fail"]
+    scored_negatives = [r for r in negatives if r["status"] == "ok" and r["label"] != "abstain"]
     predicted_pass = [r for r in labeled_scored if r["label"] == "pass"]
     matrix: dict[str, dict[str, int]] = {}
     for row in rows:
         bucket = matrix.setdefault(row["expected"] or "unreviewed", {"pass": 0, "fail": 0, "abstain": 0})
         bucket[row["label"]] += 1
+    metrics = reliability_metrics(rows)
     return {
+        **{key: spec["value"] for key, spec in metrics.items()},
+        "metric_details": metrics,
         "cases": len(rows), "scored": len(scored), "labeled_cases": len(labeled),
+        "judge_abstentions": sum(r["status"] == "ok" and r["label"] == "abstain" for r in rows),
+        "grading_failures": sum(r["status"] != "ok" for r in rows),
+        "false_pass_rate_scored": sum(r["label"] == "pass" for r in scored_negatives) / len(scored_negatives) if scored_negatives else None,
+        "negative_grade_coverage": len(scored_negatives) / len(negatives) if negatives else None,
         "coverage": len(scored) / len(rows) if rows else None,
         "agreement_all_cases": sum(r["status"] == "ok" and r["label"] == r["expected"] for r in rows) / len(rows) if rows and len(labeled) == len(rows) else None,
         "agreement_scored": sum(r["label"] == r["expected"] for r in labeled_scored) / len(labeled_scored) if labeled_scored else None,
@@ -87,6 +101,7 @@ def run(cases: list[dict], invoke=None, repeats: int = 1) -> dict:
         "summary": summarize(rows),
         "by_category": {c: summarize([r for r in rows if r["category"] == c]) for c in sorted({r["category"] for r in rows})},
         "repeat_disagreement_cases": inconsistent if repeats > 1 else None,
+        "stability": repeat_metrics(rows),
         "rows": rows,
     }
 
@@ -130,11 +145,13 @@ def main() -> int:
     revision = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     dirty = bool(subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout.strip())
     report["metadata"] = {
+        "metrics_version": METRICS_VERSION,
         "mode": "live" if args.live else "replay_contract_only",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "rubric_version": RUBRIC_VERSION,
         "rubric_sha256": hashlib.sha256(RUBRIC.encode()).hexdigest(),
         "dataset_sha256": hashlib.sha256(cases_bytes).hexdigest(),
+        "case_content_sha256": content_hash(cases),
         "git_revision": revision, "working_tree_dirty": dirty,
         "provider": args.provider if args.live else None, "model": args.model if args.live else None,
         "label_source": "dataset-supplied labels; null means unreviewed; independent review not verified",

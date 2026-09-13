@@ -53,6 +53,9 @@ from .application.time_slot_recommendation import (
     is_time_slot_recommendation_request,
     replay_time_slot_recommendation,
 )
+from .application.todo_selection import (
+    prepare_todo_target, remember_todo_list, resume_todo_selection,
+)
 from .domain.session import normalize_pm_session_id
 from .domain.types import PMAction, PMExtraction, PMGraphState, PMIntent, PMPlanExtraction, PMTaskExtraction
 from .executors.dispatcher import execute_pm_action
@@ -201,6 +204,20 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, thread_id: str
         reply = "Got it — cancelled that pending request."
         d.set_reply(reply)
         return reply
+
+    if pending and pending.get("type") in {"todo_selection", "todo_list"}:
+        selected_plan, selection_reply = resume_todo_selection(pending, message, config, sid)
+        if selection_reply is not None:
+            d.route("todo_selection", "task selection needs clarification")
+            d.wm_outcome = "kept"
+            d.wm_after = "active:awaiting_disambiguation"
+            d.set_reply(selection_reply)
+            return selection_reply
+        _clear_pending(thread_id, config.data_dir, user_id=sid,
+                       status="resolved" if selected_plan else "replaced")
+        pending = None
+        plan = selected_plan
+        d.wm_outcome = "resolved" if selected_plan else "replaced_new_request"
 
     if pending and pending.get("type") == "disambiguation":
         selected = _match_pending_disambiguation_candidate(pending, message)
@@ -618,6 +635,16 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, thread_id: str
         d.set_reply(state.final_reply)
         return state.final_reply
 
+    target_reply = prepare_todo_target(plan, config, thread_id, sid)
+    if target_reply is not None:
+        d.route("todo_selection", "task target unresolved; no action executed")
+        active = _load_pending(thread_id, config.data_dir, user_id=sid)
+        d.wm_after = "active:awaiting_disambiguation" if active else "none"
+        if active:
+            d.memory_written.append("working_memory:awaiting_disambiguation")
+        d.set_reply(target_reply)
+        return target_reply
+
     blocker = _find_plan_blocker(plan, config)
     if blocker is not None:
         d.blocker_missing = blocker.missing
@@ -683,6 +710,11 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, thread_id: str
     d.route("executed", "no blockers, plan executing")
     d.wm_after = "none"
     state.final_reply = _execute_pm_plan(plan, config, sid, thread_id=thread_id)
+    if (len(plan.tasks) == 1 and plan.tasks[0].intent == PMIntent.LIST_STATE
+            and plan.tasks[0].entities.get("target", "todos") == "todos"):
+        if remember_todo_list(config, thread_id, sid, state.final_reply):
+            d.wm_after = "active:awaiting_disambiguation"
+            d.memory_written.append("working_memory:awaiting_disambiguation")
     d.set_reply(state.final_reply)
     return state.final_reply
 

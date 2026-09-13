@@ -1,0 +1,189 @@
+[
+  {
+    "id": "truthful_empty",
+    "request": "List tasks",
+    "action": {
+      "intent": "show_todos",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "List tasks",
+      "is_write": false
+    },
+    "output": "Todo list: (empty)",
+    "expected": "pass",
+    "replay_output": "{\"verdict\": \"pass\", \"confidence\": 0.9, \"reason\": \"Authored contract example\", \"suggested_fix\": \"\", \"failure_type\": \"null\"}",
+    "replay_error": false,
+    "contract_only": false
+  },
+  {
+    "id": "read_timeout",
+    "request": "List tasks",
+    "action": {
+      "intent": "show_todos",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "List tasks",
+      "is_write": false
+    },
+    "output": "Error: timeout",
+    "expected": "retry",
+    "replay_output": "{\"verdict\": \"pass\", \"confidence\": 0.9, \"reason\": \"Authored contract example\", \"suggested_fix\": \"\", \"failure_type\": \"null\"}",
+    "replay_error": false,
+    "contract_only": false
+  },
+  {
+    "id": "write_timeout",
+    "request": "Save task",
+    "action": {
+      "intent": "add_todo",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "Save task",
+      "is_write": true
+    },
+    "output": "Error: timeout",
+    "expected": "fallback",
+    "replay_output": "{\"verdict\": \"pass\", \"confidence\": 0.9, \"reason\": \"Authored contract example\", \"suggested_fix\": \"\", \"failure_type\": \"null\"}",
+    "replay_error": false,
+    "contract_only": false
+  },
+  {
+    "id": "wrong_domain",
+    "request": "Show my schedule",
+    "action": {
+      "intent": "show_schedule",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "List tasks",
+      "is_write": false
+    },
+    "output": "Todo list: A",
+    "expected": "retry",
+    "replay_output": "{\"verdict\": \"pass\", \"confidence\": 0.9, \"reason\": \"Authored contract example\", \"suggested_fix\": \"\", \"failure_type\": \"null\"}",
+    "replay_error": false,
+    "contract_only": false
+  },
+  {
+    "id": "empty_write",
+    "request": "Save task",
+    "action": {
+      "intent": "add_todo",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "Save task",
+      "is_write": true
+    },
+    "output": "",
+    "expected": "fallback",
+    "replay_output": "{\"verdict\": \"pass\", \"confidence\": 0.9, \"reason\": \"Authored contract example\", \"suggested_fix\": \"\", \"failure_type\": \"null\"}",
+    "replay_error": false,
+    "contract_only": false
+  },
+  {
+    "id": "llm_unsafe_write_retry",
+    "request": "Save task",
+    "action": {
+      "intent": "add_todo",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "Save task",
+      "is_write": true
+    },
+    "output": "Save outcome uncertain",
+    "expected": "fallback",
+    "replay_output": "{\"verdict\": \"retry\", \"confidence\": 0.9, \"reason\": \"Authored contract example\", \"suggested_fix\": \"List tasks\", \"failure_type\": \"null\"}",
+    "replay_error": false,
+    "contract_only": false
+  },
+  {
+    "id": "nonallowlisted_read",
+    "request": "List tasks",
+    "action": {
+      "intent": "search_notes",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "List tasks",
+      "is_write": false
+    },
+    "output": "No response available",
+    "expected": "fallback",
+    "replay_output": "{\"verdict\": \"retry\", \"confidence\": 0.9, \"reason\": \"Authored contract example\", \"suggested_fix\": \"List tasks\", \"failure_type\": \"null\"}",
+    "replay_error": false,
+    "contract_only": false
+  },
+  {
+    "id": "pending_approval",
+    "request": "Delete my task",
+    "action": {
+      "intent": "delete_todo",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "Save task",
+      "is_write": true
+    },
+    "output": "Awaiting approval; no task deleted.",
+    "expected": "pass",
+    "replay_output": "{\"verdict\": \"pass\", \"confidence\": 0.9, \"reason\": \"Authored contract example\", \"suggested_fix\": \"\", \"failure_type\": \"null\"}",
+    "replay_error": false,
+    "contract_only": false
+  },
+  {
+    "id": "semantic_read_mismatch",
+    "request": "List tasks",
+    "action": {
+      "intent": "show_todos",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "List tasks",
+      "is_write": false
+    },
+    "output": "Here is an unrelated story.",
+    "expected": "retry",
+    "replay_output": "{\"verdict\": \"retry\", \"confidence\": 0.9, \"reason\": \"Authored contract example\", \"suggested_fix\": \"List tasks\", \"failure_type\": \"null\"}",
+    "replay_error": false,
+    "contract_only": false
+  },
+  {
+    "id": "judge_unavailable",
+    "request": "List tasks",
+    "action": {
+      "intent": "show_todos",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "List tasks",
+      "is_write": false
+    },
+    "output": "Task A",
+    "expected": "fallback",
+    "replay_output": "{\"verdict\": \"pass\", \"confidence\": 0.9, \"reason\": \"Authored contract example\", \"suggested_fix\": \"\", \"failure_type\": \"null\"}",
+    "replay_error": true,
+    "contract_only": true
+  },
+  {
+    "id": "malformed_judge",
+    "request": "List tasks",
+    "action": {
+      "intent": "show_todos",
+      "timeframe": null,
+      "entities": [],
+      "confidence": 0.9,
+      "pm_prompt": "List tasks",
+      "is_write": false
+    },
+    "output": "Task A",
+    "expected": "fallback",
+    "replay_output": "{}",
+    "replay_error": false,
+    "contract_only": true
+  }
+]
