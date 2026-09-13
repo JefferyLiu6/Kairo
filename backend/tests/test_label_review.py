@@ -77,3 +77,11 @@ def test_provider_exceptions_are_not_malformed_model_output(error):
 def test_invalid_return_value_is_still_invalid_output():
     result = evaluate_response(lambda *_: "not JSON", "request", "response", "evidence")
     assert result["status"] == "invalid"
+
+
+def test_review_cannot_silently_reuse_old_scoring_policy():
+    source = cases()
+    packet = completed(source)
+    packet["rubric_version"] = "response-quality-v1"
+    with pytest.raises(ValueError, match="rubric"):
+        apply_packet(source, packet)

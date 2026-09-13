@@ -44,7 +44,7 @@ def test_provider_failure_is_separate_from_bad_answer():
 
 def test_replay_contract_suite():
     report = run(json.loads(Path(DEFAULT_CASES).read_text()))
-    assert report["summary"]["cases"] == 15
+    assert report["summary"]["cases"] == 16
     assert report["summary"]["agreement_all_cases"] == 1
     assert report["summary"]["abstentions"] == 1
 

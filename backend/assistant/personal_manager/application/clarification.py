@@ -310,6 +310,8 @@ def _is_pending_clarification_response(message: str) -> bool:
 
 
 def _is_pending_cancel_reply(message: str) -> bool:
+    if re.fullmatch(r"(?:never\s*mind)[,;]?\s+cancel\s+(?:that|it)[.!]?", message.strip(), re.I):
+        return True
     text = " ".join(message.lower().strip(" .!").split())
     return text in {"cancel", "never mind", "nevermind", "nvm", "stop", "no", "nope", "nah"}
 

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .judge_eval import validate_cases
+from .quality_judge import RUBRIC, RUBRIC_VERSION
 
 FIELDS = ("id", "category", "request", "response", "evidence")
 REVIEW_FIELDS = ("request", "response", "evidence")
@@ -23,12 +24,13 @@ def digest(cases: list[dict]) -> str:
 def export_packet(cases: list[dict]) -> dict:
     validate_cases(cases, replay=False)
     return {
-        "schema_version": 1, "examples_sha256": digest(cases),
-        "instructions": "Review each response against the request and evidence. Label pass, fail, or abstain (insufficient evidence). Add your rationale and reviewer name/alias. Prior labels and judge outputs are intentionally omitted. This is response quality, not merely task completion.",
+        "schema_version": 2, "rubric_version": RUBRIC_VERSION,
+        "rubric_sha256": hashlib.sha256(RUBRIC.encode()).hexdigest(), "examples_sha256": digest(cases),
+        "instructions": "Review each response against the request and evidence. Label pass, fail, or abstain (incomplete evaluation record). Add your rationale and reviewer name/alias. Prior labels and judge outputs are intentionally omitted. This is response quality, not merely task completion.",
         "rubric": {
             "pass": "Fully grounded, relevant, and complete for the supplied evidence; truthful failure or clarification may pass.",
             "fail": "Unsupported claims, wrong answer, or missing required information.",
-            "abstain": "Evidence is insufficient to establish response quality.",
+            "abstain": "Evaluation record is incomplete or unusable; do not abstain on an unsupported success claim when the supplied record establishes that support is absent.",
         },
         "cases": [{"id": f"case-{index:04d}", **{field: case[field] for field in REVIEW_FIELDS},
                    "label": None, "rationale": "", "reviewer": ""} for index, case in enumerate(cases)],
@@ -37,8 +39,10 @@ def export_packet(cases: list[dict]) -> dict:
 
 def apply_packet(cases: list[dict], packet: dict) -> list[dict]:
     validate_cases(cases, replay=False)
-    if not isinstance(packet, dict) or packet.get("schema_version") != 1:
+    if not isinstance(packet, dict) or packet.get("schema_version") != 2:
         raise ValueError("Unsupported review packet")
+    if packet.get("rubric_version") != RUBRIC_VERSION or packet.get("rubric_sha256") != hashlib.sha256(RUBRIC.encode()).hexdigest():
+        raise ValueError("Review packet uses another rubric; re-review under current policy")
     if packet.get("examples_sha256") != digest(cases):
         raise ValueError("Review packet does not match source examples")
     entries = packet.get("cases")
@@ -73,6 +77,7 @@ def apply_packet(cases: list[dict], packet: dict) -> list[dict]:
             "examples_sha256": packet["examples_sha256"],
             "imported_at": datetime.now(timezone.utc).isoformat(),
             "identity_verified": False,
+            "rubric_version": RUBRIC_VERSION, "rubric_sha256": packet["rubric_sha256"],
         }
     return result
 

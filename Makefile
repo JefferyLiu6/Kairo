@@ -13,6 +13,7 @@ help:
 	@echo "  make dev          Start backend + frontend dev servers"
 	@echo "  make seed         Seed demo data for the 'demo' session"
 	@echo "  make test         Run backend tests + evals + smoke check"
+	@echo "  make eval-offline Run local regression and judge contracts; save a report"
 	@echo "  make lint         Lint backend (ruff) and frontend (tsc)"
 	@echo "  make build-web    Build the production web bundle"
 	@echo "  make verify       Lint + test + web build (CI entrypoint)"
@@ -76,3 +77,11 @@ clean:
 .PHONY: eval-judge
 eval-judge:
 	cd $(BACKEND_DIR) && uv run python -m assistant.orchestrator.judge_eval --output ../artifacts/judge-replay.json
+
+.PHONY: eval-runtime
+eval-runtime:
+	cd $(BACKEND_DIR) && uv run python -m assistant.orchestrator.runtime_eval --output ../artifacts/runtime-replay-$$(date +%s).json
+
+.PHONY: eval-offline
+eval-offline:
+	cd $(BACKEND_DIR) && uv run --offline --extra dev python -m assistant.orchestrator.offline_eval

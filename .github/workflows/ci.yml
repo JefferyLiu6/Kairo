@@ -42,12 +42,17 @@ jobs:
       - name: Judge benchmark contract check (no model calls)
         run: make eval-judge
 
+      - name: Runtime harness contract check (no model calls)
+        run: make eval-runtime
+
       - name: Upload judge contract report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: judge-replay-report
-          path: artifacts/judge-replay.json
+          path: |
+            artifacts/judge-replay.json
+            artifacts/runtime-replay-*.json
 
       - name: Web build
         run: pnpm --dir web build

@@ -115,6 +115,37 @@ def parse_harness_verdict(raw: str) -> HarnessVerdict:
     )
 
 
+def evaluate_harness(message: str, action: StructuredAction, pm_output: str,
+                     profile: str, invoke) -> tuple[HarnessVerdict, str]:
+    """The production decision path; injected invocation also enables offline contract tests."""
+    from .prompts import HARNESS_SYSTEM
+    quick = fast_precheck(action, pm_output)
+    if quick is not None:
+        return quick, "deterministic"
+    payload = (
+        f"User message: {message}\nIntent: {action.intent}\n"
+        f"PM output:\n{pm_output}\n\nUser profile:\n{profile or '(none)'}"
+    )
+    try:
+        result = parse_harness_verdict(invoke(HARNESS_SYSTEM, payload))
+    except Exception:
+        return HarnessVerdict("fallback", 0.0, "Judge unavailable", "", "null"), "provider_error"
+    source = "invalid" if result.reason == "Could not parse harness verdict" else "llm"
+    return result, source
+
+
+def enforce_retry_policy(action: StructuredAction, verdict: HarnessVerdict) -> HarnessVerdict:
+    """Shared by production execution and the runtime decision benchmark."""
+    if verdict.verdict == "retry" and (
+        action.is_write or action.intent not in {"show_schedule", "show_todos", "show_habits"}
+    ):
+        return HarnessVerdict(
+            "fallback", 0.0, "Only allowlisted reads can be retried; automatic retry blocked",
+            "", "write_failed",
+        )
+    return verdict
+
+
 # ── Fallback reply generation ─────────────────────────────────────────────────
 
 def build_fallback_reply(

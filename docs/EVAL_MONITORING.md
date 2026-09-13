@@ -252,3 +252,20 @@ Local verification uses actual orchestrator/PM execution with stubbed model resp
 checks pass in that controlled test. This does not measure live planning, humanization, latency, or
 judge accuracy. At this increment's access check, no relevant credentials, local model CLI, Azure
 CLI, or non-example project environment files were configured. Live and Azure runs remain pending.
+
+## Iteration 5: evaluation validity (supersedes v1 rubric and packet instructions)
+
+See [Evaluation validity](EVALUATION_VALIDITY.md) for the accepted v2 scoring policy, 16 replay
+fixtures, eight unreviewed development examples, shared runtime benchmark, six-scenario/nine-turn
+expanded capture, combined reports, and schema-2 rubric-bound review packets. Earlier test counts
+and rubric descriptions above are historical. No live model or Azure validation is claimed.
+
+
+## Current judge scoring update
+
+Rubric v3 and metrics v2 now supersede the prompt descriptions above. See [Judge metrics and prompt](JUDGE_METRICS_AND_PROMPT.md) for formulas, purposes, worked examples, sources and verified effects. Historical rubric-bound review packets must be re-reviewed, not silently migrated.
+
+
+## Local development entry point
+
+Run `make eval-offline` to collect backend regression and judge-contract results in one report. See [local development](LOCAL_DEVELOPMENT.md). No live-model step is included.
