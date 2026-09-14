@@ -1,0 +1,20 @@
+name: Keep backend warm
+
+# Render's free tier spins the service down after ~15 minutes of inactivity,
+# making the next visitor wait 30-60s for a cold start. Pinging /health every
+# 10 minutes keeps the instance warm during the day.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping backend health endpoint
+        run: |
+          curl -sS --max-time 90 --retry 2 --retry-delay 5 \
+            -o /dev/null -w "status=%{http_code} time=%{time_total}s\n" \
+            https://kairo-backend-wccw.onrender.com/health

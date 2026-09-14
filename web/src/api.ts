@@ -18,6 +18,11 @@ function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(url, { ...init, headers: merged, credentials: "include" });
 }
 
+/** Fire-and-forget ping so a spun-down backend starts waking the moment the page loads. */
+export function warmBackend(): void {
+  apiFetch("/health").catch(() => {});
+}
+
 // ── Auth API ──────────────────────────────────────────────────────────────────
 
 export type AuthUser = {
