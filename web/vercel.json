@@ -4,6 +4,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://kairo-backend-wccw.onrender.com/:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }
