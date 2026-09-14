@@ -274,3 +274,13 @@ Run `make eval-offline` to collect backend regression and judge-contract results
 ## Local visual dashboard
 
 Generate a self-contained dashboard from saved judge reports and optional runtime telemetry with `python -m assistant.orchestrator.monitor_dashboard`. See [dashboard usage, metrics and limits](MONITORING_DASHBOARD.md). It is a local snapshot, not continuous production monitoring. Current response-quality policy is documented in [rubric v6](JUDGE_RUBRIC_V6.md); earlier policy descriptions in this document are historical.
+
+
+## Experimental v8 citation selection
+
+See [JUDGE_CITATIONS_V8.md](JUDGE_CITATIONS_V8.md) for source-bound citation IDs, strict legacy compatibility, offline verification and live-measurement limitations. V7 live results remain unchanged; v8 has not been measured live.
+
+
+## Unsupported tomorrow claims
+
+[Calendar confirmation guard v2](TOMORROW_CLAIM_GUARD.md) corrects a bounded unsupported date relationship while preserving the model grade. Verification uses saved-output replay and contrast tests, not a new live-model measurement.
