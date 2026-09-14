@@ -70,7 +70,7 @@ def calendar_facts(request: str, evidence: str) -> dict:
     }
 
 
-CALENDAR_GUARD_VERSION = 'calendar-confirmation-guard-v1'
+CALENDAR_GUARD_VERSION = 'calendar-confirmation-guard-v2'
 
 
 def wrong_date_confirmation(request: str, response: str, facts: dict) -> dict | None:
@@ -102,4 +102,53 @@ def wrong_date_confirmation(request: str, response: str, facts: dict) -> dict | 
         'version': CALENDAR_GUARD_VERSION,
         'reason': f"The unqualified confirmation reports {reported}, but the requested local date is {facts['requested_date']}.",
         'evidence_quote': answer['day'],
+    }
+
+
+def unsupported_tomorrow_confirmation(request: str, response: str, evidence: str) -> dict | None:
+    """Reject a bounded affirmative date relationship with explicitly absent anchors.
+
+    Only canonical single-action requests, whole-record omission evidence and
+    whole-answer affirmative confirmations are recognized. Absence of a parser
+    match is not evidence that context is missing. No calendar date is inferred.
+    """
+    command = re.fullmatch(
+        r'(?:set|schedule|book) (?:a|an|the) (?P<subject>[A-Za-z]+(?: [A-Za-z]+){0,5}) for tomorrow[.!]?',
+        request.strip(), re.I,
+    )
+    if command is None or re.search(r'\b(?:and|or|then)\b', command['subject'], re.I):
+        return None
+    subject = command['subject']
+    record = re.fullmatch(
+        rf'(?:Saved {re.escape(subject)} date:|{re.escape(subject)} stored for) '
+        rf'(?P<stored>{_DATE_VALUE})\. '
+        r'(?:The evaluation export omitted the request timestamp and user timezone\.|'
+        r'Request timestamp and (?:user )?timezone omitted\.)', evidence.strip(), re.I,
+    )
+    if record is None:
+        return None
+    answer = re.fullmatch(
+        rf'(?:Done\s*(?:—|–|:|,|!|\.)\s*)?'
+        rf'(?:(?:the |a |an )?{re.escape(subject)} is (?:saved|scheduled|booked)|'
+        rf'(?:saved|scheduled|booked)(?: (?:the |a |an )?{re.escape(subject)})?) for '
+        rf'(?P<claim>tomorrow,? (?P<day>{_DATE_VALUE})|'
+        rf'(?P<date_first>{_DATE_VALUE}), which is tomorrow)[.!]?',
+        response.strip(), re.I,
+    )
+    if answer is None:
+        return None
+    try:
+        reported = _date(answer['day'] or answer['date_first'])
+        stored = _date(record['stored'])
+    except ValueError:
+        return None
+    if reported != stored:
+        return None  # Different-date assertions require a separate comparison.
+    return {
+        'version': CALENDAR_GUARD_VERSION,
+        'rule': 'explicit_tomorrow_without_anchors',
+        'reason': 'The answer asserts the saved date is tomorrow, but the supplied record '
+                  'explicitly omits the request timestamp and user timezone. The date '
+                  'relationship is unsupported; the stored date itself is not disproved.',
+        'evidence_quote': answer['claim'],
     }
