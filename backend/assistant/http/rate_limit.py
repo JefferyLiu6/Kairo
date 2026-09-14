@@ -46,6 +46,11 @@ def client_ip(request: Request) -> str:
     Proxy headers are trusted only when TRUST_PROXY_HEADERS is explicitly enabled.
     This prevents arbitrary clients from spoofing rate-limit buckets by sending
     their own X-Forwarded-For header in local/private deployments.
+
+    When trusted, headers set by known edge proxies (Cloudflare, Vercel) win over
+    the generic X-Forwarded-For chain, and X-Forwarded-For is read right-to-left,
+    skipping TRUSTED_PROXY_HOPS proxy-appended entries (default 1) — the leftmost
+    entries are client-supplied and trivially spoofable.
     """
 
     trust_proxy = os.environ.get("TRUST_PROXY_HEADERS", "").strip().lower()
@@ -53,9 +58,15 @@ def client_ip(request: Request) -> str:
         cf_ip = request.headers.get("CF-Connecting-IP", "").strip()
         if cf_ip:
             return cf_ip
+        vercel_ip = request.headers.get("X-Vercel-Forwarded-For", "").strip()
+        if vercel_ip:
+            return vercel_ip.split(",", 1)[0].strip()
         forwarded = request.headers.get("X-Forwarded-For", "").strip()
         if forwarded:
-            return forwarded.split(",", 1)[0].strip()
+            entries = [e.strip() for e in forwarded.split(",") if e.strip()]
+            if entries:
+                hops = max(1, env_limit("TRUSTED_PROXY_HOPS", 1))
+                return entries[max(0, len(entries) - hops)]
     return request.client.host if request.client else "unknown"
 
 

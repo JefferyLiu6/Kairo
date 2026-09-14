@@ -52,8 +52,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshUser = useCallback(async () => {
-    const u = await authMe();
-    setUser(u);
+    try {
+      const u = await authMe();
+      setUser(u);
+    } catch (err) {
+      // Session rejected (e.g. demo account expired) — drop to unauthenticated
+      // so ProtectedRoute can provision a fresh demo. Transient/network errors
+      // keep the current user so a blip doesn't discard a live session.
+      if (err instanceof Error && (err.message === "401" || err.message === "403")) {
+        setUser(null);
+      }
+    }
   }, []);
 
   const logout = useCallback(async () => {
