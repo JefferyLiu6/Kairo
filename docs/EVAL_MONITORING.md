@@ -269,3 +269,8 @@ Rubric v3 and metrics v2 now supersede the prompt descriptions above. See [Judge
 ## Local development entry point
 
 Run `make eval-offline` to collect backend regression and judge-contract results in one report. See [local development](LOCAL_DEVELOPMENT.md). No live-model step is included.
+
+
+## Local visual dashboard
+
+Generate a self-contained dashboard from saved judge reports and optional runtime telemetry with `python -m assistant.orchestrator.monitor_dashboard`. See [dashboard usage, metrics and limits](MONITORING_DASHBOARD.md). It is a local snapshot, not continuous production monitoring. Current response-quality policy is documented in [rubric v6](JUDGE_RUBRIC_V6.md); earlier policy descriptions in this document are historical.

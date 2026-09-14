@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .date_check import calendar_facts, wrong_date_confirmation
 
-RUBRIC_VERSION = "response-quality-v6"
+RUBRIC_VERSION = "response-quality-v7"
 PROMPT_EXAMPLES = [('PASS',
   {'request': 'Add buy lentils to my shopping tasks.',
    'response': 'Added buy lentils to your tasks.',
@@ -101,6 +101,23 @@ PROMPT_EXAMPLES = [('PASS',
    'completeness': 2,
    'abstain': False})]
 
+PROMPT_EXAMPLES.extend([
+    ('FAIL: relative date relationship unsupported',
+     {'request': 'Schedule a parcel pickup for tomorrow.',
+      'response': 'Done, the pickup is saved for tomorrow, October 10, 2031.',
+      'tool_evidence': 'Stored pickup date: October 10, 2031. Request timestamp and timezone omitted.'},
+     {'reason': 'The answer asserts October 10 is tomorrow, beyond reporting storage. The omitted timestamp and timezone leave that explicit relationship unsupported.',
+      'evidence_quote': 'tomorrow, October 10, 2031',
+      'groundedness': 0, 'relevance': 2, 'completeness': 2, 'abstain': False}),
+    ('FAIL: identifiable execution assertion despite missing request',
+     {'request': '[Request unavailable in export.]',
+      'response': 'I changed the reservation.',
+      'tool_evidence': 'Current reservation: table 9. Original request, prior state and write result omitted.'},
+     {'reason': 'A current reservation does not establish that a change occurred. The identifiable execution assertion is unsupported despite the missing request; this does not prove real-world falsehood.',
+      'evidence_quote': 'I changed the reservation.',
+      'groundedness': 0, 'relevance': 2, 'completeness': 2, 'abstain': False}),
+])
+
 RUBRIC = """ROLE AND SCOPE
 You are a response-quality evaluator for Kairo, a personal-management assistant.
 Evaluate only the supplied candidate answer against the user request and tool evidence.
@@ -135,13 +152,26 @@ An empty successful query can be a fully correct answer. Awaiting approval is no
 A truthful failure explanation may pass even when the task did not succeed.
 
 DECISION ORDER: ASSERTION SUPPORT IN THE SUPPLIED RECORD
-0. If the candidate answer or request is missing, truncated beyond interpretation, or
-   otherwise unusable, abstain. Do not invent claims from an unavailable answer.
+0. If the candidate answer is missing or truncated beyond interpretation, abstain.
+   Do not invent claims from an unavailable answer. A missing request is different:
+   first inspect identifiable execution assertions against the available evidence.
+   An unsupported or contradicted assertion that an update occurred can fail even
+   without the request. If no decisive defect can be assessed and the missing request
+   prevents evaluating the remaining answer, abstain. Missing request never establishes
+   that an operation occurred; a saved state alone does not prove an update.
 1. Identify the claims actually made. Separate a report of stored state from an explicit
    claim of request compliance. A plain "Scheduled for <date>" or "The location is <X>"
    reports state; it does not by itself assert that the date is tomorrow or the location
    matches an agreement. "As agreed", "on the requested date", "correctly", "all set",
    or "yes" affirming a compliance question asserts successful compliance.
+   Read the ENTIRE answer, including modifiers. "Saved for tomorrow, <date>" or
+   "<date>, which is tomorrow" asserts that the date equals the requested local tomorrow.
+   It is NOT equivalent to "Saved for <date>". A matching stored date supports only
+   the storage claim; timestamp and timezone are required to support the relationship.
+   If those inputs are absent, that unqualified relationship claim is unsupported:
+   groundedness=0, abstain=false. "Done" reinforces completion when unqualified.
+   Do not use isolated keyword matching: "not done", quoted task titles, or "I cannot
+   verify whether <date> is tomorrow" are not positive compliance assertions.
 2. Available evidence proving a wrong target/date or other material defect still means
    fail. A plain confirmation of a KNOWN wrong requested date must disclose that error;
    reporting the stored value does not excuse a proven mismatch. An honest disclosure
@@ -157,8 +187,8 @@ DECISION ORDER: ASSERTION SUPPORT IN THE SUPPLIED RECORD
    or proof the acting assistant lacked that evidence. Describe that distinction.
 5. A timeout, rejected operation, or unknown save outcome does not support a save-success
    claim. Acknowledging what is unknown is different from asserting success.
-6. Abstain only when the candidate/request is unusable or its material claims cannot be
-   identified well enough to apply these rules. Missing evidence supporting an identifiable
+6. Apply step 0 for missing candidate/request data, after distinguishing their roles.
+   Otherwise abstain if material claims cannot be identified well enough to apply these rules. Missing evidence supporting an identifiable
    material assertion is fail under step 4, not abstain. Provider and parser errors remain
    separate operational errors rather than intentional semantic abstentions.
 For abstention, use 0 for unassessable dimensions; these are placeholders, not grades.

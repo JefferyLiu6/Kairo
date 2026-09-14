@@ -30,7 +30,7 @@ def export_packet(cases: list[dict]) -> dict:
         "rubric": {
             "pass": "Fully grounded, relevant, and complete for the supplied evidence; truthful failure or clarification may pass.",
             "fail": "Material assertions unsupported by the supplied record, including explicit success/agreement claims whose evidence was omitted; proven contradictions or missing required information.",
-            "abstain": "Candidate/request is unusable or material claims cannot be identified. Missing support for an identifiable assertion means fail; a verified stored-state report may pass even when task completion is unknown.",
+            "abstain": "Candidate is unusable or material claims cannot be assessed. Missing request does not hide an identifiable unsupported execution assertion; fail that assertion, otherwise abstain if the request gap prevents grading. A verified stored-state report may pass even when task completion is unknown.",
         },
         "cases": [{"id": f"case-{index:04d}", **{field: case[field] for field in REVIEW_FIELDS},
                    "label": None, "rationale": "", "reviewer": ""} for index, case in enumerate(cases)],
