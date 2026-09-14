@@ -38,3 +38,10 @@ A future separately approved live run should report usable verdict rate (operati
 “The model sometimes gave the right judgment but an invalid citation. I kept the validator strict and changed the interface: select an evidence ID rather than generate a quotation. Code resolves the exact source span. That makes accepted citations traceable, but traceability does not prove the reasoning is correct, so I measure output validity separately from human-label agreement.”
 
 The general approach of task-specific tests, logging failures and combining automated checks with human judgment follows [OpenAI evaluation best practices](https://developers.openai.com/api/docs/guides/evaluation-best-practices). The citation-ID design is a project-specific engineering choice, not an official guarantee of model reliability.
+
+
+## Live v8 verification completed — September 14, 2026
+
+All 12 approved calls completed: model agreement 12/12, final agreement 12/12, valid citation IDs 12/12, failure detection 6/6, good-answer acceptance 5/5, deliberate uncertainty recognition 1/1. Zero invalid outputs/provider errors. The tomorrow guard matched once with zero label overrides; the model independently rejected the claim.
+
+This supersedes earlier “v8 live unmeasured” status. The previous v7 result remains 9/12; no labels or historical reports changed. These are reused development cases, not proof of production accuracy or stability. Detailed artifacts are retained in the separate Desktop v8 results report and five-run monitoring dashboard. The scoped fixes are now live-verified on this set. No deployment, commit or additional calls beyond the approved twelve.

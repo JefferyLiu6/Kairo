@@ -40,3 +40,10 @@ The artifact is labeled `saved_output_postprocess`, with zero live calls and the
 A deterministic rule is appropriate for this small, explicit policy boundary after prompt clarification failed on the recorded example. It makes the known decision reproducible without another API call. The cost is deliberately limited coverage and maintenance of a supported grammar. Broadening the rule to every occurrence of “tomorrow” would risk rejecting truthful uncertainty, quoted task data or supported requests. Keep raw/final metrics separate so rule-assisted correctness is not attributed to the model.
 
 Interview explanation: “I preserved the judge's wrong answer, reproduced it locally and added a narrow rule for an explicit claim with explicitly missing evidence. Contrast tests protect truthful reporting. The final grade improves for that case, while the raw model score stays visible. I can explain exactly what the rule proves and what it leaves unresolved.”
+
+
+## Live v8 verification completed — September 14, 2026
+
+All 12 approved calls completed: model agreement 12/12, final agreement 12/12, valid citation IDs 12/12, failure detection 6/6, good-answer acceptance 5/5, deliberate uncertainty recognition 1/1. Zero invalid outputs/provider errors. The tomorrow guard matched once with zero label overrides; the model independently rejected the claim.
+
+This supersedes earlier “v8 live unmeasured” status. The previous v7 result remains 9/12; no labels or historical reports changed. These are reused development cases, not proof of production accuracy or stability. Detailed artifacts are retained in the separate Desktop v8 results report and five-run monitoring dashboard. The scoped fixes are now live-verified on this set. No deployment, commit or additional calls beyond the approved twelve.
