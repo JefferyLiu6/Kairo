@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from .judge_metrics import METRICS_VERSION, reliability_metrics, repeat_metrics
 from .quality_judge import RUBRIC, RUBRIC_VERSION, evaluate_response
+from .date_check import DATE_CHECK_VERSION, CALENDAR_GUARD_VERSION
 
 DEFAULT_CASES = Path(__file__).parents[2] / "tests/fixtures/judge_cases.json"
 
@@ -42,6 +43,12 @@ def summarize(rows: list[dict]) -> dict:
         **{key: spec["value"] for key, spec in metrics.items()},
         "metric_details": metrics,
         "cases": len(rows), "scored": len(scored), "labeled_cases": len(labeled),
+        "calendar_guard_cases": sum("calendar_guard" in r for r in rows),
+        "calendar_guard_overrides": sum(bool(r.get("label_overridden")) for r in rows),
+        "model_agreement_all_cases": sum(
+            r["status"] == "ok" and r.get("model_label", r["label"]) == r["expected"]
+            for r in rows
+        ) / len(rows) if rows and len(labeled) == len(rows) else None,
         "judge_abstentions": sum(r["status"] == "ok" and r["label"] == "abstain" for r in rows),
         "grading_failures": sum(r["status"] != "ok" for r in rows),
         "false_pass_rate_scored": sum(r["label"] == "pass" for r in scored_negatives) / len(scored_negatives) if scored_negatives else None,
@@ -149,6 +156,9 @@ def main() -> int:
         "mode": "live" if args.live else "replay_contract_only",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "rubric_version": RUBRIC_VERSION,
+        "date_check_version": DATE_CHECK_VERSION,
+        "calendar_guard_version": CALENDAR_GUARD_VERSION,
+        "decision_scope": "Hybrid response quality: model grade plus narrow deterministic calendar guard; model-only agreement reported separately",
         "rubric_sha256": hashlib.sha256(RUBRIC.encode()).hexdigest(),
         "dataset_sha256": hashlib.sha256(cases_bytes).hexdigest(),
         "case_content_sha256": content_hash(cases),
