@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, loading, tryDemo } = useAuth();
   const [demoStarting, setDemoStarting] = useState(false);
+  const [slowStart, setSlowStart] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -17,6 +18,15 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
       .finally(() => setDemoStarting(false));
   }, [loading, user, demoStarting, error, tryDemo]);
 
+  useEffect(() => {
+    if (!demoStarting) {
+      setSlowStart(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlowStart(true), 4000);
+    return () => clearTimeout(timer);
+  }, [demoStarting]);
+
   if (loading) return <div className="auth-loading">Loading…</div>;
   if (!user) {
     return (
@@ -26,9 +36,14 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
             <img src="/kairo-logo.svg" alt="" width={32} height={32} />
             <span className="auth-logo-name">Kairo</span>
           </div>
-          <h1 className="auth-title">{error ? "Demo unavailable" : "Setting up demo"}</h1>
+          <h1 className="auth-title">
+            {error ? "Demo unavailable" : slowStart ? "Waking up the server" : "Setting up demo"}
+          </h1>
           <p className={error ? "auth-error" : "auth-confirm"}>
-            {error || "Creating a temporary account with sample data…"}
+            {error ||
+              (slowStart
+                ? "The server sleeps when idle and can take up to a minute to wake. Hang tight — your demo will start automatically."
+                : "Creating a temporary account with sample data…")}
           </p>
           {error && (
             <button
