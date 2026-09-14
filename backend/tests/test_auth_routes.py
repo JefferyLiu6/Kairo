@@ -145,13 +145,15 @@ def test_me_authenticated_returns_user(client):
     assert res.json()["credits_remaining"] == 10
 
 
-def test_auth_demo_starts_with_five_credits(client, monkeypatch):
+def test_auth_demo_starts_with_initial_credits(client, monkeypatch):
+    from assistant.persistence.user_store import DEMO_INITIAL_CREDITS
+
     monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_RPM", "100")
     res = client.post("/auth/demo")
     assert res.status_code == 201
     data = res.json()
     assert data["is_demo"] is True
-    assert data["credits_remaining"] == 5
+    assert data["credits_remaining"] == DEMO_INITIAL_CREDITS
 
 
 # ── Logout ────────────────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ from pydantic import BaseModel, field_validator
 
 from assistant.http.rate_limit import (
     RateLimitRule,
+    bucket,
     email_bucket,
     enforce_rate_limit,
     env_limit,
@@ -130,6 +131,16 @@ def _demo_rules() -> list[RateLimitRule]:
         RateLimitRule(env_limit("AUTH_DEMO_RATE_LIMIT_RPM", 2), 60, "demo/minute"),
         RateLimitRule(env_limit("AUTH_DEMO_RATE_LIMIT_HOURLY", 10), 3600, "demo/hour"),
         RateLimitRule(env_limit("AUTH_DEMO_RATE_LIMIT_DAILY", 25), 86400, "demo/day"),
+    ]
+
+
+def _demo_global_rules() -> list[RateLimitRule]:
+    # Service-wide cap on demo creation, independent of client IP. IP attribution
+    # behind proxies is best-effort, so this bounds worst-case LLM spend even if
+    # per-IP buckets are evaded.
+    return [
+        RateLimitRule(env_limit("AUTH_DEMO_GLOBAL_LIMIT_HOURLY", 30), 3600, "demo/global/hour"),
+        RateLimitRule(env_limit("AUTH_DEMO_GLOBAL_LIMIT_DAILY", 150), 86400, "demo/global/day"),
     ]
 
 
@@ -432,6 +443,9 @@ def _cleanup_demo_data(data_dir: str, user_id: str) -> None:
 def demo(request: Request, response: Response) -> UserResponse:
     """Create an ephemeral demo account with seeded data and a 24-hour session."""
     _auth_rate_limit(request, _demo_rules(), ip_kind="auth_demo_ip")
+    _auth_rate_limit(
+        request, _demo_global_rules(), bucket("auth_demo_global", "all"), include_ip=False
+    )
     data_dir = _data_dir()
     init_users_db(data_dir)
 

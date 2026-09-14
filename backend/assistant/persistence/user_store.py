@@ -128,7 +128,7 @@ def _hash_token(raw: str) -> str:
 
 
 USER_INITIAL_CREDITS = 10
-DEMO_INITIAL_CREDITS = 5
+DEMO_INITIAL_CREDITS = 12
 
 
 # ── User CRUD ─────────────────────────────────────────────────────────────────
