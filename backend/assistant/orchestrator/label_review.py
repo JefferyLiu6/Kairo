@@ -29,8 +29,8 @@ def export_packet(cases: list[dict]) -> dict:
         "instructions": "Review each response against the request and evidence. Label pass, fail, or abstain (incomplete evaluation record). Add your rationale and reviewer name/alias. Prior labels and judge outputs are intentionally omitted. This is response quality, not merely task completion.",
         "rubric": {
             "pass": "Fully grounded, relevant, and complete for the supplied evidence; truthful failure or clarification may pass.",
-            "fail": "Unsupported claims, wrong answer, or missing required information.",
-            "abstain": "Evaluation record is incomplete or unusable; do not abstain on an unsupported success claim when the supplied record establishes that support is absent.",
+            "fail": "Material assertions unsupported by the supplied record, including explicit success/agreement claims whose evidence was omitted; proven contradictions or missing required information.",
+            "abstain": "Candidate/request is unusable or material claims cannot be identified. Missing support for an identifiable assertion means fail; a verified stored-state report may pass even when task completion is unknown.",
         },
         "cases": [{"id": f"case-{index:04d}", **{field: case[field] for field in REVIEW_FIELDS},
                    "label": None, "rationale": "", "reviewer": ""} for index, case in enumerate(cases)],
