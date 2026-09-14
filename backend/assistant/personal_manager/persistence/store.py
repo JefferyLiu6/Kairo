@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import uuid
 from datetime import date, timedelta
 from typing import Any, Optional
@@ -461,20 +462,35 @@ def _todos_path(session_id: str, data_dir: str) -> str:
 
 def load_todos(session_id: str, data_dir: str) -> TodoData:
     path = _todos_path(session_id, data_dir)
-    if not os.path.exists(path):
-        return TodoData()
     try:
         with open(path, encoding="utf-8") as f:
             return TodoData.model_validate_json(f.read())
-    except Exception:
+    except FileNotFoundError:
         return TodoData()
+    except Exception as exc:
+        # An unreadable existing file is not an empty task list. In particular,
+        # never let a subsequent add replace corrupt state with a fresh list.
+        raise ValueError("Task storage is unavailable or invalid; existing data was not changed") from exc
 
 
 def save_todos(data: TodoData, session_id: str, data_dir: str) -> None:
     path = _todos_path(session_id, data_dir)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(data.model_dump_json(indent=2))
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    temporary = None
+    try:
+        # Serialize and flush a sibling file before replacing the old one. This
+        # prevents partial JSON after an interrupted write, not concurrent lost updates.
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory,
+                                         suffix=".tmp", delete=False) as f:
+            temporary = f.name
+            f.write(data.model_dump_json(indent=2))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def todo_add(title: str, due: Optional[str], session_id: str, data_dir: str) -> str:

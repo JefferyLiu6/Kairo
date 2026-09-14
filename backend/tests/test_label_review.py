@@ -85,3 +85,11 @@ def test_review_cannot_silently_reuse_old_scoring_policy():
     packet["rubric_version"] = "response-quality-v1"
     with pytest.raises(ValueError, match="rubric"):
         apply_packet(source, packet)
+
+
+def test_prior_rubric_packet_requires_review_under_new_version():
+    source = cases()
+    packet = completed(source)
+    packet['rubric_version'] = 'response-quality-v3'
+    with pytest.raises(ValueError, match='another rubric'):
+        apply_packet(source, packet)

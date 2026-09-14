@@ -21,7 +21,7 @@ from .prompts import (
     TRANSLATOR_SYSTEM,
 )
 from .router import is_likely_pm_needed, parse_router_verdict
-from .translator import StructuredAction, build_retry_prompt, parse_translator_response
+from .translator import StructuredAction, build_retry_prompt, parse_translator_response, is_safe_read_retry
 from .harness import (
     HarnessVerdict,
     build_fallback_reply,
@@ -340,7 +340,14 @@ async def _astream_orchestrator(
             break
 
         if verdict.verdict == "retry" and attempt < MAX_RETRIES and verdict.suggested_fix:
-            current_action = build_retry_prompt(current_action, verdict.suggested_fix)
+            candidate = build_retry_prompt(current_action, verdict.suggested_fix)
+            if not is_safe_read_retry(candidate):
+                final_verdict = HarnessVerdict(
+                    "fallback", 0.0, "Retry prompt is not a supported read; retry blocked", "", "read_failed",
+                )
+                emit("recovery", outcome="unsafe_read_retry_blocked")
+                break
+            current_action = candidate
             retry_count += 1
             continue
 
@@ -352,6 +359,20 @@ async def _astream_orchestrator(
         wm.invalidate_pm_cache()
 
     # ── Step 5: build reply ───────────────────────────────────────────────────
+    if final_verdict and final_verdict.verdict == "pass":
+        yield ("progress", "Putting it together…")
+        try:
+            reply = _humanize(message, pm_output, memory_ctx, config)
+            if not isinstance(reply, str) or not reply.strip():
+                raise ValueError("Empty response")
+        except Exception:
+            # Execution may already have committed. Formatting failure must never
+            # replay the action or escape without an honest completion response.
+            final_verdict = HarnessVerdict(
+                "fallback", 0.0, "Response generation unavailable", "", "null",
+            )
+            emit("recovery", outcome="response_generation_failed")
+
     if final_verdict and final_verdict.verdict != "pass":
         cached = wm.get_cached_pm(action.cache_key()) if not action.is_write else None
         reply = build_fallback_reply(action, final_verdict, cached)
@@ -365,9 +386,6 @@ async def _astream_orchestrator(
             retry_count=retry_count,
             fallback_reply=reply,
         )
-    else:
-        yield ("progress", "Putting it together…")
-        reply = _humanize(message, pm_output, memory_ctx, config)
 
     wm.add_turn("user", message)
     wm.add_turn("assistant", reply)
