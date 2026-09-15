@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+import json
 import os
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Optional
@@ -196,18 +197,22 @@ def _humanize(
     memory_ctx: str,
     config: OrchestratorConfig,
 ) -> str:
-    llm = _llm(config)
     clean_output = _strip_json_blocks(pm_output)
     if not clean_output:
-        result_section = "The PM agent processed the request but returned no readable output. Reply to the user's message based on context alone."
-    else:
-        result_section = clean_output
-    user_prompt = (
-        f"User message: {message}\n\n"
-        f"PM agent result:\n{result_section}\n\n"
-        f"Context:\n{memory_ctx}"
-    )
-    return _invoke(llm, HUMANIZER_SYSTEM, user_prompt)
+        # Existing orchestrator recovery handles this without replaying a write.
+        raise ValueError("No readable PM result to humanize")
+    from assistant.personal_manager.persistence.store import _pm_dir
+    profile = load_profile(_pm_dir(config.user_id, config.data_dir))
+    wm = get_working_memory(config.user_id, config.session_id)
+    # Do not parse role prefixes from a flattened transcript or recycle assistant
+    # personalization as evidence. Keep only actual user-role records.
+    user_messages = [t["content"] for t in wm.turns if t.get("role") == "user"]
+    payload = json.dumps({
+        "user_message": message,
+        "pm_result": clean_output,
+        "personalization_sources": {"profile": profile, "user_messages": user_messages},
+    })
+    return _invoke(_llm(config), HUMANIZER_SYSTEM, payload)
 
 
 # ── Direct reply (no PM) ──────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ def test_real_orchestrator_control_flow_with_stubbed_models(monkeypatch, expande
         if system == agent.HARNESS_SYSTEM:
             return json.dumps(dict(verdict="pass", confidence=.9, reason="fixture", suggested_fix="", failure_type="null"))
         if system == agent.HUMANIZER_SYSTEM:
-            return "Final reply: " + payload.split("PM agent result:\n")[1].split("\n\nContext:")[0]
+            return "Final reply: " + json.loads(payload)["pm_result"]
         raise AssertionError("Unexpected model call")
 
     monkeypatch.setattr(agent, "_invoke", invoke)
