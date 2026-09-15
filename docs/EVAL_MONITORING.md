@@ -284,3 +284,8 @@ See [JUDGE_CITATIONS_V8.md](JUDGE_CITATIONS_V8.md) for source-bound citation IDs
 ## Unsupported tomorrow claims
 
 [Calendar confirmation guard v2](TOMORROW_CLAIM_GUARD.md) corrects a bounded unsupported date relationship while preserving the model grade. Verification uses saved-output replay and contrast tests, not a new live-model measurement.
+
+
+## Structured evidence context (experimental v9)
+
+See [STRUCTURED_EVALUATION_CONTEXT.md](STRUCTURED_EVALUATION_CONTEXT.md) for typed timestamp/timezone fields, explicit missing-response abstention, metadata-bound reviews and model-versus-evaluator denominators. Offline checks passed; no live v9 result yet.

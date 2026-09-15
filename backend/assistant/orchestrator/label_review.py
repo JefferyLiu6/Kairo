@@ -17,7 +17,8 @@ REVIEW_FIELDS = ("request", "response", "evidence")
 
 def digest(cases: list[dict]) -> str:
     # Labels are intentionally excluded; exact examples, including ordering, are bound.
-    content = [{field: case[field] for field in FIELDS} for case in cases]
+    content = [{**{field: case[field] for field in FIELDS},
+                **({"evaluation_context": case["evaluation_context"]} if "evaluation_context" in case else {})} for case in cases]
     return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -33,6 +34,7 @@ def export_packet(cases: list[dict]) -> dict:
             "abstain": "Candidate is unusable or material claims cannot be assessed. Missing request does not hide an identifiable unsupported execution assertion; fail that assertion, otherwise abstain if the request gap prevents grading. A verified stored-state report may pass even when task completion is unknown.",
         },
         "cases": [{"id": f"case-{index:04d}", **{field: case[field] for field in REVIEW_FIELDS},
+                   **({"evaluation_context": case["evaluation_context"]} if "evaluation_context" in case else {}),
                    "label": None, "rationale": "", "reviewer": ""} for index, case in enumerate(cases)],
     }
 
@@ -60,6 +62,8 @@ def apply_packet(cases: list[dict], packet: dict) -> list[dict]:
         entry = by_id.get(f"case-{index:04d}")
         if entry is None or any(entry.get(field) != case[field] for field in REVIEW_FIELDS):
             raise ValueError("Reviewed example content changed or is missing")
+        if entry.get("evaluation_context") != case.get("evaluation_context"):
+            raise ValueError("Reviewed evaluation context changed")
         if entry.get("label") not in ("pass", "fail", "abstain"):
             raise ValueError("Every example requires a completed label")
         for field in ("reviewer", "rationale"):
