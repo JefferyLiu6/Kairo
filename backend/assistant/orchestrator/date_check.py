@@ -10,7 +10,7 @@ import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-DATE_CHECK_VERSION = 'calendar-facts-v1'
+DATE_CHECK_VERSION = 'calendar-facts-v2'
 _ENGLISH_DATE = r'[A-Za-z]+ \d{1,2}, \d{4}'
 _ZONE = r'[A-Za-z_+-]+(?:/[A-Za-z_+-]+)+'
 _ISO_TIMESTAMP = r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})'
@@ -152,3 +152,25 @@ def unsupported_tomorrow_confirmation(request: str, response: str, evidence: str
                   'relationship is unsupported; the stored date itself is not disproved.',
         'evidence_quote': answer['claim'],
     }
+
+
+def structured_calendar_facts(request: str, context) -> dict:
+    """Compute calendar facts from validated metadata; never parse candidate prose."""
+    result = {'version': DATE_CHECK_VERSION, 'status': 'unsupported',
+              'source': 'structured_evaluation_context'}
+    if (not re.fullmatch(r'(?:schedule|book) [^\n.!?]+ for tomorrow[.!]?', request.strip(), re.I)
+            or re.search(r'\b(?:and|then|or)\b|[;"\']', request, re.I)):
+        return result
+    if any(v is None for v in (context.request_timestamp, context.user_timezone, context.stored_date)):
+        return {**result, 'reason': 'Structured calendar fields incomplete'}
+    instant = datetime.fromisoformat(context.request_timestamp.replace('Z', '+00:00'))
+    local = instant.astimezone(ZoneInfo(context.user_timezone))
+    try:
+        expected = local.date() + timedelta(days=1)
+    except OverflowError:
+        return {**result, 'status': 'invalid', 'reason': 'Requested date outside supported range'}
+    return {**result, 'status': 'checked', 'timezone': context.user_timezone,
+            'request_local_date': local.date().isoformat(), 'request_local_timestamp': local.isoformat(),
+            'requested_date': expected.isoformat(), 'stored_date': context.stored_date,
+            'stored_date_matches_request': expected.isoformat() == context.stored_date,
+            'scope': 'Stored-date alignment only; does not grade response quality or authorize actions'}

@@ -1,5 +1,5 @@
 """Problem-specific judge metrics with inspectable denominators, not a composite quality score."""
-METRICS_VERSION = 'judge-metrics-v2'
+METRICS_VERSION = 'judge-metrics-v3'
 
 
 def reliability_metrics(rows):
@@ -32,7 +32,7 @@ def reliability_metrics(rows):
             'How often does the judge abstain on examples with a pass/fail reference?', 'lower',
             'Reference labels can be disputed; errors are reported separately.'),
         'usable_verdict_rate': metric(sum(r['status'] == 'ok' for r in rows), len(rows),
-            'Does the judge return a schema-valid verdict, including deliberate abstention?', 'higher',
+            'Does the evaluator return a usable decision, including explicit missing-response abstention?', 'higher',
             'A valid verdict can still be wrong. This is operational reliability.'),
     }
     recalls = [results[k]['value'] for k in ('failure_detection_recall', 'good_answer_acceptance')]

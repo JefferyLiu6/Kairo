@@ -37,6 +37,7 @@ def capture() -> list[dict]:
             cases.append({
                 "id": case_id, "category": "captured_task_workflow",
                 "request": request, "response": reply,
+                "evaluation_context": {"response_available": True},
                 "evidence": json.dumps({"source": "independent local task store snapshot",
                                         "before": before, "after": after}, sort_keys=True),
                 "expected": None,

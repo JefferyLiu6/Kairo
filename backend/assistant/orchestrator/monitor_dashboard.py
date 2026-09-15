@@ -31,6 +31,12 @@ def report_summary(report: dict, name: str) -> dict:
             raise ValueError('Unknown or missing row status')
         if row.get('label') not in LABELS or row.get('expected') not in LABELS | {None}:
             raise ValueError('Unknown row label')
+        if 'model_invoked' in row and type(row['model_invoked']) is not bool:
+            raise ValueError('Model invocation flag must be boolean')
+        if row.get('model_invoked') is False and ('model_label' in row or 'calendar_guard' in row):
+            raise ValueError('Skipped model cannot have a model label or override')
+        if row.get('decision_source') == 'missing_response' and (row.get('model_invoked') is not False or row['label'] != 'abstain' or row['status'] != 'ok'):
+            raise ValueError('Invalid missing-response precheck record')
         if 'model_label' in row and row['model_label'] not in LABELS:
             raise ValueError('Unknown original model label')
         if 'label_overridden' in row and type(row['label_overridden']) is not bool:
@@ -55,14 +61,15 @@ def report_summary(report: dict, name: str) -> dict:
     positives = [r for r in labeled if r['expected'] == 'pass']
     unknowns = [r for r in labeled if r['expected'] == 'abstain']
     assessable = [r for r in labeled if r['expected'] != 'abstain']
-    durations = [r['duration_ms'] for r in rows if type(r.get('duration_ms')) in (int, float)
+    durations = [r['duration_ms'] for r in rows if r.get('model_invoked', True) and type(r.get('duration_ms')) in (int, float)
                  and math.isfinite(r['duration_ms']) and r['duration_ms'] >= 0]
     final_match = sum(r['status'] == 'ok' and r['label'] == r['expected'] for r in labeled)
-    raw_match = sum(r['status'] == 'ok' and r.get('model_label', r['label']) == r['expected'] for r in labeled)
+    model_labeled = [r for r in labeled if r.get('model_invoked', True)]
+    raw_match = sum(r['status'] == 'ok' and r.get('model_label', r['label']) == r['expected'] for r in model_labeled)
     eligible = [r for r in ok if 'calendar_guard' in r]
     overrides = sum(r['label'] != r['model_label'] for r in eligible)
     detail = [{'case': i + 1, 'reference': r.get('expected') or 'unreviewed',
-               'model': r.get('model_label', r['label']) if r['status'] == 'ok' else 'No grade',
+               'model': r.get('model_label', r['label']) if r['status'] == 'ok' and r.get('model_invoked', True) else 'No model grade',
                'final': r['label'] if r['status'] == 'ok' else 'No grade', 'status': r['status'],
                'guard': 'Applied' if 'calendar_guard' in r else '—'} for i, r in enumerate(rows)]
     return {'name': name, 'kind': kind, 'mode': mode, 'live_latency': live,
@@ -71,7 +78,9 @@ def report_summary(report: dict, name: str) -> dict:
             'rubric_hash': str(metadata.get('rubric_sha256', 'Not recorded')),
             'recorded_at': str(metadata.get('created_at', 'Not recorded')),
             'cases': len(rows), 'label_coverage': ratio(len(labeled), len(rows)),
-            'model_agreement': ratio(raw_match, len(labeled)), 'final_agreement': ratio(final_match, len(labeled)),
+            'model_agreement': ratio(raw_match, len(model_labeled)),
+            'model_coverage': ratio(len(model_labeled), len(labeled)),
+            'deterministic_abstentions': sum(r.get('decision_source') == 'missing_response' for r in rows), 'final_agreement': ratio(final_match, len(labeled)),
             'failure_detection': ratio(sum(r['status'] == 'ok' and r['label'] == 'fail' for r in negatives), len(negatives)),
             'good_acceptance': ratio(sum(r['status'] == 'ok' and r['label'] == 'pass' for r in positives), len(positives)),
             'uncertainty_recall': ratio(sum(r['status'] == 'ok' and r['label'] == 'abstain' for r in unknowns), len(unknowns)),
@@ -118,8 +127,8 @@ def render(snapshot: dict) -> str:
         return escape(str(value), quote=True)
     cards = []
     definitions = [
-        ('model_agreement', 'Model agreement', 'Original model verdicts matching human response-quality labels.'),
-        ('final_agreement', 'Final agreement', 'After calendar rules. Same labels and denominator as model agreement.'),
+        ('model_agreement', 'Model agreement', 'Original model verdicts over labeled model attempts; prechecks excluded.'),
+        ('final_agreement', 'Final agreement', 'Evaluator decisions over all labeled rows, including prechecks and calendar rules.'),
         ('failure_detection', 'Failure detection', 'Human-failed answers rejected. Errors and abstentions count as misses.'),
         ('good_acceptance', 'Good-answer acceptance', 'Human-passed answers accepted. Prevents an always-fail judge looking useful.'),
         ('uncertainty_recall', 'Uncertainty recall', 'Human-abstain answers correctly abstained on. Task labels do not count here.'),
@@ -135,7 +144,7 @@ def render(snapshot: dict) -> str:
         cards.append(f'''<section class="run" id="run-{i}"><div class="eyebrow">{e(run['kind'])}</div>
 <h2>{e(run['name'])}</h2><p class="meta">{e(run['model'])} · {e(run['rubric'])}<br>Recorded: {e(run['recorded_at'])}</p>
 <div class="grid">{metric_cards}</div>
-<div class="strip"><div><b>Provider errors: {run['provider_errors']}</b><br>Invalid outputs: {run['invalid_outputs']}<br>Deliberate abstentions: {run['semantic_abstentions']}</div>
+<div class="strip"><div><b>Provider errors: {run['provider_errors']}</b><br>Invalid outputs: {run['invalid_outputs']}<br>Model coverage: {fraction(run['model_coverage'])}<br>Precheck abstentions: {run['deterministic_abstentions']}<br>Deliberate abstentions: {run['semantic_abstentions']}</div>
 <div><b>Calendar rule matches: {run['guard_matches']}</b><br>Label overrides: {run['guard_overrides']}<br>Rules do not authorize actions.</div>
 <div><b>{latency_name}</b><br>{timing}<br>{run['latency_samples']}/{run['cases']} rows have usable timing.</div></div>
 <details><summary>Inspect {run['cases']} decisions</summary><div class="scroll"><table><thead><tr><th>Row</th><th>Human response label</th><th>Model</th><th>Final</th><th>Status</th><th>Calendar rule</th></tr></thead><tbody>{decisions}</tbody></table></div></details>

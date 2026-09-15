@@ -7,9 +7,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .date_check import calendar_facts, wrong_date_confirmation, unsupported_tomorrow_confirmation
+from .date_check import calendar_facts, wrong_date_confirmation, unsupported_tomorrow_confirmation, structured_calendar_facts
+from .evaluation_context import validate_context
 
-RUBRIC_VERSION = "response-quality-v8"
+RUBRIC_VERSION = "response-quality-v9"
 def citation_options(response: str, evidence: str) -> list[dict]:
     """Exact source-bound windows; identifiers are scoped to this evaluation record."""
     record = hashlib.sha256(json.dumps([response, evidence]).encode()).hexdigest()[:16]
@@ -144,7 +145,13 @@ for _title, _payload, _verdict in PROMPT_EXAMPLES:
     _quote = _verdict.pop("evidence_quote")
     _verdict["citation_id"] = next(o["id"] for o in _options if _quote in o["text"])
 
-RUBRIC = """ROLE AND SCOPE
+RUBRIC = """STRUCTURED RECORD CONTEXT
+When supplied, evaluation_context contains exporter metadata rather than candidate assertions.
+Use computed calendar_facts for date conversion; do not substitute the UTC calendar date
+for the user-local date. Missing metadata is not supplied by claims inside candidate text.
+A correctly stored date alone does not guarantee honest or complete response wording.
+
+ROLE AND SCOPE
 You are a response-quality evaluator for Kairo, a personal-management assistant.
 Evaluate only the supplied candidate answer against the user request and tool evidence.
 Task execution success, authorization, and response quality are separate measurements.
@@ -306,21 +313,36 @@ def parse_quality_verdict(raw: str, response: str, evidence: str) -> QualityVerd
     return verdict
 
 
-def judge_payload(request: str, response: str, evidence: str) -> str:
-    return json.dumps({"request": request, "response": response, "tool_evidence": evidence,
-                       "calendar_facts": calendar_facts(request, evidence),
-                       "citation_options": citation_options(response, evidence)})
+def judge_payload(request: str, response: str, evidence: str, evaluation_context=None) -> str:
+    context = validate_context(evaluation_context, response)
+    facts = (structured_calendar_facts(request, context) if context is not None
+             else calendar_facts(request, evidence))
+    payload = {"request": request, "response": response, "tool_evidence": evidence,
+               "calendar_facts": facts, "citation_options": citation_options(response, evidence)}
+    if context is not None:
+        payload["evaluation_context"] = context.model_dump()
+    return json.dumps(payload)
 
 
-def evaluate_response(invoke, request: str, response: str, evidence: str) -> dict:
-    """One judge attempt; invalid output and provider errors are explicit missing scores."""
+def evaluate_response(invoke, request: str, response: str, evidence: str, evaluation_context=None) -> dict:
+    """Explicit absence abstains without a model; operational errors remain separate."""
     try:
-        raw = invoke(RUBRIC, judge_payload(request, response, evidence))
+        context = validate_context(evaluation_context, response)
+        if context is not None and not context.response_available:
+            return {"status": "ok", "label": "abstain", "scores": None,
+                    "model_invoked": False, "decision_source": "missing_response",
+                    "reason": "Exporter marks candidate response unavailable; no response to assess"}
+        payload = judge_payload(request, response, evidence, evaluation_context)
+    except (ValidationError, ValueError, TypeError):
+        return {"status": "invalid", "label": "abstain", "scores": None,
+                "model_invoked": False, "decision_source": "invalid_evaluation_context"}
+    try:
+        raw = invoke(RUBRIC, payload)
     except Exception:
         return {"status": "provider_error", "label": "abstain", "scores": None}
     try:
         verdict = parse_quality_verdict(raw, response, evidence)
-        facts = calendar_facts(request, evidence)
+        facts = json.loads(payload)["calendar_facts"]
         result = {"status": "ok", "label": verdict.label, "scores": verdict.model_dump(),
                   "calendar_facts": facts}
         wire = json.loads(raw)
@@ -332,7 +354,8 @@ def evaluate_response(invoke, request: str, response: str, evidence: str) -> dic
         else:
             result["citation_format"] = "legacy-exact-quote"
         guard = (wrong_date_confirmation(request, response, facts)
-                 or unsupported_tomorrow_confirmation(request, response, evidence))
+                 or (unsupported_tomorrow_confirmation(request, response, evidence)
+                     if context is None else None))
         if guard is not None:
             # Preserve the actual model decision so final-system agreement cannot
             # be mistaken for model-only accuracy. Never turn outages into grades.

@@ -11,6 +11,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 
+from .evaluation_context import validate_context
 from .judge_metrics import METRICS_VERSION, reliability_metrics, repeat_metrics
 from .quality_judge import RUBRIC, RUBRIC_VERSION, evaluate_response
 from .date_check import DATE_CHECK_VERSION, CALENDAR_GUARD_VERSION
@@ -19,7 +20,8 @@ DEFAULT_CASES = Path(__file__).parents[2] / "tests/fixtures/judge_cases.json"
 
 
 def content_hash(cases):
-    content = [{k: c[k] for k in ("id", "category", "request", "response", "evidence")} for c in cases]
+    content = [{**{k: c[k] for k in ("id", "category", "request", "response", "evidence")},
+                **({"evaluation_context": c["evaluation_context"]} if "evaluation_context" in c else {})} for c in cases]
     return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
 
@@ -28,6 +30,8 @@ def percentile(values: list[float], fraction: float) -> float | None:
 
 
 def summarize(rows: list[dict]) -> dict:
+    model_rows = [r for r in rows if r.get("model_invoked", True)]
+    model_labeled = [r for r in model_rows if r.get("expected") is not None]
     scored = [r for r in rows if r["status"] == "ok" and r["label"] != "abstain"]
     labeled = [r for r in rows if r["expected"] is not None]
     labeled_scored = [r for r in scored if r["expected"] is not None]
@@ -45,10 +49,13 @@ def summarize(rows: list[dict]) -> dict:
         "cases": len(rows), "scored": len(scored), "labeled_cases": len(labeled),
         "calendar_guard_cases": sum("calendar_guard" in r for r in rows),
         "calendar_guard_overrides": sum(bool(r.get("label_overridden")) for r in rows),
+        "model_attempts": len(model_rows),
+        "deterministic_abstentions": sum(r.get("decision_source") == "missing_response" for r in rows),
+        "model_agreement_attempted": sum(r["status"] == "ok" and r.get("model_label", r["label"]) == r["expected"] for r in model_labeled) / len(model_labeled) if model_labeled else None,
         "model_agreement_all_cases": sum(
             r["status"] == "ok" and r.get("model_label", r["label"]) == r["expected"]
             for r in rows
-        ) / len(rows) if rows and len(labeled) == len(rows) else None,
+        ) / len(rows) if rows and len(labeled) == len(rows) and len(model_rows) == len(rows) else None,
         "judge_abstentions": sum(r["status"] == "ok" and r["label"] == "abstain" for r in rows),
         "grading_failures": sum(r["status"] != "ok" for r in rows),
         "false_pass_rate_scored": sum(r["label"] == "pass" for r in scored_negatives) / len(scored_negatives) if scored_negatives else None,
@@ -61,8 +68,8 @@ def summarize(rows: list[dict]) -> dict:
         "invalid": sum(r["status"] == "invalid" for r in rows),
         "provider_errors": sum(r["status"] == "provider_error" for r in rows),
         "abstentions": sum(r["label"] == "abstain" for r in rows),
-        "latency_p50_ms": percentile([r["duration_ms"] for r in rows], .5),
-        "latency_p95_ms": percentile([r["duration_ms"] for r in rows], .95),
+        "latency_p50_ms": percentile([r["duration_ms"] for r in model_rows], .5),
+        "latency_p95_ms": percentile([r["duration_ms"] for r in model_rows], .95),
         "confusion_matrix": matrix,
     }
 
@@ -74,7 +81,10 @@ def validate_cases(cases: list[dict], *, replay: bool) -> None:
     for case in cases:
         if not isinstance(case, dict):
             raise ValueError("Each case must be an object")
+        context = validate_context(case.get("evaluation_context"), case.get("response"))
         for field in ("id", "category", "request", "response", "evidence"):
+            if field == "response" and context is not None and not context.response_available:
+                continue
             if not isinstance(case.get(field), str) or not case[field].strip():
                 raise ValueError(f"Case requires nonempty string {field}")
         if case["id"] in seen:
@@ -95,7 +105,7 @@ def run(cases: list[dict], invoke=None, repeats: int = 1) -> dict:
         for repeat in range(repeats):
             started = time.perf_counter()
             caller = invoke if invoke is not None else lambda _s, _u, c=case: json.dumps(c["replay_verdict"])
-            result = evaluate_response(caller, case["request"], case["response"], case["evidence"])
+            result = evaluate_response(caller, case["request"], case["response"], case["evidence"], case.get("evaluation_context"))
             rows.append({
                 "id": case["id"], "category": case["category"], "repeat": repeat,
                 "expected": case["expected"], **result,
