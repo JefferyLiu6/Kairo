@@ -1,5 +1,6 @@
 """Schedule and calendar action executor."""
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import json
 from datetime import date, timedelta
@@ -100,7 +101,7 @@ def _format_schedule_list(session_id: str, data_dir: str) -> str:
     if not all_entries:
         return "Nothing on the schedule."
 
-    today = date.today()
+    today = local_today()
     window_end = today + timedelta(days=13)  # show 2 weeks ahead
 
     # Flatten: one-off events stay as-is; series get expanded over the window
@@ -176,7 +177,7 @@ def _format_google_schedule_list(session_id: str, data_dir: str) -> str:
         [_google_event_ref(event) for event in events],
         key=lambda ref: (ref["date"], ref["start"], ref["title"].lower()),
     )
-    today = date.today()
+    today = local_today()
     lines: list[str] = []
     current_day = ""
     for ref in refs:

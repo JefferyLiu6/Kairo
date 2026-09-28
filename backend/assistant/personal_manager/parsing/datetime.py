@@ -1,8 +1,9 @@
 """Date, time, and duration parsing helpers."""
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import re
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from .text import _norm
@@ -28,7 +29,7 @@ def _parse_date(text: str) -> Optional[str]:
     match = _DATE_RE.search(text)
     if match:
         return match.group(1)
-    today = date.today()
+    today = local_today()
     if "today" in lower or re.search(r"\btdy\b", lower):
         return today.isoformat()
     if "tomorrow" in lower or re.search(r"\b(tmr|tmrw)\b", lower):
@@ -57,7 +58,7 @@ def _parse_destination_date(text: str) -> Optional[str]:
         return None
     captured = match.group(1).strip().lower()
     if re.fullmatch(r"next\s+week", captured):
-        today = date.today()
+        today = local_today()
         days_to_next_monday = (0 - today.weekday()) % 7 or 7
         return (today + timedelta(days=days_to_next_monday)).isoformat()
     return _parse_date(captured)

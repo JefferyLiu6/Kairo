@@ -1,8 +1,8 @@
 """Deterministic entity extraction for personal-manager intents."""
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import re
-from datetime import date
 from typing import Any
 
 from ..application.validators import _contains_sensitive_terms
@@ -173,7 +173,7 @@ def extract_pm_entities(message: str, intent: PMIntent) -> dict[str, Any]:
 
     if intent == PMIntent.CANCEL_SERIES_FROM:
         entities["query"] = _clean_lookup_query(text)
-        entities["from_date"] = _parse_date(text) or date.today().isoformat()
+        entities["from_date"] = _parse_date(text) or local_today().isoformat()
         return entities
 
     if intent == PMIntent.LIST_STATE:

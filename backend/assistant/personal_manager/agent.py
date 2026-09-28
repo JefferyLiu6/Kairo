@@ -26,7 +26,7 @@ import json
 import os
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from assistant.shared.calendar_clock import local_now
 from typing import Any, AsyncIterator, Callable, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -198,7 +198,7 @@ def get_thread_messages(user_id: str, thread_id: str, data_dir: str) -> list[dic
 # ── Context block (shared by run_pm and astream_pm) ───────────────────────────
 
 def _build_context_block(config: PMConfig) -> str:
-    now = datetime.now(timezone.utc).astimezone()
+    now = local_now()
     date_ctx = (
         f"## Current date/time\n"
         f"Today: {now.strftime('%A, %B %d, %Y')}  "

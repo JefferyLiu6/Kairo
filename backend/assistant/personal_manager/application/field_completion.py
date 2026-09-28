@@ -1,9 +1,10 @@
 """Preference-scored missing-field completion for PM plans."""
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any, Optional
 
 from ..calendar.service import CalendarService, is_google_calendar_connected
@@ -277,7 +278,7 @@ def _candidate_dates(task: PMTaskExtraction, missing: list[str]) -> list[str]:
         return [str(existing)]
     if task.intent == PMIntent.UPDATE_SCHEDULE_EVENT and existing:
         return [str(existing)]
-    today = date.today()
+    today = local_today()
     if task.entities.get("date_bias") == "today":
         return [(today + timedelta(days=offset)).isoformat() for offset in range(0, 7)]
     return [(today + timedelta(days=offset)).isoformat() for offset in range(1, 8)]
@@ -648,7 +649,7 @@ def _load_calendar_events(session_id: str, data_dir: str) -> list[dict[str, Any]
         entries = load_schedule(session_id, data_dir).entries
     except Exception:
         return []
-    today = date.today()
+    today = local_today()
     window_end = today + timedelta(days=30)
     events: list[dict[str, Any]] = []
     for entry in entries:

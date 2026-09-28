@@ -1,5 +1,6 @@
 """Auth endpoints: signup, login, logout, /me, /csrf, /demo."""
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import logging
 import os
@@ -319,7 +320,7 @@ def verify_csrf(request: Request) -> None:
 def _seed_demo_user(user_id: str, data_dir: str) -> None:
     """Seed a fresh demo account with realistic sample data."""
     import re as _re
-    from datetime import date, timedelta
+    from datetime import timedelta
     from assistant.personal_manager.persistence.store import (
         ScheduleData, ScheduleEntry, RecurrenceRule, TodoData, TodoItem,
         save_schedule, save_todos,
@@ -329,7 +330,7 @@ def _seed_demo_user(user_id: str, data_dir: str) -> None:
     from assistant.personal_manager.persistence.store import _pm_dir
     from assistant.personal_manager.persistence.control_store import pm_db_path
 
-    today = date.today()
+    today = local_today()
     tomorrow = today + timedelta(days=1)
     this_friday = today + timedelta(days=(4 - today.weekday()) % 7 or 7)
     next_monday = today + timedelta(days=(7 - today.weekday()) % 7 or 7)

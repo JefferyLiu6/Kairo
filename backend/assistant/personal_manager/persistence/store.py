@@ -7,6 +7,7 @@ Schedule and private metadata are stored per-session under:
   data/personal-manager/<base64url-session-id>/todos.json
 """
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import json
 import os
@@ -550,7 +551,7 @@ def get_upcoming_events(session_id: str, data_dir: str, days: int = 1) -> list[d
     from datetime import date, timedelta
 
     data = load_schedule(session_id, data_dir)
-    today = date.today()
+    today = local_today()
     safe_days = max(1, days)
     window = {today + timedelta(days=i) for i in range(safe_days)}
     window_end = today + timedelta(days=safe_days - 1)

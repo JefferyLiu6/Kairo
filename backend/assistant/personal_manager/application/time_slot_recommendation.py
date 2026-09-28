@@ -1,5 +1,6 @@
 """Non-mutating time-slot recommendations for the Kairo."""
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import re
 from dataclasses import dataclass
@@ -115,7 +116,7 @@ def _parse_time_slot_request(message: str) -> _SlotRequest | None:
     start = _parse_time(message)
     if not start:
         return None
-    slot_date = _parse_date(message) or date.today().isoformat()
+    slot_date = _parse_date(message) or local_today().isoformat()
     return _SlotRequest(date=slot_date, start=start, end=_default_end_time(start))
 
 

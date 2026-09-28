@@ -1,5 +1,6 @@
 """Calendar recurrence parsing helpers."""
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import re
 from datetime import date, timedelta
@@ -53,7 +54,7 @@ def _parse_until_date(text: str) -> Optional[str]:
         "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
         "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
     }
-    today = date.today()
+    today = local_today()
     match = re.search(r"\buntil\s+(\w+)\s+(\d{1,2})(?:,?\s*(\d{4}))?\b", lower)
     if match:
         month_name, day_str = match.group(1), match.group(2)
@@ -97,7 +98,7 @@ def _parse_until_date(text: str) -> Optional[str]:
 def _parse_recurrence_start_date(text: str) -> Optional[str]:
     """Parse recurrence range starts such as 'next month' -> first day of next month."""
     lower = text.lower()
-    today = date.today()
+    today = local_today()
     if re.search(r"\bthis\s+month\b", lower):
         return date(today.year, today.month, 1).isoformat()
     if re.search(r"\bnext\s+month\b", lower):
@@ -117,7 +118,7 @@ def _parse_next_week_date(text: str) -> Optional[str]:
     """Return the date of the same weekday next week, or Monday next week for 'next week'."""
     lower = text.lower()
     if re.search(r"\bnext\s+week\b", lower):
-        today = date.today()
+        today = local_today()
         days_to_monday = (7 - today.weekday()) % 7
         if days_to_monday == 0:
             days_to_monday = 7
@@ -128,7 +129,7 @@ def _parse_next_week_date(text: str) -> Optional[str]:
 def _parse_next_weekday_ref(text: str) -> Optional[str]:
     """Parse 'this Friday', 'next Monday', "this week's Thursday", etc. -> YYYY-MM-DD."""
     lower = text.lower()
-    today = date.today()
+    today = local_today()
     weekday_map = {
         "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
         "friday": 4, "saturday": 5, "sunday": 6,
