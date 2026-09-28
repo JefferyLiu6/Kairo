@@ -429,6 +429,20 @@ def test_delete_schedule_event_creates_approval_without_mutation(tmp_path):
     assert len(schedule.entries) == 1
     assert len(approvals) == 1
     assert approvals[0].action_type == "schedule_remove"
+    from assistant.personal_manager.persistence.decision_log import list_turn_decisions
+    decisions = list_turn_decisions("pm-demo", str(tmp_path))
+    assert decisions[0]["routing"]["mode"] == "awaiting_approval"
+
+
+def test_mixed_plan_pending_approval_does_not_claim_all_done():
+    pending = (
+        "Approval required [6f4e04fe]: Remove schedule event: Morning run\n"
+        "Risk: medium.\n"
+        "Reply `approve 6f4e04fe` to go ahead, or `reject 6f4e04fe` to cancel."
+    )
+    reply = pm_workflow._format_plan_results([("Add task", "Added task."), ("Delete run", pending)])
+    assert reply.startswith("Some actions need your approval:")
+    assert pending in reply
 
 
 def test_approving_schedule_delete_executes_once(tmp_path):
@@ -2011,7 +2025,7 @@ def test_plan_queues_risky_action_and_runs_later_safe_action(tmp_path):
     approvals = list_approval_requests("pm-demo", str(tmp_path), status="pending")
     todos = load_todos("pm-demo", str(tmp_path))
     schedule = load_schedule("pm-demo", str(tmp_path))
-    assert "All done:" in reply
+    assert "Some actions need your approval:" in reply
     assert len(approvals) == 1
     assert approvals[0].action_type == "schedule_remove"
     assert [item.title for item in todos.items] == ["call John"]

@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from .control_store import pm_db_path, _conn as _ctrl_conn
+from ..domain.approval_response import has_pending_approval
 
 
 # ── Schema ────────────────────────────────────────────────────────────────────
@@ -253,7 +254,8 @@ def log_orchestrator_turn(
             if route == "DELEGATE"
             else f"[orchestrator] route={route} | {route_reason}"
         )
-        memory_written = ["profile"] if is_write else []
+        pending_approval = has_pending_approval(reply)
+        memory_written = ["profile"] if is_write and not pending_approval else []
         with _ctrl_conn(pm_db_path(session_id, data_dir)) as conn:
             conn.execute(
                 """
@@ -288,8 +290,10 @@ def log_orchestrator_turn(
                     json.dumps(task_intents, ensure_ascii=False),
                     confidence,
                     "orchestrator",
-                    "EXECUTED" if harness_verdict in ("pass", "n/a") else harness_verdict.upper(),
-                    routing_reason,
+                    "AWAITING_APPROVAL" if pending_approval else (
+                        "EXECUTED" if harness_verdict in ("pass", "n/a") else harness_verdict.upper()
+                    ),
+                    "approval required; requested action is pending" if pending_approval else routing_reason,
                     None,           # blocker_type
                     "[]",           # blocker_missing
                     json.dumps([{"id": "pm_prompt", "label": pm_prompt[:200]}], ensure_ascii=False),
