@@ -13,6 +13,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from assistant.shared.llm_env import build_llm
 from assistant.personal_manager.agent import PMConfig, astream_pm
 from assistant.personal_manager.domain.approval_response import has_pending_approval
+from assistant.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
 
 from .telemetry import emit, observed, span
 from .memory import build_memory_context, get_working_memory, load_profile
@@ -284,8 +285,26 @@ async def _astream_orchestrator(
 
     # ── Step 1: route ─────────────────────────────────────────────────────────
     yield ("progress", "Thinking…")
-    approval_command = re.fullmatch(r"(?:approve|reject)\s+[0-9a-f]{8}", message.strip(), re.I)
-    needs_pm = bool(approval_command) or _route(message, memory_ctx, config)
+    approval_command = re.fullmatch(r"(approve|reject)(?:\s+[0-9a-f]{8})?", message.strip(), re.I)
+    if approval_command:
+        # The approval service enforces ownership, thread scope and execute-once
+        # semantics, and returns the persisted action result. Do not ask a model
+        # to reinterpret that result (including failures and pending choices).
+        verb = approval_command.group(1).lower()
+        action = StructuredAction("approval", None, [], 1.0, message.strip().lower(), True)
+        try:
+            handler = approve_from_chat if verb == "approve" else reject_from_chat
+            reply = handler(action.pm_prompt, config)
+        except Exception:
+            reply = "I couldn't verify the approval result. Check your calendar or task list before trying again."
+        wm.invalidate_pm_cache()
+        wm.add_turn("user", message)
+        wm.add_turn("assistant", reply)
+        _log_turn(config, message, "APPROVAL", "Approval service result", action, None, reply, _turn_start)
+        yield ("token", reply)
+        yield ("done", reply)
+        return
+    needs_pm = _route(message, memory_ctx, config)
 
     if not needs_pm:
         # Direct reply
@@ -300,10 +319,7 @@ async def _astream_orchestrator(
 
     # ── Step 2: translate ─────────────────────────────────────────────────────
     yield ("progress", "Working out what you need…")
-    action = (
-        StructuredAction("approval", None, [], 1.0, message.strip().lower(), True)
-        if approval_command else _translate(message, memory_ctx, config)
-    )
+    action = _translate(message, memory_ctx, config)
 
     if action.needs_clarification():
         reply = _direct_reply(message, memory_ctx, config)
