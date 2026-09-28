@@ -262,6 +262,60 @@ async def _async_value(value: str) -> str:
     return value
 
 
+def test_pending_approval_bypasses_judge_and_humanizer(tmp_path, monkeypatch):
+    config = _config(tmp_path)
+    prompt = (
+        "Approval required [6f4e04fe]: Remove schedule event: Morning run\n"
+        "Risk: medium.\n"
+        "Reply `approve 6f4e04fe` to go ahead, or `reject 6f4e04fe` to cancel."
+    )
+    action = StructuredAction("delete_event", None, ["Morning run"], 0.95,
+                              "Delete my morning run", True)
+    calls = []
+
+    async def pending(*args):
+        calls.append(args)
+        return prompt
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Pending approval must not be judged, rewritten, or replaced by fallback")
+
+    monkeypatch.setattr(orch, "_route", lambda *args: True)
+    monkeypatch.setattr(orch, "_translate", lambda *args: action)
+    monkeypatch.setattr(orch, "_call_pm", pending)
+    monkeypatch.setattr(orch, "_judge", unexpected)
+    monkeypatch.setattr(orch, "_humanize", unexpected)
+    monkeypatch.setattr(orch, "log_fallback", unexpected)
+
+    assert _done(_run_events("Delete my morning run", config)) == prompt
+    assert len(calls) == 1
+    from assistant.personal_manager.persistence.decision_log import list_turn_decisions
+    decisions = list_turn_decisions(config.session_id, str(tmp_path))
+    assert decisions[0]["routing"]["mode"] == "AWAITING_APPROVAL"
+
+
+@pytest.mark.parametrize("verb", ["approve", "reject"])
+def test_explicit_approval_command_preserves_id(tmp_path, monkeypatch, verb):
+    config = _config(tmp_path)
+    message = f"{verb} 6f4e04fe"
+    calls = []
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Explicit approval commands must bypass model routing and translation")
+
+    async def execute(prompt, config):
+        calls.append(prompt)
+        return "Action handled."
+
+    monkeypatch.setattr(orch, "_route", unexpected)
+    monkeypatch.setattr(orch, "_translate", unexpected)
+    monkeypatch.setattr(orch, "_call_pm", execute)
+    monkeypatch.setattr(orch, "_judge", lambda *args: HarnessVerdict("pass", 1.0, "ok", "", "null"))
+    monkeypatch.setattr(orch, "_humanize", lambda *args: "Action handled.")
+    assert _done(_run_events(message, config)) == "Action handled."
+    assert calls == [message]
+
+
 def test_judge_cannot_trigger_a_second_write(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(orch, "_route", lambda *_: True)

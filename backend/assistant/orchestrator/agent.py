@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Optional
 
@@ -11,6 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from assistant.shared.llm_env import build_llm
 from assistant.personal_manager.agent import PMConfig, astream_pm
+from assistant.personal_manager.domain.approval_response import has_pending_approval
 
 from .telemetry import emit, observed, span
 from .memory import build_memory_context, get_working_memory, load_profile
@@ -282,7 +284,8 @@ async def _astream_orchestrator(
 
     # ── Step 1: route ─────────────────────────────────────────────────────────
     yield ("progress", "Thinking…")
-    needs_pm = _route(message, memory_ctx, config)
+    approval_command = re.fullmatch(r"(?:approve|reject)\s+[0-9a-f]{8}", message.strip(), re.I)
+    needs_pm = bool(approval_command) or _route(message, memory_ctx, config)
 
     if not needs_pm:
         # Direct reply
@@ -297,7 +300,10 @@ async def _astream_orchestrator(
 
     # ── Step 2: translate ─────────────────────────────────────────────────────
     yield ("progress", "Working out what you need…")
-    action = _translate(message, memory_ctx, config)
+    action = (
+        StructuredAction("approval", None, [], 1.0, message.strip().lower(), True)
+        if approval_command else _translate(message, memory_ctx, config)
+    )
 
     if action.needs_clarification():
         reply = _direct_reply(message, memory_ctx, config)
@@ -333,7 +339,13 @@ async def _astream_orchestrator(
         except Exception as exc:
             pm_output = f"Error: {exc}"
 
-        verdict = _judge(message, current_action, pm_output, profile, config)
+        # Pending approval is a valid workflow result, not a failed write.
+        # Preserve the control instructions without another model interpreting them.
+        verdict = (
+            HarnessVerdict("pass", 1.0, "Awaiting user approval; action not executed", "", "null")
+            if has_pending_approval(pm_output)
+            else _judge(message, current_action, pm_output, profile, config)
+        )
         verdict = enforce_retry_policy(current_action, verdict)
         emit("tool_verdict", verdict=verdict.verdict, retry_count=retry_count)
         final_verdict = verdict
@@ -367,7 +379,7 @@ async def _astream_orchestrator(
     if final_verdict and final_verdict.verdict == "pass":
         yield ("progress", "Putting it together…")
         try:
-            reply = _humanize(message, pm_output, memory_ctx, config)
+            reply = pm_output if has_pending_approval(pm_output) else _humanize(message, pm_output, memory_ctx, config)
             if not isinstance(reply, str) or not reply.strip():
                 raise ValueError("Empty response")
         except Exception:

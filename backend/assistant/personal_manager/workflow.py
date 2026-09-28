@@ -6,6 +6,7 @@ from typing import Any, Optional
 from .application import approval_flow as _approval_flow
 from .application import extraction as _extraction
 from .application.approval_flow import _format_approval_prompt
+from .domain.approval_response import has_pending_approval
 from .application.approval_policy import apply_approval_policy
 from .application.clarification import (
     _apply_clarification_to_plan,
@@ -710,6 +711,8 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, thread_id: str
     d.route("executed", "no blockers, plan executing")
     d.wm_after = "none"
     state.final_reply = _execute_pm_plan(plan, config, sid, thread_id=thread_id)
+    if has_pending_approval(state.final_reply):
+        d.route("awaiting_approval", "approval required; requested action is pending")
     if (len(plan.tasks) == 1 and plan.tasks[0].intent == PMIntent.LIST_STATE
             and plan.tasks[0].entities.get("target", "todos") == "todos"):
         if remember_todo_list(config, thread_id, sid, state.final_reply):
@@ -953,7 +956,11 @@ def _execute_pm_plan(plan: PMPlanExtraction, config: Any, session_id: str, *, th
 
 
 def _format_plan_results(results: list[tuple[str, str]], *, failure_step: Optional[int] = None) -> str:
-    heading = "I hit a problem partway through:" if failure_step is not None else "All done:"
+    heading = (
+        "I hit a problem partway through:" if failure_step is not None
+        else "Some actions need your approval:" if any(has_pending_approval(reply) for _, reply in results)
+        else "All done:"
+    )
     lines = [heading]
     for idx, (summary, reply) in enumerate(results, start=1):
         lines.append(f"{idx}. {summary}: {reply}")

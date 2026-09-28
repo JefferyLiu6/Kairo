@@ -30,6 +30,7 @@ function formatWhen(iso: string): string {
 
 function modeBadgeClass(mode: string): string {
   const m = mode.toLowerCase();
+  if (m === "awaiting_approval") return "trace-badge-block";
   if (m.includes("approve")) return "trace-badge-approve";
   if (m.includes("reject")) return "trace-badge-reject";
   if (m === "executed") return "trace-badge-executed";
