@@ -1,10 +1,10 @@
 """Model-extraction support helpers for PM workflows."""
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import json
 import os
 import re
-from datetime import date
 from typing import Any, Optional
 
 from ..domain.types import PMIntent
@@ -26,7 +26,7 @@ def _should_try_model_extraction(config: Optional[Any]) -> bool:
 
 def _format_model_plan_prompt(message: str) -> str:
     intents = ", ".join(intent.value for intent in PMIntent)
-    today = date.today().isoformat()
+    today = local_today().isoformat()
     return f"""\
 You extract a personal-manager message into an ordered task plan. You do not
 execute actions, call tools, mutate data, search the web, export data, or approve.
@@ -81,7 +81,7 @@ User message:
 
 def _format_model_extraction_prompt(message: str) -> str:
     intents = ", ".join(intent.value for intent in PMIntent)
-    today = date.today().isoformat()
+    today = local_today().isoformat()
     return f"""\
 You extract a personal-manager request into JSON. You do not execute actions,
 call tools, mutate data, search the web, or bypass approvals.

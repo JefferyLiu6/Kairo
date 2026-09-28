@@ -1,5 +1,6 @@
 """Calendar service layer for Kairo."""
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import os
 import threading
@@ -116,7 +117,7 @@ class CalendarService:
         provider = self._google_write_provider()
         recurrence_rule = entry.get("recurrence")
         # For recurring entries: use the series anchor date (today) if no explicit date
-        anchor_date = entry.get("date") or date.today().isoformat()
+        anchor_date = entry.get("date") or local_today().isoformat()
         start_at = _entry_datetime(anchor_date, entry.get("start"))
         end_at = _entry_datetime(anchor_date, entry.get("end"))
         if start_at is None or end_at is None:
@@ -223,7 +224,7 @@ def format_google_calendar_for_context(
     limit: int = 40,
 ) -> str:
     """Return a compact context block from mirrored Google Calendar events."""
-    today = date.today()
+    today = local_today()
     end = today + timedelta(days=max(1, days))
     try:
         events = CalendarService(session_id, data_dir).list_events(

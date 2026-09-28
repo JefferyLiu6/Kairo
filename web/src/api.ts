@@ -10,6 +10,7 @@ let _csrfToken = "";
 function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = _API_BASE ? `${_API_BASE}${path}` : path;
   const merged = new Headers(init?.headers);
+  merged.set("X-Timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
   merged.set("Content-Type", merged.get("Content-Type") ?? "application/json");
   const method = (init?.method ?? "GET").toUpperCase();
   if (_csrfToken && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {

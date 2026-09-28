@@ -1,5 +1,6 @@
 """User-facing reply formatting helpers for the personal-manager workflow."""
 from __future__ import annotations
+from assistant.shared.calendar_clock import local_today
 
 import re
 from datetime import date, timedelta
@@ -50,7 +51,7 @@ def _format_date_natural(date_str: str) -> str:
         return ""
     try:
         d = date.fromisoformat(date_str)
-        today = date.today()
+        today = local_today()
         if d == today:
             return "today"
         if d == today + timedelta(days=1):

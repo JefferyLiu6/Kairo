@@ -17,6 +17,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from assistant.shared.calendar_clock import CalendarTimezoneMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -143,6 +144,8 @@ app.add_middleware(
 
 
 _CSRF_EXEMPT_PATHS = {"/auth/signup", "/auth/login", "/auth/demo"}
+
+app.add_middleware(CalendarTimezoneMiddleware)
 
 
 @app.middleware("http")
