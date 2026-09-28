@@ -2317,3 +2317,29 @@ def test_eval_fixture_is_well_formed():
     assert all("confidence_min" in case for case in cases)
     assert all("confidence_max" in case for case in cases)
     assert all("expected_action_type" in case for case in cases)
+
+
+def test_model_plan_with_empty_entries_list_completes_numbered_choice(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path)
+    model_plan = pm_workflow.PMPlanExtraction(
+        tasks=[
+            pm_workflow.PMTaskExtraction(
+                task_id="task-1",
+                intent=pm_workflow.PMIntent.CREATE_SCHEDULE_EVENT,
+                entities={"title": "golf", "date": "tomorrow", "entries": []},
+                confidence=0.85,
+                missing_fields=["start"],
+                source="model_structured",
+            )
+        ],
+        confidence=0.75,
+        source="model_structured",
+    )
+    monkeypatch.setattr(pm_workflow, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
+
+    first = pm_workflow.run_typed_pm_turn("Add golf tmr", cfg)
+    reply = pm_workflow.run_typed_pm_turn("1", cfg)
+
+    assert "My recommendation is 1" in first
+    assert "Added 'golf'" in reply
+    assert [entry.title for entry in load_schedule("pm-demo", str(tmp_path)).entries] == ["golf"]

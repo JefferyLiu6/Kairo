@@ -159,6 +159,9 @@ def run_typed_pm_turn(message: str, config: Any) -> Optional[str]:
 
     try:
         return _run_typed_pm_turn_inner(message, config, uid, thread_id, d)
+    except Exception as exc:
+        d.route("error", f"typed turn raised {type(exc).__name__}: {str(exc)[:160]}")
+        raise
     finally:
         d.persist(config.data_dir, user_id=uid)
 
