@@ -375,6 +375,47 @@ def test_judge_cannot_trigger_a_second_write(tmp_path, monkeypatch):
     assert "before trying again" in reply
 
 
+def test_missing_time_question_survives_and_followup_resumes(tmp_path, monkeypatch):
+    from assistant.personal_manager.agent import PMConfig
+    from assistant.personal_manager.workflow import run_typed_pm_turn
+    from assistant.personal_manager.persistence.store import load_schedule
+    from assistant.personal_manager.persistence.decision_log import list_turn_decisions
+    from assistant.shared.calendar_clock import local_today
+    config = _config(tmp_path)
+    pm_config = PMConfig(provider="test", model="test", session_id=config.session_id, data_dir=str(tmp_path))
+    prompts = []
+
+    async def call_pm(prompt, _config):
+        prompts.append(prompt)
+        return run_typed_pm_turn(prompt, pm_config)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("A saved clarification must bypass reply checking and rewriting")
+
+    monkeypatch.setattr(orch, "_route", lambda *args: True)
+    monkeypatch.setattr(orch, "_translate", lambda *args: StructuredAction(
+        "add_event", "today", ["Peter"], 0.95, "Schedule a dinner with Peter tonight", True))
+    monkeypatch.setattr(orch, "_call_pm", call_pm)
+    monkeypatch.setattr(orch, "_judge", unexpected)
+    monkeypatch.setattr(orch, "_humanize", unexpected)
+    reply = _done(_run_events("Schedule a dinner with Peter tonight", config))
+    assert reply == "What time tonight should I schedule dinner with Peter?"
+    assert load_schedule(config.session_id, str(tmp_path)).entries == []
+    assert list_turn_decisions(config.session_id, str(tmp_path))[0]["routing"]["mode"] == "CLARIFICATION"
+
+    monkeypatch.setattr(orch, "_route", unexpected)
+    monkeypatch.setattr(orch, "_translate", unexpected)
+    monkeypatch.setattr(orch, "_judge", lambda *args: HarnessVerdict("pass", 1.0, "ok", "", "null"))
+    monkeypatch.setattr(orch, "_humanize", lambda message, output, *args: output)
+    assert "Added" in _done(_run_events("8pm", config))
+    entries = load_schedule(config.session_id, str(tmp_path)).entries
+    assert len(entries) == 1
+    assert entries[0].date == local_today().isoformat()
+    assert entries[0].start == "20:00"
+    assert entries[0].title == "dinner with Peter"
+    assert prompts[-1] == "8pm"
+
+
 def test_unavailable_judge_falls_back_without_leaking_exception(tmp_path, monkeypatch):
     def fail(*_):
         raise RuntimeError("private provider details")

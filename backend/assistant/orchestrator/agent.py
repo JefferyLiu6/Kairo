@@ -265,6 +265,14 @@ def _log_turn(
 
 # ── Main streaming entry point ────────────────────────────────────────────────
 
+def _pending_pm_dialogue(config: OrchestratorConfig):
+    from assistant.personal_manager.application.clarification import _load_pending
+    from assistant.personal_manager.domain.session import normalize_pm_session_id
+    thread_id = normalize_pm_session_id(config.session_id)
+    pending = _load_pending(thread_id, config.data_dir, user_id=config.user_id or thread_id)
+    # A displayed task list is reference context, not an unanswered question.
+    return pending if pending and pending.get("type") != "todo_list" else None
+
 async def _astream_orchestrator(
     message: str,
     config: OrchestratorConfig,
@@ -285,8 +293,9 @@ async def _astream_orchestrator(
 
     # ── Step 1: route ─────────────────────────────────────────────────────────
     yield ("progress", "Thinking…")
+    pending_before = _pending_pm_dialogue(config)
     approval_command = re.fullmatch(r"(approve|reject)(?:\s+[0-9a-f]{8})?", message.strip(), re.I)
-    if approval_command:
+    if approval_command and (not pending_before or " " in message.strip()):
         # The approval service enforces ownership, thread scope and execute-once
         # semantics, and returns the persisted action result. Do not ask a model
         # to reinterpret that result (including failures and pending choices).
@@ -304,7 +313,7 @@ async def _astream_orchestrator(
         yield ("token", reply)
         yield ("done", reply)
         return
-    needs_pm = _route(message, memory_ctx, config)
+    needs_pm = bool(pending_before) or _route(message, memory_ctx, config)
 
     if not needs_pm:
         # Direct reply
@@ -319,7 +328,10 @@ async def _astream_orchestrator(
 
     # ── Step 2: translate ─────────────────────────────────────────────────────
     yield ("progress", "Working out what you need…")
-    action = _translate(message, memory_ctx, config)
+    action = (
+        StructuredAction("continue_request", None, [], 1.0, message, True)
+        if pending_before else _translate(message, memory_ctx, config)
+    )
 
     if action.needs_clarification():
         reply = _direct_reply(message, memory_ctx, config)
@@ -345,6 +357,7 @@ async def _astream_orchestrator(
     pm_output = ""
     final_verdict: HarnessVerdict | None = None
     retry_count = 0
+    awaiting_details = False
 
     for attempt in range(MAX_RETRIES + 1):
         status = "Checking your data…" if attempt == 0 else f"Retrying… (attempt {attempt + 1})"
@@ -355,11 +368,16 @@ async def _astream_orchestrator(
         except Exception as exc:
             pm_output = f"Error: {exc}"
 
+        awaiting_details = bool(
+            pm_output.strip() and not pm_output.strip().lower().startswith("error:")
+            and _pending_pm_dialogue(config)
+        )
+
         # Pending approval is a valid workflow result, not a failed write.
         # Preserve the control instructions without another model interpreting them.
         verdict = (
-            HarnessVerdict("pass", 1.0, "Awaiting user approval; action not executed", "", "null")
-            if has_pending_approval(pm_output)
+            HarnessVerdict("pass", 1.0, "Awaiting user input; action not completed", "", "null")
+            if has_pending_approval(pm_output) or awaiting_details
             else _judge(message, current_action, pm_output, profile, config)
         )
         verdict = enforce_retry_policy(current_action, verdict)
@@ -368,7 +386,7 @@ async def _astream_orchestrator(
 
         if verdict.verdict == "pass":
             # Cache successful reads
-            if not current_action.is_write and current_action.cache_key():
+            if not awaiting_details and not current_action.is_write and current_action.cache_key():
                 wm.cache_pm(current_action.cache_key(), pm_output)
             break
 
@@ -395,7 +413,7 @@ async def _astream_orchestrator(
     if final_verdict and final_verdict.verdict == "pass":
         yield ("progress", "Putting it together…")
         try:
-            reply = pm_output if has_pending_approval(pm_output) else _humanize(message, pm_output, memory_ctx, config)
+            reply = pm_output if has_pending_approval(pm_output) or awaiting_details else _humanize(message, pm_output, memory_ctx, config)
             if not isinstance(reply, str) or not reply.strip():
                 raise ValueError("Empty response")
         except Exception:
@@ -425,7 +443,7 @@ async def _astream_orchestrator(
     _log_turn(
         config,
         message,
-        "DELEGATE",
+        "CLARIFICATION" if awaiting_details else "DELEGATE",
         f"intent={action.intent}",
         action,
         final_verdict,

@@ -30,7 +30,7 @@ def _parse_date(text: str) -> Optional[str]:
     if match:
         return match.group(1)
     today = local_today()
-    if "today" in lower or re.search(r"\btdy\b", lower):
+    if "today" in lower or re.search(r"\b(tdy|tonight)\b", lower):
         return today.isoformat()
     if "tomorrow" in lower or re.search(r"\b(tmr|tmrw)\b", lower):
         return (today + timedelta(days=1)).isoformat()
@@ -100,7 +100,7 @@ def _parse_time(text: str) -> Optional[str]:
     if "evening" in lower:
         return "18:00"
     if re.search(r"\b(tonight|night)\b", lower):
-        return "20:00"
+        return None
     return None
 
 

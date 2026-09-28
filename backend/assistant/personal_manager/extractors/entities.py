@@ -126,6 +126,10 @@ def extract_pm_entities(message: str, intent: PMIntent) -> dict[str, Any]:
         entities["date"] = event_date
         entities["start"] = start
         entities["end"] = _default_end_time(start)
+        if re.search(r"\btonight\b", lower) and not _parse_times(text):
+            entities["start"] = None
+            entities["end"] = None
+            entities["needs_time_clarification"] = True
         if _looks_like_ambiguous_schedulable_routine(text):
             entities["ambiguous_life_event"] = True
             entities["date_bias"] = "today"
