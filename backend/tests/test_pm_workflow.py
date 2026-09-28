@@ -445,6 +445,22 @@ def test_mixed_plan_pending_approval_does_not_claim_all_done():
     assert pending in reply
 
 
+def test_tonight_does_not_accept_model_invented_time(tmp_path, monkeypatch):
+    from assistant.shared.calendar_clock import local_today
+    cfg = _cfg(tmp_path)
+    message = "Schedule a dinner with Peter tonight"
+    _install_fake_model_extractions(monkeypatch, {message: {
+        "intent": "CREATE_SCHEDULE_EVENT",
+        "entities": {"title": "Dinner with Peter", "date": local_today().isoformat(), "start": "20:00"},
+        "confidence": 0.95, "missing_fields": [], "reasoning_summary": "Dinner tonight",
+    }})
+    reply = run_pm(message, cfg)
+    assert "What time tonight" in reply
+    assert load_schedule("pm-demo", str(tmp_path)).entries == []
+    pending = _load_pending("pm-demo", str(tmp_path))
+    assert pending["missing"] == ["start"]
+
+
 def test_approving_schedule_delete_executes_once(tmp_path):
     cfg = _cfg(tmp_path)
     save_schedule(

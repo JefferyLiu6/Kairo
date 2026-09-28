@@ -112,6 +112,8 @@ def build_field_completion_proposal(
     config: Any,
 ) -> Optional[FieldCompletionProposal]:
     """Build ranked choices for a missing-field blocker, or return None."""
+    if task.entities.get("needs_time_clarification") and "start" in missing:
+        return None
     sid = str(config.session_id)
     data_dir = str(config.data_dir)
     if not _is_fillable(task, missing):

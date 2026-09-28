@@ -136,6 +136,8 @@ def _clarifying_question(
         if "date" in missing:
             return "What day?"
         if "start" in missing:
+            if entities and entities.get("needs_time_clarification"):
+                return f"What time tonight should I schedule {entities.get('title') or 'that'}?"
             return "What time?"
     if intent == PMIntent.UPDATE_SCHEDULE_EVENT:
         if "schedule event id or title" in missing:

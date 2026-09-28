@@ -29,7 +29,12 @@ def test_real_orchestrator_control_flow_with_stubbed_models(monkeypatch, expande
     result = (capture_suite if expanded else capture_final)(agent.OrchestratorConfig(session_id="test", provider="offline", pm_provider="offline"))
     turns = 9 if expanded else 3
     assert result["summary"] == dict(attempted_turns=turns, captured_replies=turns, state_checks_passed=turns, execution_errors=0), result["observations"]
-    assert all(case["response"].startswith("Final reply:") for case in result["cases"])
+    for case in result["cases"]:
+        if case.get("scenario") == "ambiguous_target":
+            assert "which one?" in case["response"]
+            assert not case["response"].startswith("Final reply:")
+        else:
+            assert case["response"].startswith("Final reply:")
     assert all(case["expected"] is None for case in result["cases"])
     assert result["observations"][-1]["after"][0]["done"] is True
 

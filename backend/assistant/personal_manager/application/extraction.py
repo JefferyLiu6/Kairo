@@ -31,13 +31,17 @@ _DETERMINISTIC_EXTRACTION_SOURCE = "deterministic_regex"
 def extract_pm_plan(message: str, config: Optional[Any] = None) -> PMPlanExtraction:
     """Extract all actionable PM tasks from one user message."""
     model_plan = _extract_pm_plan_with_model(message, config)
-    allow_single_model_fallback = not _should_try_model_extraction(config)
+    allow_single_model_fallback = not _should_try_model_extraction(config) and not re.search(r"\btonight\b", message, re.I)
     deterministic = _extract_pm_plan_deterministic(
         message,
         config,
         allow_single_model=allow_single_model_fallback,
     )
     if _deterministic_activity_disclosure_wins(message, deterministic, model_plan):
+        return deterministic
+    if any(task.entities.get("needs_time_clarification") for task in deterministic.tasks):
+        # A part of the day is not an exact appointment time; never let a
+        # model-supplied default turn this request into a completed write.
         return deterministic
     if _looks_like_pm_coaching_prompt(message) and len(deterministic.tasks) == 1:
         return deterministic

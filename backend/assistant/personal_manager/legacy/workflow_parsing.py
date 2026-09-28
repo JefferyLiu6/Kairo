@@ -61,7 +61,7 @@ def _parse_date(text: str) -> Optional[str]:
 
 def _parse_destination_date(text: str) -> Optional[str]:
     date_words = (
-        r"20\d{2}-\d{2}-\d{2}|today|tomorrow|tmr|tmrw|"
+        r"20\d{2}-\d{2}-\d{2}|today|tonight|tomorrow|tmr|tmrw|"
         r"(?:next\s+|this\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
     )
     match = re.search(rf"\b(?:to|for|on)\s+({date_words})\b", text, flags=re.IGNORECASE)
@@ -529,7 +529,7 @@ def _clean_schedule_title(text: str) -> str:
     cleaned = re.sub(r"^\s*(?:at\s+)?\d{1,2}(:\d{2})?\s*(am|pm)?(?:\s+|$)", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(
         r"\b(?:on|for)?\s*(?:next\s+|this\s+)?"
-        r"(?:tomorrow|tmr|tmrw|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b.*$",
+        r"(?:tomorrow|tmr|tmrw|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b.*$",
         "",
         cleaned,
         flags=re.IGNORECASE,
@@ -605,7 +605,7 @@ def _remove_date_time_words(text: str) -> str:
         flags=re.IGNORECASE,
     )
     cleaned = re.sub(
-        r"\b(today|tomorrow|tmr|tmrw|morning|afternoon|evening|noon|after lunch|lunch|after work|"
+        r"\b(today|tonight|tomorrow|tmr|tmrw|morning|afternoon|evening|noon|after lunch|lunch|after work|"
         r"this month|next month|every day|everyday|daily|weekdays?)\b",
         "",
         cleaned,
