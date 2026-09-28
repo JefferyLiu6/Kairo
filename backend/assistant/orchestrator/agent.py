@@ -279,6 +279,23 @@ def _pending_pm_dialogue(config: OrchestratorConfig):
     # A displayed task list is reference context, not an unanswered question.
     return pending if pending and pending.get("type") != "todo_list" else None
 
+
+def _pending_id(pending) -> str:
+    return str(((pending or {}).get("_working_memory") or {}).get("id") or "")
+
+
+def _still_pending_reply(pending: dict) -> str:
+    """The PM clears pending state before executing, so an untouched pending
+    record after an error means nothing ran and the question is still open."""
+    choices = [c for c in pending.get("choices") or [] if isinstance(c, dict) and c.get("label")]
+    if not choices:
+        return "Something went wrong on my side and nothing was saved. Could you answer my last question again?"
+    lines = "\n".join(f"{c.get('id')}. {c['label']}" for c in choices)
+    return (
+        "Something went wrong on my side and nothing was saved. "
+        f"Your options are still open:\n\n{lines}\n\nReply with a number, or type another date/time."
+    )
+
 async def _astream_orchestrator(
     message: str,
     config: OrchestratorConfig,
@@ -445,6 +462,15 @@ async def _astream_orchestrator(
             retry_count=retry_count,
             fallback_reply=reply,
         )
+        pending_after = _pending_pm_dialogue(config) if pending_before and pm_output.strip().lower().startswith("error:") else None
+        if pending_after and _pending_id(pending_after) == _pending_id(pending_before):
+            reply = _still_pending_reply(pending_after)
+            final_verdict = HarnessVerdict(
+                final_verdict.verdict, final_verdict.confidence,
+                f"{final_verdict.reason}; pending choice kept, nothing executed",
+                final_verdict.suggested_fix, final_verdict.failure_type,
+            )
+            emit("recovery", outcome="pending_kept_after_error")
 
     wm.add_turn("user", message)
     wm.add_turn("assistant", reply)

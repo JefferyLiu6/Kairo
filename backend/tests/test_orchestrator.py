@@ -471,3 +471,55 @@ def test_judge_provider_failure_is_traced_on_the_thread(tmp_path, monkeypatch):
     orchestrator_rows = [r for r in rows if r["intentTrace"]["extractionSource"] == "orchestrator"]
     assert orchestrator_rows[0]["routing"]["mode"] == "FALLBACK"
     assert "Judge unavailable (RuntimeError, status 401)" in orchestrator_rows[0]["routing"]["reason"]
+
+
+def _seed_field_choices(config):
+    from assistant.personal_manager.application.clarification import _save_pending_field_choices
+    from assistant.personal_manager.domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
+
+    plan = PMPlanExtraction(tasks=[PMTaskExtraction(
+        task_id="task-1", intent=PMIntent.CREATE_SCHEDULE_EVENT,
+        entities={"title": "golf", "date": "tomorrow"}, missing_fields=["start"],
+    )])
+    choices = [
+        {"id": "1", "label": "Tomorrow at 9 AM", "values": {"start": "09:00"}},
+        {"id": "2", "label": "Tomorrow at 2 PM", "values": {"start": "14:00"}},
+    ]
+    _save_pending_field_choices(
+        config.session_id, config.data_dir, plan, user_id=config.user_id or config.session_id,
+        blocking_task_id="task-1", missing=["start"], choices=choices,
+    )
+
+
+def test_pm_error_before_execution_keeps_pending_choices_open(tmp_path, monkeypatch):
+    config = _config(tmp_path)
+    _seed_field_choices(config)
+    monkeypatch.setattr(orch, "_call_pm", lambda *_args, **_kwargs: _async_value("Error: list index out of range"))
+    monkeypatch.setattr(orch, "log_fallback", lambda *_args, **_kwargs: None)
+
+    reply = _done(_run_events("1", config))
+
+    assert "nothing was saved" in reply
+    assert "1. Tomorrow at 9 AM" in reply
+    assert "2. Tomorrow at 2 PM" in reply
+    assert "list index" not in reply
+    assert orch._pending_pm_dialogue(config) is not None
+
+
+def test_pm_error_after_pending_cleared_does_not_claim_nothing_saved(tmp_path, monkeypatch):
+    from assistant.personal_manager.application.clarification import _clear_pending
+
+    config = _config(tmp_path)
+    _seed_field_choices(config)
+
+    async def crash_after_clearing(*_args, **_kwargs):
+        _clear_pending(config.session_id, config.data_dir, user_id=config.session_id)
+        return "Error: failed mid-write"
+
+    monkeypatch.setattr(orch, "_call_pm", crash_after_clearing)
+    monkeypatch.setattr(orch, "log_fallback", lambda *_args, **_kwargs: None)
+
+    reply = _done(_run_events("1", config))
+
+    assert "couldn't confirm that was saved" in reply
+    assert "nothing was saved" not in reply
