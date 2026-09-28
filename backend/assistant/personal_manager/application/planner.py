@@ -56,7 +56,10 @@ def plan_pm_actions(intent: PMIntent, entities: dict[str, Any], config: Any) -> 
         ]
 
     if intent == PMIntent.CREATE_SCHEDULE_EVENT:
-        raw_entries = entities.get("entries") if isinstance(entities.get("entries"), list) else [entities]
+        listed = entities.get("entries")
+        # Models sometimes send the event at the top level alongside "entries": [].
+        raw_entries = [e for e in listed if isinstance(e, dict)] if isinstance(listed, list) else []
+        raw_entries = raw_entries or [entities]
         entries = [
             {
                 "title": str(entry.get("title") or "Scheduled block").strip() or "Scheduled block",

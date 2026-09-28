@@ -36,7 +36,7 @@ function modeBadgeClass(mode: string): string {
   if (m === "executed") return "trace-badge-executed";
   if (m === "fallback") return "trace-badge-fallback";
   if (m === "clarification" || m === "field_choices" || m === "time_slot") return "trace-badge-block";
-  if (m === "lookup_error") return "trace-badge-reject";
+  if (m === "lookup_error" || m === "error") return "trace-badge-reject";
   return "trace-badge-default";
 }
 
