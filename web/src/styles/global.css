@@ -4588,6 +4588,8 @@ body {
 }
 
 .trace-list {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 10px 14px 14px;
   display: flex;
@@ -4596,6 +4598,8 @@ body {
 }
 
 .trace-card {
+  /* overflow: hidden lets flex shrink the card; keep full height so the list scrolls */
+  flex-shrink: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-solid);
@@ -4878,6 +4882,8 @@ body {
 /* ── Audit tab ────────────────────────────────────────────────────── */
 
 .trace-audit-list {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 10px 14px 14px;
   display: flex;
@@ -4886,6 +4892,7 @@ body {
 }
 
 .trace-audit-row {
+  flex-shrink: 0;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
