@@ -29,6 +29,7 @@ from .translator import StructuredAction, build_retry_prompt, parse_translator_r
 from .harness import (
     HarnessVerdict,
     build_fallback_reply,
+    describe_error,
     evaluate_harness,
     enforce_retry_policy,
     log_fallback,
@@ -243,9 +244,14 @@ def _log_turn(
     emit("turn_result", outcome="fallback" if verdict and verdict.verdict != "pass" else "completed", retry_count=retry_count)
     try:
         from assistant.personal_manager.persistence.decision_log import log_orchestrator_turn
+        from assistant.personal_manager.domain.session import normalize_pm_session_id
+        thread_id = normalize_pm_session_id(config.session_id)
+        # Same thread/user keys as the PM's own decision row, so the trace view
+        # (filtered by thread) shows the orchestrator row next to it.
         log_orchestrator_turn(
-            config.user_id or config.session_id,
+            thread_id,
             config.data_dir,
+            user_id=config.user_id or thread_id,
             message=message,
             route=route,
             route_reason=route_reason,
@@ -416,11 +422,13 @@ async def _astream_orchestrator(
             reply = pm_output if has_pending_approval(pm_output) or awaiting_details else _humanize(message, pm_output, memory_ctx, config)
             if not isinstance(reply, str) or not reply.strip():
                 raise ValueError("Empty response")
-        except Exception:
+        except Exception as exc:
             # Execution may already have committed. Formatting failure must never
             # replay the action or escape without an honest completion response.
             final_verdict = HarnessVerdict(
-                "fallback", 0.0, "Response generation unavailable", "", "null",
+                "fallback", 0.0,
+                f"Response generation unavailable ({describe_error(exc)})",
+                "", "null",
             )
             emit("recovery", outcome="response_generation_failed")
 

@@ -76,6 +76,12 @@ def fast_precheck(action: StructuredAction, pm_output: str) -> HarnessVerdict | 
     return None
 
 
+def describe_error(exc: BaseException) -> str:
+    """Traceable cause without provider message text (which may carry private details)."""
+    status = getattr(exc, "status_code", None)
+    return f"{type(exc).__name__}, status {status}" if status else type(exc).__name__
+
+
 def parse_harness_verdict(raw: str) -> HarnessVerdict:
     try:
         match = re.search(r"\{.*\}", raw.strip(), re.DOTALL)
@@ -128,8 +134,8 @@ def evaluate_harness(message: str, action: StructuredAction, pm_output: str,
     )
     try:
         result = parse_harness_verdict(invoke(HARNESS_SYSTEM, payload))
-    except Exception:
-        return HarnessVerdict("fallback", 0.0, "Judge unavailable", "", "null"), "provider_error"
+    except Exception as exc:
+        return HarnessVerdict("fallback", 0.0, f"Judge unavailable ({describe_error(exc)})", "", "null"), "provider_error"
     source = "invalid" if result.reason == "Could not parse harness verdict" else "llm"
     return result, source
 

@@ -243,20 +243,22 @@ def log_orchestrator_turn(
     retry_count: int,
     reply: str,
     duration_ms: int,
+    user_id: str = "",
 ) -> None:
     """Write one orchestrator turn into the same turn_decision_log table."""
     try:
-        init_decision_log(session_id, data_dir)
+        init_decision_log(session_id, data_dir, user_id=user_id)
         now = datetime.now(timezone.utc).isoformat()
         task_intents = [{"intent": intent, "confidence": round(confidence, 4), "source": "orchestrator", "missing": []}]
         routing_reason = (
             f"[orchestrator] route={route} | harness={harness_verdict} retries={retry_count} | {route_reason}"
+            + (f" | {harness_reason}" if harness_reason and harness_verdict != "pass" else "")
             if route == "DELEGATE"
             else f"[orchestrator] route={route} | {route_reason}"
         )
         pending_approval = has_pending_approval(reply)
         memory_written = ["profile"] if is_write and not pending_approval and route not in {"APPROVAL", "CLARIFICATION"} else []
-        with _ctrl_conn(pm_db_path(session_id, data_dir)) as conn:
+        with _ctrl_conn(pm_db_path(session_id, data_dir, user_id=user_id)) as conn:
             conn.execute(
                 """
                 INSERT INTO turn_decision_log (
