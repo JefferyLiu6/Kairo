@@ -441,3 +441,33 @@ def test_known_write_cannot_retry_even_if_translator_mislabels_it(tmp_path, monk
         "retry", .99, "repeat", "delete interview", "write_failed"))
     _run_events("Delete interview", _config(tmp_path))
     assert len(calls) == 1
+
+
+def test_judge_provider_failure_is_traced_on_the_thread(tmp_path, monkeypatch):
+    from assistant.orchestrator.harness import evaluate_harness
+    from assistant.personal_manager.persistence.decision_log import list_turn_decisions
+
+    config = _config(tmp_path)
+    config.user_id = "user-1"
+    action = StructuredAction("show_schedule", "today", [], 0.95, "show my schedule for today", False)
+
+    def broken_judge(message, act, pm_output, profile, _config):
+        def invoke(_system, _payload):
+            exc = RuntimeError("401 token_invalidated")
+            exc.status_code = 401
+            raise exc
+        return evaluate_harness(message, act, pm_output, profile, invoke)[0]
+
+    monkeypatch.setattr(orch, "_route", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(orch, "_translate", lambda *_args, **_kwargs: action)
+    monkeypatch.setattr(orch, "_call_pm", lambda *_args, **_kwargs: _async_value("**Today**\n12:30 PM Lunch with Maya (1h)"))
+    monkeypatch.setattr(orch, "_judge", broken_judge)
+
+    reply = _done(_run_events("What's on my schedule today?", config))
+
+    assert "wasn't able to retrieve" in reply
+    assert "token_invalidated" not in reply
+    rows = list_turn_decisions("pm-test-orchestrator", str(tmp_path), user_id="user-1")
+    orchestrator_rows = [r for r in rows if r["intentTrace"]["extractionSource"] == "orchestrator"]
+    assert orchestrator_rows[0]["routing"]["mode"] == "FALLBACK"
+    assert "Judge unavailable (RuntimeError, status 401)" in orchestrator_rows[0]["routing"]["reason"]
