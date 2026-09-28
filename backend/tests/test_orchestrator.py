@@ -295,25 +295,66 @@ def test_pending_approval_bypasses_judge_and_humanizer(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("verb", ["approve", "reject"])
-def test_explicit_approval_command_preserves_id(tmp_path, monkeypatch, verb):
+@pytest.mark.parametrize("explicit_id", [True, False])
+def test_approval_result_bypasses_models(tmp_path, monkeypatch, verb, explicit_id):
+    from assistant.personal_manager.persistence.control_store import create_approval_request, find_approval_request
+    from assistant.personal_manager.persistence.store import ScheduleData, ScheduleEntry, save_schedule, load_schedule
     config = _config(tmp_path)
-    message = f"{verb} 6f4e04fe"
-    calls = []
+    save_schedule(ScheduleData(entries=[ScheduleEntry(id="run1", title="Morning run")]),
+                  config.session_id, str(tmp_path))
+    approval = create_approval_request(
+        config.session_id, str(tmp_path), action_type="schedule_remove",
+        payload={"ids": ["run1"], "_thread_id": config.session_id},
+        summary="Remove Morning run", risk_level="medium",
+    )
+    message = f"{verb} {approval.id}" if explicit_id else verb
 
     def unexpected(*args, **kwargs):
-        pytest.fail("Explicit approval commands must bypass model routing and translation")
-
-    async def execute(prompt, config):
-        calls.append(prompt)
-        return "Action handled."
+        pytest.fail("Approval service results must not pass through a model")
 
     monkeypatch.setattr(orch, "_route", unexpected)
     monkeypatch.setattr(orch, "_translate", unexpected)
-    monkeypatch.setattr(orch, "_call_pm", execute)
-    monkeypatch.setattr(orch, "_judge", lambda *args: HarnessVerdict("pass", 1.0, "ok", "", "null"))
-    monkeypatch.setattr(orch, "_humanize", lambda *args: "Action handled.")
-    assert _done(_run_events(message, config)) == "Action handled."
-    assert calls == [message]
+    monkeypatch.setattr(orch, "_call_pm", unexpected)
+    monkeypatch.setattr(orch, "_judge", unexpected)
+    monkeypatch.setattr(orch, "_humanize", unexpected)
+    reply = _done(_run_events(message, config))
+    record = find_approval_request(str(tmp_path), approval.id, session_id=config.session_id)
+    entries = load_schedule(config.session_id, str(tmp_path)).entries
+    if verb == "approve":
+        assert reply == "Removed 'Morning run' from your calendar."
+        assert record.status == "executed"
+        assert entries == []
+        assert _done(_run_events(f"approve {approval.id}", config)) == reply
+    else:
+        assert reply == "Got it — cancelled that action."
+        assert record.status == "rejected"
+        assert len(entries) == 1
+
+
+def test_approval_failure_is_not_reported_as_success(tmp_path, monkeypatch):
+    from assistant.personal_manager.application import approval_flow
+    from assistant.personal_manager.persistence.control_store import create_approval_request, find_approval_request
+    config = _config(tmp_path)
+    approval = create_approval_request(
+        config.session_id, str(tmp_path), action_type="schedule_remove",
+        payload={"ids": ["run1"], "_thread_id": config.session_id},
+        summary="Remove Morning run", risk_level="medium",
+    )
+    monkeypatch.setattr(approval_flow, "execute_pm_action", lambda *args: {"ok": False, "message": "Event could not be deleted."})
+    assert _done(_run_events(f"approve {approval.id}", config)) == "Event could not be deleted."
+    assert find_approval_request(str(tmp_path), approval.id, session_id=config.session_id).status == "failed"
+
+
+def test_approval_command_cannot_execute_another_threads_action(tmp_path):
+    from assistant.personal_manager.persistence.control_store import create_approval_request, find_approval_request
+    config = _config(tmp_path)
+    approval = create_approval_request(
+        config.session_id, str(tmp_path), action_type="schedule_remove",
+        payload={"ids": ["run1"], "_thread_id": "pm-other-thread"},
+        summary="Remove Morning run", risk_level="medium",
+    )
+    assert "No approval request found" in _done(_run_events(f"approve {approval.id}", config))
+    assert find_approval_request(str(tmp_path), approval.id, session_id=config.session_id).status == "pending"
 
 
 def test_judge_cannot_trigger_a_second_write(tmp_path, monkeypatch):

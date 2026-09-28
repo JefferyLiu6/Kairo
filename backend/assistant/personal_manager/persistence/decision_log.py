@@ -255,7 +255,7 @@ def log_orchestrator_turn(
             else f"[orchestrator] route={route} | {route_reason}"
         )
         pending_approval = has_pending_approval(reply)
-        memory_written = ["profile"] if is_write and not pending_approval else []
+        memory_written = ["profile"] if is_write and not pending_approval and route != "APPROVAL" else []
         with _ctrl_conn(pm_db_path(session_id, data_dir)) as conn:
             conn.execute(
                 """
@@ -291,6 +291,7 @@ def log_orchestrator_turn(
                     confidence,
                     "orchestrator",
                     "AWAITING_APPROVAL" if pending_approval else (
+                        "APPROVAL_RESULT" if route == "APPROVAL" else
                         "EXECUTED" if harness_verdict in ("pass", "n/a") else harness_verdict.upper()
                     ),
                     "approval required; requested action is pending" if pending_approval else routing_reason,
