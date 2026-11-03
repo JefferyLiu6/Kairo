@@ -12,6 +12,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
 
+from assistant.shared.tracing import traced
+
 logger = logging.getLogger("kairo.telemetry")
 _context: ContextVar[tuple[str, str] | None] = ContextVar("kairo_trace", default=None)
 _FIELDS = {"outcome", "verdict", "source", "retry_count", "input_tokens", "output_tokens"}
@@ -77,8 +79,11 @@ def span(stage: str):
         _context.reset(token)
 
 
-def observed(stage: str):
+def observed(stage: str, *, trace: bool = True):
+    """Log a telemetry span for `stage` and, when LangSmith is on, record it as a run."""
     def decorate(fn):
+        if trace:
+            fn = traced(stage)(fn)
         if inspect.iscoroutinefunction(fn):
             @functools.wraps(fn)
             async def async_wrapper(*args, **kwargs):
