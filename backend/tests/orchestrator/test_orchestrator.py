@@ -503,7 +503,7 @@ def test_pm_error_before_execution_keeps_pending_choices_open(tmp_path, monkeypa
     assert "1. Tomorrow at 9 AM" in reply
     assert "2. Tomorrow at 2 PM" in reply
     assert "list index" not in reply
-    assert orch._pending_pm_dialogue(config) is not None
+    assert orch._open_question(config) is not None
 
 
 def test_pm_error_after_pending_cleared_does_not_claim_nothing_saved(tmp_path, monkeypatch):
