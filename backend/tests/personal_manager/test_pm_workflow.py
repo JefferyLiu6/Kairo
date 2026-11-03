@@ -11,44 +11,20 @@ import pytest
 from langchain_core.messages import AIMessage
 from pydantic import ValidationError
 
-import assistant.personal_manager.agent as pm_agent
-import assistant.personal_manager.workflow as pm_workflow
-from assistant.personal_manager.agent import PMConfig, run_pm
-from assistant.personal_manager.application.semantic_memory import SemanticMemoryCandidate
-from assistant.personal_manager.persistence.control_store import (
-    create_approval_request,
-    list_approval_requests,
-    list_audit_events,
-)
-from assistant.personal_manager.domain.commands import validate_action_payload
-from assistant.personal_manager.application.clarification import _load_pending, _pending_path
-from assistant.personal_manager.persistence.journal import journal_read
-from assistant.personal_manager.persistence.personalization import (
-    list_field_choices,
-    list_behavioral_patterns,
-    list_user_preferences,
-    promote_patterns_from_choice_memory,
-    record_choice_selected,
-    upsert_user_preference,
-)
-from assistant.personal_manager.persistence.recent_context import list_recent_context, save_recent_context
-from assistant.personal_manager.persistence.semantic_memory import list_semantic_memory
-from assistant.personal_manager.persistence.working_memory import (
-    list_working_memory,
-    update_working_memory_timestamps,
-)
-from assistant.personal_manager.resolvers.schedule import resolve_schedule_targets
-from assistant.personal_manager.persistence.store import (
-    RecurrenceRule,
-    ScheduleData,
-    ScheduleEntry,
-    TodoData,
-    TodoItem,
-    load_schedule,
-    load_todos,
-    save_schedule,
-    save_todos,
-)
+import kairo.agents.personal_manager.agent as pm_agent
+import kairo.agents.personal_manager.workflow as pm_workflow
+from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.tools.memory.semantic import SemanticMemoryCandidate
+from kairo.storage.control_store import create_approval_request, list_approval_requests, list_audit_events
+from kairo.core.domain.commands import validate_action_payload
+from kairo.agents.personal_manager.application.clarification import _load_pending, _pending_path
+from kairo.storage.journal import journal_read
+from kairo.storage.personalization import list_field_choices, list_behavioral_patterns, list_user_preferences, promote_patterns_from_choice_memory, record_choice_selected, upsert_user_preference
+from kairo.storage.recent_context import list_recent_context, save_recent_context
+from kairo.storage.semantic_memory import list_semantic_memory
+from kairo.storage.working_memory import list_working_memory, update_working_memory_timestamps
+from kairo.tools.resolvers.schedule import resolve_schedule_targets
+from kairo.storage.store import RecurrenceRule, ScheduleData, ScheduleEntry, TodoData, TodoItem, load_schedule, load_todos, save_schedule, save_todos
 
 
 def _cfg(tmp_path, session_id: str = "pm-demo") -> PMConfig:
@@ -429,7 +405,7 @@ def test_delete_schedule_event_creates_approval_without_mutation(tmp_path):
     assert len(schedule.entries) == 1
     assert len(approvals) == 1
     assert approvals[0].action_type == "schedule_remove"
-    from assistant.personal_manager.persistence.decision_log import list_turn_decisions
+    from kairo.storage.decision_log import list_turn_decisions
     decisions = list_turn_decisions("pm-demo", str(tmp_path))
     assert decisions[0]["routing"]["mode"] == "awaiting_approval"
 
@@ -446,7 +422,7 @@ def test_mixed_plan_pending_approval_does_not_claim_all_done():
 
 
 def test_tonight_does_not_accept_model_invented_time(tmp_path, monkeypatch):
-    from assistant.shared.calendar_clock import local_today
+    from kairo.utils.clock import local_today
     cfg = _cfg(tmp_path)
     message = "Schedule a dinner with Peter tonight"
     _install_fake_model_extractions(monkeypatch, {message: {
@@ -1127,7 +1103,7 @@ def test_explicit_remember_writes_semantic_memory_for_retrieval_backed_recall(tm
 
 
 def test_model_semantic_memory_interpreter_can_save_unrecognized_interest(tmp_path, monkeypatch):
-    from assistant.personal_manager.application import semantic_memory as semantic_memory_app
+    from kairo.agents.personal_manager.application import semantic_memory as semantic_memory_app
 
     cfg = PMConfig(
         provider="openai",
@@ -2149,7 +2125,7 @@ def test_approval_endpoints_round_trip(tmp_path, monkeypatch, authed_client):
 
 def test_cross_thread_approval_isolation(tmp_path, monkeypatch):
     """Generic approve/reject from thread B must not execute thread A's pending approval."""
-    from assistant.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
+    from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
 
     uid = "test-user-cross"
     cfg_a = PMConfig(user_id=uid, provider="openai", model="unused",
@@ -2159,7 +2135,7 @@ def test_cross_thread_approval_isolation(tmp_path, monkeypatch):
 
     # Create an approval directly, mimicking what _execute_pm_plan does:
     # it stores _thread_id = normalize_pm_session_id(config.session_id) in the payload.
-    from assistant.personal_manager.domain.session import normalize_pm_session_id
+    from kairo.core.domain.session import normalize_pm_session_id
     thread_a_id = normalize_pm_session_id("pm-thread-a")
 
     approval = create_approval_request(
@@ -2196,8 +2172,8 @@ def test_cross_thread_approval_isolation(tmp_path, monkeypatch):
 
 def test_cross_thread_guard_blocks_approve_intent(tmp_path, monkeypatch):
     """The APPROVE_ACTION guard in run_typed_pm_turn must not see thread A's approval from thread B."""
-    from assistant.personal_manager.domain.session import normalize_pm_session_id
-    from assistant.personal_manager.workflow import run_typed_pm_turn
+    from kairo.core.domain.session import normalize_pm_session_id
+    from kairo.agents.personal_manager.workflow import run_typed_pm_turn
 
     uid = "test-user-guard"
     thread_a_id = normalize_pm_session_id("pm-thread-a-guard")
@@ -2225,8 +2201,8 @@ def test_cross_thread_guard_blocks_approve_intent(tmp_path, monkeypatch):
 
 def test_explicit_id_cross_thread_approval_blocked(tmp_path):
     """approve <id> from thread B must not execute thread A's approval even with an explicit ID."""
-    from assistant.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
-    from assistant.personal_manager.domain.session import normalize_pm_session_id
+    from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
+    from kairo.core.domain.session import normalize_pm_session_id
 
     uid = "test-user-explicit-id"
     thread_a_id = normalize_pm_session_id("pm-thread-explicit-a")
@@ -2265,8 +2241,8 @@ def test_explicit_id_cross_thread_approval_blocked(tmp_path):
 
 def test_conversation_log_persists_typed_turns(tmp_path):
     """run_pm must append human+assistant messages to conversation_log for typed PM turns."""
-    from assistant.personal_manager.agent import run_pm, get_thread_messages
-    from assistant.personal_manager.persistence.control_store import list_conversation_turns
+    from kairo.agents.personal_manager.agent import run_pm, get_thread_messages
+    from kairo.storage.control_store import list_conversation_turns
 
     config = PMConfig(provider="openai", model="unused", data_dir=str(tmp_path), session_id="pm-log-test")
     uid = "pm-log-test"  # user_id defaults to session_id when not set
@@ -2287,7 +2263,7 @@ def test_conversation_log_persists_typed_turns(tmp_path):
 
 def test_conversation_log_isolated_by_thread(tmp_path):
     """Conversation logs are scoped per thread_id within a user."""
-    from assistant.personal_manager.agent import run_pm, get_thread_messages
+    from kairo.agents.personal_manager.agent import run_pm, get_thread_messages
 
     uid = "pm-log-isolation"
     cfg_a = PMConfig(user_id=uid, provider="openai", model="unused",

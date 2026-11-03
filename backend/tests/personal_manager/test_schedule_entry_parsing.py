@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from assistant.personal_manager.parsing.cleanup import _clean_schedule_title
-from assistant.personal_manager.parsing.schedule_text import _parse_schedule_entries
-from assistant.shared.calendar_clock import local_today
+from kairo.utils.parsing.cleanup import _clean_schedule_title
+from kairo.utils.parsing.schedule_text import _parse_schedule_entries
+from kairo.utils.clock import local_today
 
 
 def test_relative_dates_use_the_users_timezone_not_the_server_clock(monkeypatch):

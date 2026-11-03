@@ -193,13 +193,13 @@ High-value files to inspect:
 
 | File | Why it matters |
 | ---- | -------------- |
-| [`backend/assistant/personal_manager/workflow.py`](backend/assistant/personal_manager/workflow.py) | Turn orchestration, pending-state guard, approvals, execution |
-| [`backend/assistant/personal_manager/application/extraction.py`](backend/assistant/personal_manager/application/extraction.py) | Deterministic/model extraction arbitration |
-| [`backend/assistant/orchestrator/agent.py`](backend/assistant/orchestrator/agent.py) | Router/translator/harness/humanizer layer over the PM agent |
-| [`backend/assistant/orchestrator/harness.py`](backend/assistant/orchestrator/harness.py) | Retry/fallback safety for delegated PM calls |
+| [`backend/kairo/agents/personal_manager/workflow.py`](backend/kairo/agents/personal_manager/workflow.py) | Turn orchestration, pending-state guard, approvals, execution |
+| [`backend/kairo/agents/personal_manager/application/extraction.py`](backend/kairo/agents/personal_manager/application/extraction.py) | Deterministic/model extraction arbitration |
+| [`backend/kairo/agents/orchestrator/agent.py`](backend/kairo/agents/orchestrator/agent.py) | Router/translator/harness/humanizer layer over the PM agent |
+| [`backend/kairo/agents/orchestrator/harness.py`](backend/kairo/agents/orchestrator/harness.py) | Retry/fallback safety for delegated PM calls |
 | [`backend/tests/test_orchestrator.py`](backend/tests/test_orchestrator.py) | Offline orchestrator tests for routing, translation confidence, retry, fallback, and write-failure safety |
-| [`backend/assistant/personal_manager/extractors/intent.py`](backend/assistant/personal_manager/extractors/intent.py) | Intent priority ladder and safety prechecks |
-| [`backend/assistant/personal_manager/evals/runner.py`](backend/assistant/personal_manager/evals/runner.py) | Offline eval harness and report generation |
+| [`backend/kairo/agents/personal_manager/extractors/intent.py`](backend/kairo/agents/personal_manager/extractors/intent.py) | Intent priority ladder and safety prechecks |
+| [`backend/evals/pm_runner.py`](backend/evals/pm_runner.py) | Offline eval harness and report generation |
 | [`backend/tests/test_pm_adversarial.py`](backend/tests/test_pm_adversarial.py) | Adversarial and safety regression tests |
 | [`web/src/components/DecisionTracePanel.tsx`](web/src/components/DecisionTracePanel.tsx) | Decision-trace observability UI |
 
@@ -249,11 +249,11 @@ are visible from the trace panel.
 ## Architecture
 
 This is the current web-chat pipeline. The source of truth for orchestration is
-[`backend/assistant/orchestrator/agent.py`](backend/assistant/orchestrator/agent.py);
+[`backend/kairo/agents/orchestrator/agent.py`](backend/kairo/agents/orchestrator/agent.py);
 delegated stateful work reaches
-[`backend/assistant/personal_manager/workflow.py`](backend/assistant/personal_manager/workflow.py),
+[`backend/kairo/agents/personal_manager/workflow.py`](backend/kairo/agents/personal_manager/workflow.py),
 and lower-level extraction arbitration lives in
-[`backend/assistant/personal_manager/application/extraction.py`](backend/assistant/personal_manager/application/extraction.py).
+[`backend/kairo/agents/personal_manager/application/extraction.py`](backend/kairo/agents/personal_manager/application/extraction.py).
 
 ```mermaid
 flowchart TD
@@ -411,8 +411,8 @@ This is still a portfolio demo, not a fully hardened production multi-tenant ser
 
 | Path | Purpose |
 | ---- | ------- |
-| `backend/assistant/orchestrator/` | Direct/delegate routing, translation, harness checks, fallback, humanization |
-| `backend/assistant/personal_manager/` | Typed PM workflow, extraction, planning, approval policy, executors, persistence |
+| `backend/kairo/agents/orchestrator/` | Direct/delegate routing, translation, harness checks, fallback, humanization |
+| `backend/kairo/agents/personal_manager/` | Typed PM workflow, extraction, planning, approval policy, executors, persistence |
 | `backend/tests/` | Unit, integration, adversarial, eval-runner, and orchestrator control-flow tests |
 | `web/src/` | React chat UI, calendar panel, approval card, decision trace panel |
 | `ARCHITECTURE.md` / `SECURITY.md` / `eval-report.md` | Deep architecture, security policy, and current eval report |

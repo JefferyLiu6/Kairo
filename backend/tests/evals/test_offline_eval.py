@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from assistant.orchestrator.offline_eval import checks, run_checks
+from evals.offline_eval import checks, run_checks
 
 
 def success(*_args, **_kwargs):

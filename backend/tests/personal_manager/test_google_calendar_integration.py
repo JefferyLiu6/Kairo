@@ -3,29 +3,14 @@ from __future__ import annotations
 import importlib
 from datetime import date, datetime, timedelta
 
-from assistant.personal_manager.calendar.google import GoogleCalendarProvider
-from assistant.personal_manager.calendar.service import CalendarService, format_google_calendar_for_context
-from assistant.personal_manager.calendar.store import (
-    disconnect_calendar_account,
-    get_calendar_account,
-    list_calendar_account_sessions,
-    list_mirror_events,
-    mark_calendar_sync_failed,
-    mark_calendar_sync_finished,
-    mark_calendar_sync_started,
-    mark_mirror_deleted,
-    upsert_calendar_account,
-    upsert_mirror_event,
-)
-from assistant.personal_manager.calendar.types import CalendarEvent, CalendarEventPatch, CalendarSyncResult
-from assistant.personal_manager.persistence.store import ScheduleData, ScheduleEntry, load_schedule, save_schedule
-from assistant.personal_manager.resolvers.schedule import resolve_schedule_targets
-from assistant.personal_manager.workflow import (
-    execute_pm_action,
-    extract_structured_pm_request,
-    plan_pm_actions,
-)
-from assistant.personal_manager.domain.types import PMAction, PMIntent
+from kairo.tools.calendar.google import GoogleCalendarProvider
+from kairo.tools.calendar.service import CalendarService, format_google_calendar_for_context
+from kairo.storage.calendar_store import disconnect_calendar_account, get_calendar_account, list_calendar_account_sessions, list_mirror_events, mark_calendar_sync_failed, mark_calendar_sync_finished, mark_calendar_sync_started, mark_mirror_deleted, upsert_calendar_account, upsert_mirror_event
+from kairo.tools.calendar.types import CalendarEvent, CalendarEventPatch, CalendarSyncResult
+from kairo.storage.store import ScheduleData, ScheduleEntry, load_schedule, save_schedule
+from kairo.tools.resolvers.schedule import resolve_schedule_targets
+from kairo.agents.personal_manager.workflow import execute_pm_action, extract_structured_pm_request, plan_pm_actions
+from kairo.core.domain.types import PMAction, PMIntent
 
 
 class _FakeRequest:
@@ -190,7 +175,7 @@ def test_calendar_service_auto_sync_runs_once_then_skips_fresh_account(tmp_path,
                 full_sync=True,
             )
 
-    calendar_service_module = importlib.import_module("assistant.personal_manager.calendar.service")
+    calendar_service_module = importlib.import_module("kairo.tools.calendar.service")
     monkeypatch.setattr(calendar_service_module, "GoogleCalendarProvider", FakeProvider)
 
     first = CalendarService("pm-demo", str(tmp_path)).sync_google_accounts_if_stale(
@@ -268,7 +253,7 @@ def test_google_provider_incremental_sync_updates_and_deletes(tmp_path):
     )
     account = get_calendar_account("pm-demo", str(tmp_path), account.id)
     assert account is not None
-    from assistant.personal_manager.calendar.store import save_sync_token
+    from kairo.storage.calendar_store import save_sync_token
 
     save_sync_token("pm-demo", str(tmp_path), account.id, "sync-1")
     account = get_calendar_account("pm-demo", str(tmp_path), account.id)
@@ -304,7 +289,7 @@ def test_google_provider_incremental_sync_updates_and_deletes(tmp_path):
 
 def test_google_provider_410_rebuilds_mirror_with_full_sync(tmp_path):
     account = _account(tmp_path)
-    from assistant.personal_manager.calendar.store import save_sync_token
+    from kairo.storage.calendar_store import save_sync_token
 
     save_sync_token("pm-demo", str(tmp_path), account.id, "stale")
     upsert_mirror_event(
@@ -381,7 +366,7 @@ def test_google_provider_create_update_delete_events(tmp_path):
 
 def test_google_rrule_until_includes_final_local_day(monkeypatch):
     monkeypatch.setenv("GOOGLE_CALENDAR_TIMEZONE", "America/Toronto")
-    calendar_service_module = importlib.import_module("assistant.personal_manager.calendar.service")
+    calendar_service_module = importlib.import_module("kairo.tools.calendar.service")
 
     rrule = calendar_service_module._recurrence_to_rrule({
         "freq": "daily",
@@ -728,7 +713,7 @@ def test_google_oauth_flow_disables_auto_pkce_for_web_client(monkeypatch):
         "http://127.0.0.1:8766/personal-manager/google-calendar/callback",
     )
 
-    app_module = importlib.import_module("assistant.http.pm_app")
+    app_module = importlib.import_module("kairo.api.app")
     flow = app_module._build_google_oauth_flow(["https://www.googleapis.com/auth/calendar.events"])
 
     assert flow.autogenerate_code_verifier is False
@@ -742,7 +727,7 @@ def test_google_calendar_sync_route_uses_service(tmp_path, monkeypatch, authed_c
         seen.append(self.session_id)
         return [CalendarSyncResult(account_id="acct1", provider="google", synced=2, full_sync=False)]
 
-    app_module = importlib.import_module("assistant.http.pm_app")
+    app_module = importlib.import_module("kairo.api.app")
     monkeypatch.setattr(app_module.CalendarService, "sync_google_accounts", fake_sync)
 
     res = authed_client.post("/personal-manager/google-calendar/sync")
@@ -760,7 +745,7 @@ def test_google_calendar_auto_sync_route_uses_stale_gate(tmp_path, monkeypatch, 
         seen.append((self.session_id, stale_after_seconds))
         return [CalendarSyncResult(account_id="acct1", provider="google", synced=1, full_sync=False)]
 
-    app_module = importlib.import_module("assistant.http.pm_app")
+    app_module = importlib.import_module("kairo.api.app")
     monkeypatch.setattr(app_module.CalendarService, "sync_google_accounts_if_stale", fake_auto_sync)
 
     res = authed_client.post(

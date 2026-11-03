@@ -3,17 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-import assistant.personal_manager.workflow as pm_workflow
-from assistant.personal_manager.persistence.control_store import (
-    APPROVAL_STATUSES,
-    APPROVAL_TRANSITIONS,
-    ApprovalTransitionError,
-    claim_approval_request,
-    create_approval_request,
-    finish_approval,
-    get_approval_request,
-    reject_approval_request,
-)
+import kairo.agents.personal_manager.workflow as pm_workflow
+from kairo.storage.control_store import APPROVAL_STATUSES, APPROVAL_TRANSITIONS, ApprovalTransitionError, claim_approval_request, create_approval_request, finish_approval, get_approval_request, reject_approval_request
 
 SESSION = "pm-transitions"
 

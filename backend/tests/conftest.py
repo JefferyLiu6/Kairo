@@ -34,8 +34,8 @@ class _MockUser:
 def authed_client(monkeypatch, tmp_path):
     """Return a TestClient with require_user and CSRF patched out."""
     from fastapi.testclient import TestClient
-    from assistant.http.pm_app import app
-    import assistant.http.pm_app as _pm_app_mod
+    from kairo.api.app import app
+    import kairo.api.app as _pm_app_mod
 
     monkeypatch.setattr(_pm_app_mod, "require_user", lambda request: _MockUser())
     monkeypatch.setattr(_pm_app_mod, "is_valid_csrf_token", lambda token, request=None: True)

@@ -1,12 +1,12 @@
 import json
 from pathlib import Path
 import pytest
-from assistant.orchestrator.agent import OrchestratorConfig
-from assistant.orchestrator.eval_report import combine
-from assistant.orchestrator.final_eval import capture_suite, capture_final, TITLE
-from assistant.orchestrator.judge_eval import content_hash, summarize
-from assistant.orchestrator.runtime_eval import DEFAULT_CASES, run
-from assistant.personal_manager.persistence.store import _todos_path, todo_add
+from kairo.agents.orchestrator.agent import OrchestratorConfig
+from evals.eval_report import combine
+from evals.final_eval import capture_suite, capture_final, TITLE
+from evals.judge_eval import content_hash, summarize
+from evals.runtime_eval import DEFAULT_CASES, run
+from kairo.storage.store import _todos_path, todo_add
 
 
 def test_outage_cannot_look_like_successful_negative_grading():

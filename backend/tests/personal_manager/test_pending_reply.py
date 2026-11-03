@@ -5,33 +5,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from assistant.personal_manager.agent import PMConfig, run_pm
-from assistant.personal_manager.application import clarification as c
-from assistant.personal_manager.application.pending_reply import (
-    PENDING_RULES,
-    OpenQuestion,
-    PendingTurn,
-    load_open_question,
-    pm_asked_a_question,
-    resolve_pending_reply,
-    route_message,
-    still_open_after_error,
-    still_open_reply,
-)
-from assistant.personal_manager.application.todo_selection import prepare_todo_target
-from assistant.personal_manager.domain.pending import (
-    ConfirmationPending,
-    FieldChoicesPending,
-    FreeformPending,
-    TodoListPending,
-)
-from assistant.personal_manager.domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
-from assistant.personal_manager.persistence.decision_log import TurnDecision
-from assistant.personal_manager.persistence.store import TodoData, TodoItem, save_todos
-from assistant.personal_manager.persistence.working_memory import (
-    list_working_memory,
-    update_working_memory_timestamps,
-)
+from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.personal_manager.application import clarification as c
+from kairo.agents.personal_manager.application.pending_reply import PENDING_RULES, OpenQuestion, PendingTurn, load_open_question, pm_asked_a_question, resolve_pending_reply, route_message, still_open_after_error, still_open_reply
+from kairo.agents.personal_manager.application.todo_selection import prepare_todo_target
+from kairo.core.domain.pending import ConfirmationPending, FieldChoicesPending, FreeformPending, TodoListPending
+from kairo.core.domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
+from kairo.storage.decision_log import TurnDecision
+from kairo.storage.store import TodoData, TodoItem, save_todos
+from kairo.storage.working_memory import list_working_memory, update_working_memory_timestamps
 
 THREAD = "pm-rules"
 PLAN = PMPlanExtraction(tasks=[PMTaskExtraction(

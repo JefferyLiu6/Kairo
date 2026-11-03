@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from assistant.http.demo_web import router as _demo_web_router
+from kairo.api.demo_web import router as _demo_web_router
 
 # Build a minimal app that always has the demo_web routes — independent of
 # ENABLE_DEMO_WEB_ROUTES so the GATEWAY_TOKEN auth can always be tested.

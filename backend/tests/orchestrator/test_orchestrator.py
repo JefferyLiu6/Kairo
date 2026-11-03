@@ -4,10 +4,10 @@ import asyncio
 
 import pytest
 
-from assistant.orchestrator import agent as orch
-from assistant.orchestrator import memory as orch_memory
-from assistant.orchestrator.harness import HarnessVerdict
-from assistant.orchestrator.translator import StructuredAction
+from kairo.agents.orchestrator import agent as orch
+from kairo.agents.orchestrator import memory as orch_memory
+from kairo.agents.orchestrator.harness import HarnessVerdict
+from kairo.agents.orchestrator.translator import StructuredAction
 
 
 @pytest.fixture(autouse=True)
@@ -289,7 +289,7 @@ def test_pending_approval_bypasses_judge_and_humanizer(tmp_path, monkeypatch):
 
     assert _done(_run_events("Delete my morning run", config)) == prompt
     assert len(calls) == 1
-    from assistant.personal_manager.persistence.decision_log import list_turn_decisions
+    from kairo.storage.decision_log import list_turn_decisions
     decisions = list_turn_decisions(config.session_id, str(tmp_path))
     assert decisions[0]["routing"]["mode"] == "AWAITING_APPROVAL"
 
@@ -297,8 +297,8 @@ def test_pending_approval_bypasses_judge_and_humanizer(tmp_path, monkeypatch):
 @pytest.mark.parametrize("verb", ["approve", "reject"])
 @pytest.mark.parametrize("explicit_id", [True, False])
 def test_approval_result_bypasses_models(tmp_path, monkeypatch, verb, explicit_id):
-    from assistant.personal_manager.persistence.control_store import create_approval_request, find_approval_request
-    from assistant.personal_manager.persistence.store import ScheduleData, ScheduleEntry, save_schedule, load_schedule
+    from kairo.storage.control_store import create_approval_request, find_approval_request
+    from kairo.storage.store import ScheduleData, ScheduleEntry, save_schedule, load_schedule
     config = _config(tmp_path)
     save_schedule(ScheduleData(entries=[ScheduleEntry(id="run1", title="Morning run")]),
                   config.session_id, str(tmp_path))
@@ -332,8 +332,8 @@ def test_approval_result_bypasses_models(tmp_path, monkeypatch, verb, explicit_i
 
 
 def test_approval_failure_is_not_reported_as_success(tmp_path, monkeypatch):
-    from assistant.personal_manager.application import approval_flow
-    from assistant.personal_manager.persistence.control_store import create_approval_request, find_approval_request
+    from kairo.agents.personal_manager.application import approval_flow
+    from kairo.storage.control_store import create_approval_request, find_approval_request
     config = _config(tmp_path)
     approval = create_approval_request(
         config.session_id, str(tmp_path), action_type="schedule_remove",
@@ -346,7 +346,7 @@ def test_approval_failure_is_not_reported_as_success(tmp_path, monkeypatch):
 
 
 def test_approval_command_cannot_execute_another_threads_action(tmp_path):
-    from assistant.personal_manager.persistence.control_store import create_approval_request, find_approval_request
+    from kairo.storage.control_store import create_approval_request, find_approval_request
     config = _config(tmp_path)
     approval = create_approval_request(
         config.session_id, str(tmp_path), action_type="schedule_remove",
@@ -376,11 +376,11 @@ def test_judge_cannot_trigger_a_second_write(tmp_path, monkeypatch):
 
 
 def test_missing_time_question_survives_and_followup_resumes(tmp_path, monkeypatch):
-    from assistant.personal_manager.agent import PMConfig
-    from assistant.personal_manager.workflow import run_typed_pm_turn
-    from assistant.personal_manager.persistence.store import load_schedule
-    from assistant.personal_manager.persistence.decision_log import list_turn_decisions
-    from assistant.shared.calendar_clock import local_today
+    from kairo.agents.personal_manager.agent import PMConfig
+    from kairo.agents.personal_manager.workflow import run_typed_pm_turn
+    from kairo.storage.store import load_schedule
+    from kairo.storage.decision_log import list_turn_decisions
+    from kairo.utils.clock import local_today
     config = _config(tmp_path)
     pm_config = PMConfig(provider="test", model="test", session_id=config.session_id, data_dir=str(tmp_path))
     prompts = []
@@ -444,8 +444,8 @@ def test_known_write_cannot_retry_even_if_translator_mislabels_it(tmp_path, monk
 
 
 def test_judge_provider_failure_is_traced_on_the_thread(tmp_path, monkeypatch):
-    from assistant.orchestrator.harness import evaluate_harness
-    from assistant.personal_manager.persistence.decision_log import list_turn_decisions
+    from kairo.agents.orchestrator.harness import evaluate_harness
+    from kairo.storage.decision_log import list_turn_decisions
 
     config = _config(tmp_path)
     config.user_id = "user-1"
@@ -474,8 +474,8 @@ def test_judge_provider_failure_is_traced_on_the_thread(tmp_path, monkeypatch):
 
 
 def _seed_field_choices(config):
-    from assistant.personal_manager.application.clarification import _save_pending_field_choices
-    from assistant.personal_manager.domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
+    from kairo.agents.personal_manager.application.clarification import _save_pending_field_choices
+    from kairo.core.domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
 
     plan = PMPlanExtraction(tasks=[PMTaskExtraction(
         task_id="task-1", intent=PMIntent.CREATE_SCHEDULE_EVENT,
@@ -507,7 +507,7 @@ def test_pm_error_before_execution_keeps_pending_choices_open(tmp_path, monkeypa
 
 
 def test_pm_error_after_pending_cleared_does_not_claim_nothing_saved(tmp_path, monkeypatch):
-    from assistant.personal_manager.application.clarification import _clear_pending
+    from kairo.agents.personal_manager.application.clarification import _clear_pending
 
     config = _config(tmp_path)
     _seed_field_choices(config)

@@ -48,7 +48,7 @@ details. Logs may contain test fixture text and should be reviewed before sharin
 For a specific output path or per-stage timeout, run from backend:
 
 ```sh
-uv run --offline --extra dev python -m assistant.orchestrator.offline_eval --output-dir ../artifacts/my-run --timeout 180
+uv run --offline --extra dev python -m evals.offline_eval --output-dir ../artifacts/my-run --timeout 180
 ```
 
 The default timeout is 180 seconds per stage, not a total-run limit. The runner uses argument

@@ -27,7 +27,7 @@ make eval-judge
 From `backend`, with a supported provider credential in the environment:
 
 ```sh
-uv run python -m assistant.orchestrator.judge_eval --live --provider ollama --model YOUR_MODEL --repeats 2 --max-calls 30 --output ../artifacts/judge-live.json
+uv run python -m evals.judge_eval --live --provider ollama --model YOUR_MODEL --repeats 2 --max-calls 30 --output ../artifacts/judge-live.json
 ```
 
 Choose `openai`, `anthropic`, or `ollama`. Set `JUDGE_API_KEY` and `JUDGE_BASE_URL` when
@@ -122,9 +122,9 @@ stop Azure spending.
 Run these commands from `backend`:
 
 ```sh
-uv run python -m assistant.orchestrator.capture_eval --output ../artifacts/captured-responses.json
-uv run python -m assistant.orchestrator.judge_compare ../artifacts/judge-baseline.json ../artifacts/judge-candidate.json --output ../artifacts/judge-comparison.json
-uv run python -m assistant.orchestrator.monitor_report ../artifacts/telemetry.jsonl --output ../artifacts/monitor-summary.json
+uv run python -m evals.capture_eval --output ../artifacts/captured-responses.json
+uv run python -m evals.judge_compare ../artifacts/judge-baseline.json ../artifacts/judge-candidate.json --output ../artifacts/judge-comparison.json
+uv run python -m evals.monitor_report ../artifacts/telemetry.jsonl --output ../artifacts/monitor-summary.json
 ```
 
 Capture executes three real deterministic PM turns against a temporary synthetic task store:
@@ -175,7 +175,7 @@ improvement. See `docs/CAPTURE_FAILURE_CASE.md`.
 From `backend`, export a fresh review packet:
 
 ```sh
-uv run python -m assistant.orchestrator.label_review export --cases tests/fixtures/judge_cases.json --output ../artifacts/review-v1.json
+uv run python -m evals.label_review export --cases tests/fixtures/judge_cases.json --output ../artifacts/review-v1.json
 ```
 
 The packet contains requests, responses, and evidence, plus blank `label`, `rationale`, and
@@ -188,7 +188,7 @@ not a guarantee of unbiased independent evaluation.
 Import the completed packet into a new dataset:
 
 ```sh
-uv run python -m assistant.orchestrator.label_review apply --cases tests/fixtures/judge_cases.json --packet ../artifacts/review-v1.json --output ../artifacts/reviewed-cases-v1.json
+uv run python -m evals.label_review apply --cases tests/fixtures/judge_cases.json --packet ../artifacts/review-v1.json --output ../artifacts/reviewed-cases-v1.json
 ```
 
 The importer checks the example-content hash, case membership, unchanged visible text, labels,
@@ -218,7 +218,7 @@ silently treated as an empty task list. A failed response after a completed writ
 From `backend`, once an endpoint/model is configured:
 
 ```sh
-uv run python -m assistant.orchestrator.final_eval --live --provider openai --model YOUR_MODEL --output-dir ../artifacts/final-run-01
+uv run python -m evals.final_eval --live --provider openai --model YOUR_MODEL --output-dir ../artifacts/final-run-01
 ```
 
 Use an existing supported provider (`openai`, `anthropic`, or `ollama`); set `EVAL_API_KEY` and
@@ -273,7 +273,7 @@ Run `make eval-offline` to collect backend regression and judge-contract results
 
 ## Local visual dashboard
 
-Generate a self-contained dashboard from saved judge reports and optional runtime telemetry with `python -m assistant.orchestrator.monitor_dashboard`. See [dashboard usage, metrics and limits](MONITORING_DASHBOARD.md). It is a local snapshot, not continuous production monitoring. Current response-quality policy is documented in [rubric v6](JUDGE_RUBRIC_V6.md); earlier policy descriptions in this document are historical.
+Generate a self-contained dashboard from saved judge reports and optional runtime telemetry with `python -m evals.monitor_dashboard`. See [dashboard usage, metrics and limits](MONITORING_DASHBOARD.md). It is a local snapshot, not continuous production monitoring. Current response-quality policy is documented in [rubric v6](JUDGE_RUBRIC_V6.md); earlier policy descriptions in this document are historical.
 
 
 ## Experimental v8 citation selection

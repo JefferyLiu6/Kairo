@@ -4,27 +4,14 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-import assistant.orchestrator.agent as orch
-from assistant.personal_manager.application import clarification as c
-from assistant.personal_manager.application.pending_reply import still_open_reply
-from assistant.personal_manager.application.todo_selection import remember_todo_list
-from assistant.personal_manager.domain.pending import (
-    PENDING_MODES,
-    ConfirmationPending,
-    DisambiguationPending,
-    FieldChoicesPending,
-    FreeformPending,
-    PlanPending,
-    TodoListPending,
-    parse_pending,
-)
-from assistant.personal_manager.domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
-from assistant.personal_manager.persistence.store import TodoData, TodoItem, save_todos
-from assistant.personal_manager.persistence.working_memory import (
-    list_working_memory,
-    load_active_working_memory,
-    save_working_memory,
-)
+import kairo.agents.orchestrator.agent as orch
+from kairo.agents.personal_manager.application import clarification as c
+from kairo.agents.personal_manager.application.pending_reply import still_open_reply
+from kairo.agents.personal_manager.application.todo_selection import remember_todo_list
+from kairo.core.domain.pending import PENDING_MODES, ConfirmationPending, DisambiguationPending, FieldChoicesPending, FreeformPending, PlanPending, TodoListPending, parse_pending
+from kairo.core.domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
+from kairo.storage.store import TodoData, TodoItem, save_todos
+from kairo.storage.working_memory import list_working_memory, load_active_working_memory, save_working_memory
 
 THREAD = "pm-pending"
 PLAN = PMPlanExtraction(tasks=[PMTaskExtraction(

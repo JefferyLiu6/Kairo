@@ -4,10 +4,10 @@ import asyncio
 
 from langsmith import Client, get_current_run_tree, tracing_context
 
-import assistant.orchestrator.agent as orch
-from assistant.orchestrator.harness import HarnessVerdict
-from assistant.orchestrator.translator import StructuredAction
-from assistant.shared import tracing
+import kairo.agents.orchestrator.agent as orch
+from kairo.agents.orchestrator.harness import HarnessVerdict
+from kairo.agents.orchestrator.translator import StructuredAction
+from kairo.core.observability import tracing
 
 
 async def _async_value(value: str) -> str:

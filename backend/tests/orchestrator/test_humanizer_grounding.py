@@ -3,8 +3,9 @@ import json
 
 import pytest
 
-from assistant.orchestrator import agent, memory
-from assistant.personal_manager.persistence.store import _pm_dir
+from kairo.agents.orchestrator import agent
+from kairo.agents.orchestrator import memory
+from kairo.storage.store import _pm_dir
 from pathlib import Path
 
 

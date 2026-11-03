@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from assistant.shared.tracing import _final_reply, _safe_inputs, tag_turn, traced
+from kairo.core.observability.tracing import _final_reply, _safe_inputs, tag_turn, traced
 
 
 def test_safe_inputs_never_records_config_or_clients():

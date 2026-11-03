@@ -6,7 +6,7 @@ September 14, 2026. Local snapshot dashboard; no Azure deployment, continuous co
 
 Before: judge experiments and runtime telemetry were inspected in separate JSON reports. It was easy to confuse valid output with correct judgments, or final rule-assisted agreement with model agreement.
 
-After: `assistant.orchestrator.monitor_dashboard` reads explicitly selected judge reports and optional runtime logs, recomputes aggregate metrics from rows, and creates a self-contained HTML dashboard plus an optional content-minimized JSON summary. The user can select a run and expand its decision table. No external assets, services, browser uploads, or dependencies are required.
+After: `evals.monitor_dashboard` reads explicitly selected judge reports and optional runtime logs, recomputes aggregate metrics from rows, and creates a self-contained HTML dashboard plus an optional content-minimized JSON summary. The user can select a run and expand its decision table. No external assets, services, browser uploads, or dependencies are required.
 
 The supplied Desktop snapshot displays the preserved v5 and v6 eight-case live runs. V5 agreement is 6/8 and v6 is 8/8. Those are the previously measured development results, not new calls made by this dashboard. Runtime health is shown as unknown because no runtime log was supplied.
 
@@ -15,7 +15,7 @@ The supplied Desktop snapshot displays the preserved v5 and v6 eight-case live r
 From `backend`, in your existing project environment:
 
 ```bash
-python -m assistant.orchestrator.monitor_dashboard   /path/to/baseline/report.json /path/to/candidate/report.json   --output ../artifacts/monitoring/index.html   --summary ../artifacts/monitoring/summary.json
+python -m evals.monitor_dashboard   /path/to/baseline/report.json /path/to/candidate/report.json   --output ../artifacts/monitoring/index.html   --summary ../artifacts/monitoring/summary.json
 ```
 
 Open the generated HTML in a browser. No web server is required for the saved file. To include existing Kairo JSON telemetry, add `--telemetry /path/to/telemetry.jsonl`. Regenerate the snapshot after a new report or log capture; it does not refresh itself. Supplying no reports creates an explicit empty state, not a healthy status.

@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from assistant.orchestrator.date_check import unsupported_tomorrow_confirmation
-from assistant.orchestrator.quality_judge import evaluate_response, citation_options
+from evals.date_check import unsupported_tomorrow_confirmation
+from evals.quality_judge import evaluate_response, citation_options
 
 REQUEST = 'Set the reminder for tomorrow.'
 RESPONSE = 'Done—the reminder is saved for tomorrow, June 7, 2030.'
