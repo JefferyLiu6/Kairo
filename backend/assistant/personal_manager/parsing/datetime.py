@@ -178,3 +178,16 @@ def _has_explicit_time_signal(text: str) -> bool:
         re.search(r"\b\d{1,2}(:\d{2})?\s*(am|pm)\b", text, flags=re.IGNORECASE)
         or re.search(r"\b(at|around|by|from)\s+\d{1,2}(:\d{2})?\b", text, flags=re.IGNORECASE)
     )
+
+
+def _date_mention_count(text: str) -> int:
+    lower = _norm(text)
+    count = len(_DATE_RE.findall(text))
+    count += len(re.findall(r"\b(today|tomorrow|tmr|tmrw)\b", lower))
+    count += len(
+        re.findall(
+            r"\b(?:next\s+|this\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+            lower,
+        )
+    )
+    return count
