@@ -62,19 +62,19 @@ def test_mutation_before_exception_is_observed_and_not_invented_as_reply():
 
 def test_capture_cleans_its_memory_without_touching_other_sessions():
     sentinel = object()
-    _sessions[("existing", "thread")] = sentinel
+    _sessions[("existing", "thread", None)] = sentinel
     used = []
     def execute(_request, config):
-        key = (config.user_id, config.session_id)
+        key = (config.user_id, config.session_id, config.data_dir)
         used.append(key)
         _sessions[key] = object()
         return "reply"
     try:
         capture_final(agent.OrchestratorConfig(session_id="x"), execute)
         assert all(key not in _sessions for key in used)
-        assert _sessions[("existing", "thread")] is sentinel
+        assert _sessions[("existing", "thread", None)] is sentinel
     finally:
-        _sessions.pop(("existing", "thread"))
+        _sessions.pop(("existing", "thread", None))
 
 
 def test_corrupt_snapshot_is_not_treated_as_empty(tmp_path):

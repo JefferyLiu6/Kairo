@@ -23,7 +23,7 @@ def setup(tmp_path, monkeypatch):
 
 def test_empty_profile_does_not_receive_flattened_assistant_preference(setup):
     config, payloads = setup
-    wm = memory.get_working_memory(config.user_id, config.session_id)
+    wm = memory.get_working_memory(config.user_id, config.session_id, config.data_dir)
     wm.add_turn('assistant', 'Since you prefer mornings, I added it.')
     wm.add_turn('user', 'List my tasks.')
     reply = agent._humanize('Add task to review notes', "Added 'review notes'.",
@@ -40,7 +40,7 @@ def test_explicit_profile_and_user_statements_remain_available(setup):
     directory = Path(_pm_dir(config.user_id, config.data_dir))
     directory.mkdir(parents=True, exist_ok=True)
     (directory/'PROFILE.md').write_text('Prefers concise replies.')
-    wm = memory.get_working_memory(config.user_id, config.session_id)
+    wm = memory.get_working_memory(config.user_id, config.session_id, config.data_dir)
     wm.add_turn('user', 'I prefer afternoons for study sessions.')
     wm.add_turn('assistant', 'You prefer morning sessions.')
     agent._humanize('Add task to review notes', "Added 'review notes'.", '', config)
@@ -52,7 +52,7 @@ def test_explicit_profile_and_user_statements_remain_available(setup):
 
 def test_other_user_history_is_not_used(setup):
     config, payloads = setup
-    memory.get_working_memory('person-b', 'thread-a').add_turn('user', 'I prefer mornings.')
+    memory.get_working_memory('person-b', 'thread-a', config.data_dir).add_turn('user', 'I prefer mornings.')
     agent._humanize('List my tasks', 'No tasks.', '', config)
     assert payloads[0]['personalization_sources'] == {'profile': '', 'user_messages': []}
 
@@ -60,7 +60,7 @@ def test_other_user_history_is_not_used(setup):
 def test_negation_and_one_off_constraint_are_not_rewritten(setup):
     config, payloads = setup
     message = 'I do not prefer mornings; I am only available this Friday morning.'
-    memory.get_working_memory(config.user_id, config.session_id).add_turn('user', message)
+    memory.get_working_memory(config.user_id, config.session_id, config.data_dir).add_turn('user', message)
     agent._humanize('List my tasks', 'No tasks.', '', config)
     assert payloads[0]['personalization_sources']['user_messages'] == [message]
 
