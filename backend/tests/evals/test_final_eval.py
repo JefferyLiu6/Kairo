@@ -14,7 +14,8 @@ def test_real_orchestrator_control_flow_with_stubbed_models(monkeypatch, expande
     monkeypatch.setattr(agent, "build_llm", lambda *_: object())
 
     def invoke(_llm, system, payload):
-        request = payload.split("User message: ", 1)[-1].split("\n", 1)[0]
+        data = json.loads(payload)  # every stage input is a JSON contract
+        request = data.get("message") or data.get("user_message", "")
         if system == agent.TRANSLATOR_SYSTEM:
             intent = "show_todos" if request.startswith("List") else "complete_todo" if request.startswith("Mark") else "add_todo"
             return json.dumps(dict(intent=intent, timeframe=None, entities=[], confidence=.99,
