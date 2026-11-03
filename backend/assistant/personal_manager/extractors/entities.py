@@ -12,16 +12,16 @@ from ..calendar.recurrence import (
     _parse_schedule_reference_range,
 )
 from ..domain.types import PMIntent
-from ..legacy.workflow_parsing import (
+from ..parsing.cleanup import (
     _clean_journal_query,
     _clean_lookup_query,
     _clean_schedule_title,
     _clean_todo_title,
     _clean_web_query,
     _extract_habit_entities,
-    _parse_schedule_entries,
     _strip_leading_phrases,
 )
+from ..parsing.schedule_text import _parse_schedule_entries
 from ..parsing.datetime import (
     _default_end_time,
     _parse_date,

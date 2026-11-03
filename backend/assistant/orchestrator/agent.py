@@ -1,8 +1,8 @@
 """Orchestrator agent — main run loop and streaming entry point."""
 from __future__ import annotations
 
+import logging
 import time
-import json
 import os
 import re
 from dataclasses import dataclass
@@ -10,12 +10,21 @@ from typing import Any, AsyncIterator, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from assistant.shared.llm import ContractError, call_contract, to_payload
 from assistant.shared.llm_env import build_llm
-from assistant.shared.tracing import mark_fallback, tag_turn, traced
+from assistant.shared.tracing import mark_contract_error, mark_fallback, tag_turn, traced
 from assistant.personal_manager.agent import PMConfig, astream_pm
 from assistant.personal_manager.domain.approval_response import has_pending_approval
 from assistant.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
 
+from .contracts import (
+    HumanizeInput,
+    PersonalizationSources,
+    RouterInput,
+    RouterOutput,
+    TranslatorInput,
+    TranslatorOutput,
+)
 from .telemetry import emit, observed, span
 from .memory import build_memory_context, get_working_memory, load_profile
 from .prompts import (
@@ -25,8 +34,8 @@ from .prompts import (
     ROUTER_SYSTEM,
     TRANSLATOR_SYSTEM,
 )
-from .router import is_likely_pm_needed, parse_router_verdict
-from .translator import StructuredAction, build_retry_prompt, parse_translator_response, is_safe_read_retry
+from .router import is_likely_pm_needed
+from .translator import StructuredAction, build_retry_prompt, is_safe_read_retry, unparsed_action
 from .harness import (
     HarnessVerdict,
     build_fallback_reply,
@@ -35,6 +44,8 @@ from .harness import (
     enforce_retry_policy,
     log_fallback,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -82,6 +93,18 @@ def _invoke(llm: Any, system: str, user: str) -> str:
     return str(response.content).strip()
 
 
+def _invoker(llm: Any):
+    """Bind a model to the `invoke(system, user)` shape the contract gateway expects."""
+    return lambda system, user: _invoke(llm, system, user)
+
+
+def _contract_failed(stage: str, exc: ContractError) -> None:
+    """A stage reply stayed invalid after its repair attempt: record it, then fall back."""
+    logger.warning("%s reply failed its contract: %s", stage, exc)
+    emit("contract_error", source=stage)
+    mark_contract_error(stage)
+
+
 # ── Router ────────────────────────────────────────────────────────────────────
 
 @observed("route")
@@ -89,21 +112,34 @@ def _route(message: str, memory_ctx: str, config: OrchestratorConfig) -> bool:
     """Return True if PM agent is needed. Uses heuristic first, LLM if ambiguous."""
     if is_likely_pm_needed(message):
         return True
-    llm = _llm(config, fast=True)
-    user_prompt = f"User message: {message}\n\nContext:\n{memory_ctx}"
-    raw = _invoke(llm, ROUTER_SYSTEM, user_prompt)
-    verdict = parse_router_verdict(raw)
-    return bool(verdict.get("needs_pm", False))
+    try:
+        verdict = call_contract(
+            _invoker(_llm(config, fast=True)),
+            system=ROUTER_SYSTEM,
+            data=RouterInput(message=message, context=memory_ctx),
+            output=RouterOutput,
+        )
+    except ContractError as exc:
+        _contract_failed("route", exc)
+        return False  # no usable verdict: answer directly rather than touch data
+    return verdict.needs_pm
 
 
 # ── Translator ────────────────────────────────────────────────────────────────
 
 @observed("translate")
 def _translate(message: str, memory_ctx: str, config: OrchestratorConfig) -> StructuredAction:
-    llm = _llm(config, fast=True)
-    user_prompt = f"User message: {message}\n\nContext:\n{memory_ctx}"
-    raw = _invoke(llm, TRANSLATOR_SYSTEM, user_prompt)
-    return parse_translator_response(raw)
+    try:
+        output = call_contract(
+            _invoker(_llm(config, fast=True)),
+            system=TRANSLATOR_SYSTEM,
+            data=TranslatorInput(message=message, context=memory_ctx),
+            output=TranslatorOutput,
+        )
+    except ContractError as exc:
+        _contract_failed("translate", exc)
+        return unparsed_action()
+    return output.to_action()
 
 
 # ── PM agent call (collects streamed tokens) ──────────────────────────────────
@@ -213,11 +249,11 @@ def _humanize(
     # Do not parse role prefixes from a flattened transcript or recycle assistant
     # personalization as evidence. Keep only actual user-role records.
     user_messages = [t["content"] for t in wm.turns if t.get("role") == "user"]
-    payload = json.dumps({
-        "user_message": message,
-        "pm_result": clean_output,
-        "personalization_sources": {"profile": profile, "user_messages": user_messages},
-    })
+    payload = to_payload(HumanizeInput(
+        user_message=message,
+        pm_result=clean_output,
+        personalization_sources=PersonalizationSources(profile=profile, user_messages=user_messages),
+    ))
     return _invoke(_llm(config), HUMANIZER_SYSTEM, payload)
 
 
