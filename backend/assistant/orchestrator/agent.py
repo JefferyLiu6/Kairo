@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 import time
 import os
-import re
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Optional
 
@@ -16,8 +15,15 @@ from assistant.shared.tracing import mark_contract_error, mark_fallback, tag_tur
 from assistant.personal_manager.agent import PMConfig, astream_pm
 from assistant.personal_manager.domain.approval_response import has_pending_approval
 from assistant.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
-from assistant.personal_manager.application.clarification import _load_pending
-from assistant.personal_manager.domain.pending import FieldChoicesPending, Pending, is_question, parse_pending
+from assistant.personal_manager.application.pending_reply import (
+    OpenQuestion,
+    approval_verb,
+    load_open_question,
+    pm_asked_a_question,
+    route_message,
+    still_open_after_error,
+    still_open_reply,
+)
 from assistant.personal_manager.domain.session import normalize_pm_session_id
 
 from .contracts import (
@@ -312,40 +318,10 @@ def _log_turn(
 
 # ── Main streaming entry point ────────────────────────────────────────────────
 
-def _pending_pm_dialogue(config: OrchestratorConfig) -> PendingQuestion | None:
-    """The question the PM is waiting on in this thread, if any."""
+def _open_question(config: OrchestratorConfig) -> OpenQuestion | None:
+    """The question the PM is waiting on in this thread (pending_reply decides what it means)."""
     thread_id = normalize_pm_session_id(config.session_id)
-    payload = _load_pending(thread_id, config.data_dir, user_id=config.user_id or thread_id)
-    if payload is None:
-        return None
-    pending = parse_pending(payload)
-    # A displayed task list is reference context, not an unanswered question.
-    if not is_question(pending):
-        return None
-    return PendingQuestion(id=payload["_working_memory"]["id"], state=pending)
-
-
-@dataclass(frozen=True)
-class PendingQuestion:
-    id: str          # working-memory record id: unchanged id = the question is still open
-    state: Pending
-
-
-def _pending_id(pending: PendingQuestion | None) -> str:
-    return pending.id if pending else ""
-
-
-def _still_pending_reply(pending: PendingQuestion) -> str:
-    """The PM clears pending state before executing, so an untouched pending
-    record after an error means nothing ran and the question is still open."""
-    choices = pending.state.choices if isinstance(pending.state, FieldChoicesPending) else []
-    if not choices:
-        return "Something went wrong on my side and nothing was saved. Could you answer my last question again?"
-    lines = "\n".join(f"{c.id}. {c.label}" for c in choices)
-    return (
-        "Something went wrong on my side and nothing was saved. "
-        f"Your options are still open:\n\n{lines}\n\nReply with a number, or type another date/time."
-    )
+    return load_open_question(thread_id, config.data_dir, user_id=config.user_id or thread_id)
 
 async def _astream_orchestrator(
     message: str,
@@ -367,13 +343,13 @@ async def _astream_orchestrator(
 
     # ── Step 1: route ─────────────────────────────────────────────────────────
     yield ("progress", "Thinking…")
-    pending_before = _pending_pm_dialogue(config)
-    approval_command = re.fullmatch(r"(approve|reject)(?:\s+[0-9a-f]{8})?", message.strip(), re.I)
-    if approval_command and (not pending_before or " " in message.strip()):
+    question_before = _open_question(config)
+    route = route_message(message, question_before)
+    if route == "approval_command":
         # The approval service enforces ownership, thread scope and execute-once
         # semantics, and returns the persisted action result. Do not ask a model
         # to reinterpret that result (including failures and pending choices).
-        verb = approval_command.group(1).lower()
+        verb = approval_verb(message)
         action = StructuredAction("approval", None, [], 1.0, message.strip().lower(), True)
         try:
             handler = approve_from_chat if verb == "approve" else reject_from_chat
@@ -387,7 +363,7 @@ async def _astream_orchestrator(
         yield ("token", reply)
         yield ("done", reply)
         return
-    needs_pm = bool(pending_before) or _route(message, memory_ctx, config)
+    needs_pm = route == "answer_question" or _route(message, memory_ctx, config)
 
     if not needs_pm:
         # Direct reply
@@ -404,7 +380,7 @@ async def _astream_orchestrator(
     yield ("progress", "Working out what you need…")
     action = (
         StructuredAction("continue_request", None, [], 1.0, message, True)
-        if pending_before else _translate(message, memory_ctx, config)
+        if route == "answer_question" else _translate(message, memory_ctx, config)
     )
 
     if action.needs_clarification():
@@ -442,10 +418,7 @@ async def _astream_orchestrator(
         except Exception as exc:
             pm_output = f"Error: {exc}"
 
-        awaiting_details = bool(
-            pm_output.strip() and not pm_output.strip().lower().startswith("error:")
-            and _pending_pm_dialogue(config)
-        )
+        awaiting_details = pm_asked_a_question(pm_output, lambda: _open_question(config))
 
         # Pending approval is a valid workflow result, not a failed write.
         # Preserve the control instructions without another model interpreting them.
@@ -513,10 +486,10 @@ async def _astream_orchestrator(
             retry_count=retry_count,
             fallback_reply=reply,
         )
-        pending_after = _pending_pm_dialogue(config) if pending_before and pm_output.strip().lower().startswith("error:") else None
-        pending_kept = bool(pending_after and _pending_id(pending_after) == _pending_id(pending_before))
-        if pending_kept:
-            reply = _still_pending_reply(pending_after)
+        still_open = still_open_after_error(question_before, pm_output, lambda: _open_question(config))
+        pending_kept = still_open is not None
+        if still_open is not None:
+            reply = still_open_reply(still_open)
             final_verdict = HarnessVerdict(
                 final_verdict.verdict, final_verdict.confidence,
                 f"{final_verdict.reason}; pending choice kept, nothing executed",

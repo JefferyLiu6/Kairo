@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 import assistant.orchestrator.agent as orch
 from assistant.personal_manager.application import clarification as c
+from assistant.personal_manager.application.pending_reply import still_open_reply
 from assistant.personal_manager.application.todo_selection import remember_todo_list
 from assistant.personal_manager.domain.pending import (
     PENDING_MODES,
@@ -100,10 +101,10 @@ def _orch_config(tmp_path):
 def test_orchestrator_sees_a_typed_question_and_lists_open_choices(tmp_path):
     _writers(str(tmp_path))[FieldChoicesPending]()
 
-    question = orch._pending_pm_dialogue(_orch_config(tmp_path))
+    question = orch._open_question(_orch_config(tmp_path))
 
     assert isinstance(question.state, FieldChoicesPending) and question.id
-    reply = orch._still_pending_reply(question)
+    reply = still_open_reply(question)
     assert "1. Tomorrow at 9 AM" in reply and "2. Tomorrow at 2 PM" in reply
 
 
@@ -113,4 +114,4 @@ def test_a_shown_task_list_is_not_a_question(tmp_path):
     assert remember_todo_list(config, THREAD, THREAD, "## Todos\n- [ ] [t1] call mom")
 
     assert isinstance(c.load_pending_state(THREAD, str(tmp_path)), TodoListPending)
-    assert orch._pending_pm_dialogue(config) is None
+    assert orch._open_question(config) is None
