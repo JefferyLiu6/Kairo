@@ -84,6 +84,20 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
+def mark_fallback(**fields: Any) -> None:
+    """Tag the current trace "fallback" so recovered failures can be filtered in LangSmith.
+
+    The user still gets a reply, so these turns would otherwise look successful.
+    Pass only fixed labels (failure type, intent, counts): free-text reasons can
+    quote user data.
+    """
+    run = get_current_run_tree()
+    if run is None:
+        return
+    run.add_tags(["fallback"])
+    run.add_metadata({f"fallback_{key}": value for key, value in fields.items()})
+
+
 def tag_turn(config: Any) -> None:
     """Attach searchable, non-identifying metadata to the current trace."""
     run = get_current_run_tree()
