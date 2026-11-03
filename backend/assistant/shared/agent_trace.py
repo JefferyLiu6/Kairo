@@ -8,11 +8,8 @@ Set ``AGENT_TRACE=0`` to disable local file logging.
 
 LangSmith
 ---------
-Set ``LANGCHAIN_API_KEY`` to enable LangSmith cloud tracing.
-LangChain/LangGraph picks it up automatically on every invocation — no explicit
-callback needed. Call ``configure_langsmith()`` once at app startup.
-Set ``LANGCHAIN_PROJECT`` to group traces (default: "kairo").
-Set ``LANGSMITH_HIDE_INPUTS=true`` to redact sensitive tool inputs from traces.
+Tracing is switched on only by ``LANGSMITH_TRACING=true``; see
+``assistant.shared.tracing``. ``configure_langsmith()`` just reports the state.
 """
 from __future__ import annotations
 
@@ -29,24 +26,20 @@ logger = logging.getLogger("assistant.agent")
 # ── LangSmith ─────────────────────────────────────────────────────────────────
 
 def configure_langsmith() -> None:
-    """
-    Enable LangSmith tracing when LANGCHAIN_API_KEY is present in env.
+    """Log whether LangSmith tracing is on. Call once at app startup.
 
-    Safe to call multiple times — idempotent. Call once at app startup
-    (e.g. in the FastAPI @app.on_event("startup") handler).
-
-    LangChain/LangGraph auto-injects the tracing callback on every chain/graph
-    run once LANGCHAIN_TRACING_V2=true is set — no manual callback wiring needed.
+    Tracing used to switch itself on whenever LANGCHAIN_API_KEY was set. It is now
+    opt-in through LANGSMITH_TRACING alone, so a stray key never starts sending
+    user data to LangSmith.
     """
-    api_key = os.environ.get("LANGCHAIN_API_KEY", "").strip()
-    if not api_key:
-        logger.info("LangSmith: disabled (LANGCHAIN_API_KEY not set)")
+    from langsmith.utils import tracing_is_enabled
+
+    if not tracing_is_enabled():
+        logger.info("LangSmith: disabled (set LANGSMITH_TRACING=true to enable)")
         return
-
-    # LangChain reads these env vars on every invocation
-    os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    project = os.environ.setdefault("LANGCHAIN_PROJECT", "kairo")
-    logger.info("LangSmith: tracing enabled — project=%s", project)
+    project = os.environ.get("LANGSMITH_PROJECT") or os.environ.get("LANGCHAIN_PROJECT") or "default"
+    hidden = os.environ.get("LANGSMITH_HIDE_INPUTS") == "true"
+    logger.info("LangSmith: tracing enabled — project=%s hide_inputs=%s", project, hidden)
 
 
 # ── Local trace logging ────────────────────────────────────────────────────────
@@ -114,7 +107,7 @@ def log_react_trace(
 def ensure_agent_trace_logging() -> None:
     """
     Call once at app startup.
-    Configures local agent logger and enables LangSmith if API key is present.
+    Configures the local agent logger and reports LangSmith status.
     """
     lg = logging.getLogger("assistant.agent")
     if not lg.handlers:

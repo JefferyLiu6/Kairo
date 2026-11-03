@@ -40,6 +40,10 @@ dev:
 
 test: test-backend test-evals smoke
 
+# Same clock for the app and the checks (see tests/conftest.py); CI runs in UTC.
+test-evals smoke: export TZ := America/Toronto
+test-evals smoke: export KAIRO_TIMEZONE := America/Toronto
+
 test-backend:
 	cd $(BACKEND_DIR) && uv run pytest
 

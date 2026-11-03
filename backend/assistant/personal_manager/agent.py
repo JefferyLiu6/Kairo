@@ -15,9 +15,9 @@ thread_id == session_id so each session is an isolated conversation thread.
 
 Observability
 -------------
-LangSmith tracing is auto-enabled via LANGCHAIN_TRACING_V2 + LANGCHAIN_API_KEY
-(set by configure_langsmith() at app startup). run_name + tags on every
-RunnableConfig give clean trace names in the LangSmith UI.
+LangSmith tracing is opt-in via LANGSMITH_TRACING=true (assistant.shared.tracing).
+run_pm / astream_pm are recorded as "pm_turn" runs; run_name + tags on every
+RunnableConfig give clean names to the LangGraph steps inside them.
 """
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ import os
 import sqlite3
 import threading
 from assistant.shared.calendar_clock import local_now
+from assistant.shared.tracing import tag_turn, traced
 from typing import Any, AsyncIterator, Callable, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -265,12 +266,14 @@ def _split_multi_tasks(message: str) -> list[str]:
 
 # ── Sync entry point ───────────────────────────────────────────────────────────
 
+@traced("pm_turn")
 def run_pm(message: str, config: PMConfig) -> str:
     """
     Run the Kairo agent for one turn (synchronous).
     History is owned by the SqliteSaver checkpointer — no history parameter needed.
     Used by: master agent personal_manager tool (via SYNC_WORKERS executor), HTTP endpoint.
     """
+    tag_turn(config)
     _pm_progress(config, "Personal manager · started")
     uid = config.user_id or normalize_pm_session_id(config.session_id)
     thread_id = normalize_pm_session_id(config.session_id)
@@ -441,6 +444,7 @@ def _try_passive_fact_save(message: str, config: PMConfig) -> str | None:
 
 # ── Async streaming entry point ────────────────────────────────────────────────
 
+@traced("pm_turn")
 async def astream_pm(
     message: str,
     config: PMConfig,
@@ -457,6 +461,7 @@ async def astream_pm(
     is conversation-only; state-changing requests should be handled by the typed
     workflow above.
     """
+    tag_turn(config)
     _pm_progress(config, "Personal manager · started")
     uid = config.user_id or config.session_id
     thread_id = normalize_pm_session_id(config.session_id)
