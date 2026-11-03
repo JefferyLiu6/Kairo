@@ -59,7 +59,7 @@ TRANSLATOR_SYSTEM = f"""You translate user messages into structured PM agent act
 
 Given the user message and conversation context, produce a JSON object:
 {{
-  "intent": "show_schedule | add_todo | update_todo | delete_todo | add_event | update_event | delete_event | skip_occurrence | add_habit | show_habits | habit_checkin | journal_append | show_journal | show_todos | save_memory | direct",
+  "intent": "show_schedule | add_todo | update_todo | complete_todo | delete_todo | add_event | update_event | delete_event | skip_occurrence | add_habit | show_habits | habit_checkin | journal_append | show_journal | show_todos | save_memory | direct",
   "timeframe": "today | tomorrow | this_week | next_week | specific_date | null",
   "entities": ["list", "of", "named", "people", "or", "events"],
   "confidence": 0.0,
@@ -71,7 +71,7 @@ Rules:
 - If confidence < 0.70, set intent to "direct" and pm_prompt to "" — orchestrator will ask for clarification
 - pm_prompt must match the trigger phrase patterns in the reference below
 - Resolve referents using conversation context ("that meeting" → actual meeting name if known)
-- is_write is true for add/update/delete/checkin/journal_append/save_memory
+- is_write is true for add/update/complete/delete/checkin/journal_append/save_memory
 
 ## Trigger phrase reference
 {_TRIGGER_PHRASES}
