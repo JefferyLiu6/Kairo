@@ -2,12 +2,19 @@
 from __future__ import annotations
 from assistant.shared.calendar_clock import local_today
 
-import json
+import logging
 import os
-import re
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
+from assistant.shared.llm import ContractError, call_contract
+from assistant.shared.llm_env import build_llm, chat_invoker
+from assistant.shared.tracing import mark_contract_error
+
+from ..contracts import MessageInput
 from ..domain.types import PMIntent
+
+logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
 def _should_try_model_extraction(config: Optional[Any]) -> bool:
@@ -24,7 +31,7 @@ def _should_try_model_extraction(config: Optional[Any]) -> bool:
     return True
 
 
-def _format_model_plan_prompt(message: str) -> str:
+def _format_model_plan_prompt() -> str:
     intents = ", ".join(intent.value for intent in PMIntent)
     today = local_today().isoformat()
     return f"""\
@@ -74,12 +81,11 @@ use REMOVE_SCHEDULE_EVENT with entities: query, start, bulk=true, and range_star
 only when the user names a date range. "Remove all Scheduled block 8:30am-9:30am"
 should use bulk=true with no range_start/range_end.
 
-User message:
-{message}
+The user's message arrives as JSON: {{"message": "..."}}
 """
 
 
-def _format_model_extraction_prompt(message: str) -> str:
+def _format_model_extraction_prompt() -> str:
     intents = ", ".join(intent.value for intent in PMIntent)
     today = local_today().isoformat()
     return f"""\
@@ -129,38 +135,30 @@ For LIST_STATE, always include a "target" field in entities:
   "journal"  — when user asks about journal or logs
   "todos"    — when user asks about tasks, todos, or reminders (default)
 
-User message:
-{message}
+The user's message arrives as JSON: {{"message": "..."}}
 """
 
 
-def _message_content_to_text(raw: Any) -> str:
-    content = getattr(raw, "content", raw)
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict) and isinstance(item.get("text"), str):
-                parts.append(item["text"])
-        return "\n".join(parts)
-    if isinstance(content, dict):
-        return json.dumps(content)
-    return str(content)
+def call_pm_model(stage: str, system: str, message: str, output: type[T], config: Any) -> Optional[T]:
+    """One PM model call through the contract gateway, or None if it gives nothing usable.
 
-
-def _json_object_from_text(text: str) -> Optional[dict[str, Any]]:
-    cleaned = text.strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned)
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        return None
+    The deterministic parser takes over on None, so failures stay soft, but they
+    are no longer silent: a reply that fails its contract is tagged in LangSmith,
+    and a provider error is logged with its type.
+    """
     try:
-        parsed = json.loads(cleaned[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
+        llm = build_llm(
+            getattr(config, "provider", "openai"),
+            getattr(config, "model", ""),
+            getattr(config, "api_key", None),
+            getattr(config, "base_url", None),
+        )
+        return call_contract(
+            chat_invoker(llm, stage), system=system, data=MessageInput(message=message), output=output,
+        )
+    except ContractError as exc:
+        logger.warning("%s reply failed its contract: %s", stage, exc)
+        mark_contract_error(stage)
+    except Exception as exc:
+        logger.warning("%s model call failed: %s", stage, type(exc).__name__)
+    return None

@@ -186,3 +186,35 @@ def build_llm(provider: str, model: str, api_key: Optional[str], base_url: Optio
     if base_url:
         kwargs["base_url"] = base_url
     return ChatOpenAI(**kwargs)
+
+
+def message_text(response: Any) -> str:
+    """Text of a chat-model reply; Anthropic can return a list of content parts."""
+    content = getattr(response, "content", response)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            item if isinstance(item, str) else item.get("text", "")
+            for item in content
+            if isinstance(item, str) or (isinstance(item, dict) and isinstance(item.get("text"), str))
+        ]
+        return "\n".join(parts)
+    if isinstance(content, dict):
+        import json
+        return json.dumps(content)
+    return str(content)
+
+
+def chat_invoker(llm: Any, stage: str) -> Callable[[str, str], str]:
+    """`invoke(system, user) -> text` for the contract gateway; the run is named after `stage`."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    def invoke(system: str, user: str) -> str:
+        response = llm.invoke(
+            [SystemMessage(content=system), HumanMessage(content=user)],
+            config={"run_name": stage},
+        )
+        return message_text(response)
+
+    return invoke
