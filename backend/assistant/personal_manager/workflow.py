@@ -122,6 +122,8 @@ def approve_pm_request(
 ) -> str:
     _sync_approval_hooks()
     effective_sid = user_id or session_id
+    if not effective_sid:
+        raise ValueError("an approval is always resolved inside its owner's session")
     return _approval_flow.approve_pm_request(
         approval_id,
         data_dir,
@@ -138,6 +140,8 @@ def reject_pm_request(
     user_id: Optional[str] = None,
 ) -> str:
     effective_sid = user_id or session_id
+    if not effective_sid:
+        raise ValueError("an approval is always resolved inside its owner's session")
     return _approval_flow.reject_pm_request(approval_id, data_dir, session_id=effective_sid)
 
 

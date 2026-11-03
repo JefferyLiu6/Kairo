@@ -14,6 +14,19 @@ from .store import _pm_dir
 
 APPROVAL_STATUSES = {"pending", "executing", "approved", "rejected", "executed", "failed"}
 
+# The only status changes an approval may make. Everything else is refused.
+#   pending ──claim──▶ executing ──▶ executed | failed
+#   pending ──reject─▶ rejected
+# "approved" is never written; it only exists in rows from older versions.
+APPROVAL_TRANSITIONS: dict[str, frozenset[str]] = {
+    "pending": frozenset({"executing", "rejected"}),
+    "executing": frozenset({"executed", "failed"}),
+}
+
+
+class ApprovalTransitionError(RuntimeError):
+    """An approval was asked to move to a status its current status does not allow."""
+
 
 @dataclass(frozen=True)
 class ApprovalRecord:
@@ -210,187 +223,108 @@ def find_approval_request(
     data_dir: str,
     approval_id: str,
     *,
-    session_id: Optional[str] = None,
+    session_id: str,
 ) -> Optional[ApprovalRecord]:
-    if session_id:
-        return get_approval_request(session_id, data_dir, approval_id)
-
-    root = os.path.join(data_dir, "personal-manager")
-    if not os.path.isdir(root):
-        return None
-    for name in os.listdir(root):
-        db_path = os.path.join(root, name, "pm.db")
-        if not os.path.isfile(db_path):
-            continue
-        with _conn(db_path) as conn:
-            try:
-                row = conn.execute(
-                    "SELECT * FROM approval_requests WHERE id = ?",
-                    (approval_id,),
-                ).fetchone()
-            except sqlite3.OperationalError:
-                continue
-        if row:
-            return _row_to_approval(row)
-    return None
+    return get_approval_request(session_id, data_dir, approval_id)
 
 
-def _claim_approval_in_db(
+def _sources_allowed_into(status: str) -> tuple[str, ...]:
+    return tuple(sorted(src for src, targets in APPROVAL_TRANSITIONS.items() if status in targets))
+
+
+def _transition_in_db(
     db_path: str,
     approval_id: str,
+    to_status: str,
     *,
-    session_id: Optional[str] = None,
+    session_id: str,
+    result: Optional[dict[str, Any]] = None,
 ) -> Optional[ApprovalRecord]:
-    now = _now()
+    """Move one approval to `to_status` only if its current status allows it.
+
+    The check and the write are a single UPDATE, so two requests racing on the
+    same approval cannot both win. Returns the updated record, or None if the
+    approval does not exist here or was not in an allowed status.
+    """
+    sources = _sources_allowed_into(to_status)
+    if not sources:
+        raise ApprovalTransitionError(f"no status may move to {to_status!r}")
+    placeholders = ", ".join("?" for _ in sources)
+    result_json = json.dumps(result, ensure_ascii=False, default=str) if result is not None else None
     with _conn(db_path) as conn:
         try:
-            if session_id:
-                cur = conn.execute(
-                    """
-                    UPDATE approval_requests
-                    SET status = 'executing', decided_at = COALESCE(decided_at, ?)
-                    WHERE id = ? AND session_id = ? AND status = 'pending'
-                    """,
-                    (now, approval_id, session_id),
-                )
-            else:
-                cur = conn.execute(
-                    """
-                    UPDATE approval_requests
-                    SET status = 'executing', decided_at = COALESCE(decided_at, ?)
-                    WHERE id = ? AND status = 'pending'
-                    """,
-                    (now, approval_id),
-                )
+            cur = conn.execute(
+                f"""
+                UPDATE approval_requests
+                SET status = ?, decided_at = COALESCE(decided_at, ?),
+                    result_json = COALESCE(?, result_json)
+                WHERE id = ? AND session_id = ? AND status IN ({placeholders})
+                """,
+                (to_status, _now(), result_json, approval_id, session_id, *sources),
+            )
         except sqlite3.OperationalError:
             return None
         if cur.rowcount != 1:
             return None
-        row = conn.execute(
-            "SELECT * FROM approval_requests WHERE id = ?",
-            (approval_id,),
-        ).fetchone()
+        row = conn.execute("SELECT * FROM approval_requests WHERE id = ?", (approval_id,)).fetchone()
     return _row_to_approval(row) if row else None
+
+
+def _transition(
+    data_dir: str,
+    approval_id: str,
+    to_status: str,
+    *,
+    session_id: str,
+    result: Optional[dict[str, Any]] = None,
+) -> Optional[ApprovalRecord]:
+    """Guarded transition inside the owning session's store."""
+    init_control_store(session_id, data_dir)
+    return _transition_in_db(
+        pm_db_path(session_id, data_dir), approval_id, to_status, session_id=session_id, result=result,
+    )
 
 
 def claim_approval_request(
     data_dir: str,
     approval_id: str,
     *,
-    session_id: Optional[str] = None,
+    session_id: str,
 ) -> Optional[ApprovalRecord]:
-    """Atomically claim a pending approval for execution."""
-    if session_id:
-        init_control_store(session_id, data_dir)
-        return _claim_approval_in_db(
-            pm_db_path(session_id, data_dir),
-            approval_id,
-            session_id=session_id,
-        )
-
-    root = os.path.join(data_dir, "personal-manager")
-    if not os.path.isdir(root):
-        return None
-    for name in os.listdir(root):
-        db_path = os.path.join(root, name, "pm.db")
-        if not os.path.isfile(db_path):
-            continue
-        claimed = _claim_approval_in_db(db_path, approval_id)
-        if claimed:
-            return claimed
-    return None
-
-
-def _reject_approval_in_db(
-    db_path: str,
-    approval_id: str,
-    *,
-    session_id: Optional[str] = None,
-) -> Optional[ApprovalRecord]:
-    now = _now()
-    with _conn(db_path) as conn:
-        try:
-            if session_id:
-                cur = conn.execute(
-                    """
-                    UPDATE approval_requests
-                    SET status = 'rejected', decided_at = COALESCE(decided_at, ?)
-                    WHERE id = ? AND session_id = ? AND status = 'pending'
-                    """,
-                    (now, approval_id, session_id),
-                )
-            else:
-                cur = conn.execute(
-                    """
-                    UPDATE approval_requests
-                    SET status = 'rejected', decided_at = COALESCE(decided_at, ?)
-                    WHERE id = ? AND status = 'pending'
-                    """,
-                    (now, approval_id),
-                )
-        except sqlite3.OperationalError:
-            return None
-        if cur.rowcount != 1:
-            return None
-        row = conn.execute(
-            "SELECT * FROM approval_requests WHERE id = ?",
-            (approval_id,),
-        ).fetchone()
-    return _row_to_approval(row) if row else None
+    """Atomically claim a pending approval for execution (pending → executing)."""
+    return _transition(data_dir, approval_id, "executing", session_id=session_id)
 
 
 def reject_approval_request(
     data_dir: str,
     approval_id: str,
     *,
-    session_id: Optional[str] = None,
+    session_id: str,
 ) -> Optional[ApprovalRecord]:
     """Atomically reject a pending approval without racing an execution claim."""
-    if session_id:
-        init_control_store(session_id, data_dir)
-        return _reject_approval_in_db(
-            pm_db_path(session_id, data_dir),
-            approval_id,
-            session_id=session_id,
-        )
-
-    root = os.path.join(data_dir, "personal-manager")
-    if not os.path.isdir(root):
-        return None
-    for name in os.listdir(root):
-        db_path = os.path.join(root, name, "pm.db")
-        if not os.path.isfile(db_path):
-            continue
-        rejected = _reject_approval_in_db(db_path, approval_id)
-        if rejected:
-            return rejected
-    return None
+    return _transition(data_dir, approval_id, "rejected", session_id=session_id)
 
 
-def update_approval_status(
+def finish_approval(
     session_id: str,
     data_dir: str,
     approval_id: str,
-    status: str,
     *,
-    result: Optional[dict[str, Any]] = None,
-) -> Optional[ApprovalRecord]:
-    if status not in APPROVAL_STATUSES:
-        raise ValueError(f"invalid approval status: {status}")
-    init_control_store(session_id, data_dir)
-    decided_at = _now() if status in {"executing", "approved", "rejected", "executed", "failed"} else None
-    result_json = json.dumps(result, ensure_ascii=False, default=str) if result is not None else None
-    with _conn(pm_db_path(session_id, data_dir)) as conn:
-        conn.execute(
-            """
-            UPDATE approval_requests
-            SET status = ?, decided_at = COALESCE(?, decided_at),
-                result_json = COALESCE(?, result_json)
-            WHERE id = ?
-            """,
-            (status, decided_at, result_json, approval_id),
+    ok: bool,
+    result: dict[str, Any],
+) -> ApprovalRecord:
+    """Record the outcome of a claimed approval (executing → executed | failed).
+
+    Raises ApprovalTransitionError if the approval was not executing: an outcome
+    must never overwrite a rejection or an earlier outcome.
+    """
+    record = _transition(data_dir, approval_id, "executed" if ok else "failed", session_id=session_id, result=result)
+    if record is None:
+        current = get_approval_request(session_id, data_dir, approval_id)
+        raise ApprovalTransitionError(
+            f"approval {approval_id} cannot finish from status {current.status if current else 'missing'!r}"
         )
-    return get_approval_request(session_id, data_dir, approval_id)
+    return record
 
 
 def _trunc(value: Any, max_len: int = 500) -> str:
