@@ -1,19 +1,19 @@
 node_modules/
 dist/
-web/dist/
+apps/web/dist/
 data/
-backend/data/
+apps/api/data/
 agent-python/data/
 .env*
 !.env.example
 !.env.production.example
-backend/.env*
-!backend/.env.example
+apps/api/.env*
+!apps/api/.env.example
 vault/
-backend/vault/
+apps/api/vault/
 workspace/
 .venv/
-backend/.venv/
+apps/api/.venv/
 agent-python/.venv/
 **/__pycache__/
 *.pyc
@@ -25,7 +25,7 @@ agent-python/.venv/
 *.sqlite
 *.jsonl
 .DS_Store
-web/tsconfig.tsbuildinfo
-web/package-lock.json
+apps/web/tsconfig.tsbuildinfo
+apps/web/package-lock.json
 
 artifacts/

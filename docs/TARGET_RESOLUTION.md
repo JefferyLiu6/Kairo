@@ -8,7 +8,7 @@ The preserved 14-scenario / 24-turn reproduction set improved from **8 state-con
 
 The full offline runner passes: **411 backend tests**, **252 workflow scenarios / 1,518 checks**, **32 quality-judge replay grades**, and **11 runtime-judge contract cases**. The new target-resolution module has 26 regression tests. Nine initial tests were verified failing against the unchanged Desktop source before the fix; these now pass. Two existing workflow expectations were corrected, explained below.
 
-The original and after artifacts are retained outside this repository on the developer’s Desktop. Run `make eval-offline` for repository checks; target regressions are in `backend/tests/test_todo_target_resolution.py`.
+The original and after artifacts are retained outside this repository on the developer’s Desktop. Run `make eval-offline` for repository checks; target regressions are in `apps/api/tests/personal_manager/test_todo_target_resolution.py`.
 
 ## Before, after, and effect
 
