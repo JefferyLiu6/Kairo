@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 
 COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
-COPY backend/assistant ./assistant
+COPY backend/kairo ./kairo
 COPY backend/*.py ./
 RUN uv sync --frozen --no-dev
 

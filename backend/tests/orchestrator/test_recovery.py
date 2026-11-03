@@ -3,10 +3,11 @@ from unittest.mock import patch
 
 import pytest
 
-from assistant.orchestrator import agent as orch, memory
-from assistant.orchestrator.harness import HarnessVerdict, evaluate_harness
-from assistant.orchestrator.translator import StructuredAction
-from assistant.personal_manager.persistence import store
+from kairo.agents.orchestrator import agent as orch
+from kairo.agents.orchestrator import memory
+from kairo.agents.orchestrator.harness import HarnessVerdict, evaluate_harness
+from kairo.agents.orchestrator.translator import StructuredAction
+from kairo.storage import store
 
 
 @pytest.fixture
@@ -199,6 +200,6 @@ def test_failed_flush_preserves_old_bytes(tmp_path):
                                    'List my todos; delete task a0000001',
                                    'Show my schedule', 'yes', 'Complete the second one'])
 def test_retry_rejects_compound_wrong_resource_and_dialogue(prompt):
-    from assistant.orchestrator.translator import is_safe_read_retry
+    from kairo.agents.orchestrator.translator import is_safe_read_retry
     a = StructuredAction('show_todos', None, [], 1, prompt, False)
     assert not is_safe_read_retry(a)

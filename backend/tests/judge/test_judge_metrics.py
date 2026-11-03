@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 import pytest
-from assistant.orchestrator.judge_eval import summarize, run, DEFAULT_CASES
-from assistant.orchestrator.judge_metrics import repeat_metrics
-from assistant.orchestrator.quality_judge import PROMPT_EXAMPLES, parse_quality_verdict
+from evals.judge_eval import summarize, run, DEFAULT_CASES
+from evals.judge_metrics import repeat_metrics
+from evals.quality_judge import PROMPT_EXAMPLES, parse_quality_verdict
 
 
 def row(expected, label, status='ok', **extra):

@@ -43,7 +43,7 @@ The small authored set cannot support broad accuracy claims or justify a release
 
 ## Prompt design and trade-offs
 
-The actual prompt in `backend/assistant/orchestrator/quality_judge.py` now includes:
+The actual prompt in `backend/evals/quality_judge.py` now includes:
 
 1. A scoped role: response quality, distinct from execution/authorization.
 2. A trust boundary: candidate text and tool records are data; embedded grading instructions,
@@ -128,7 +128,7 @@ unmeasured until paired human-reference results exist.
 From backend, an offline reporting check is:
 
 ```sh
-uv run python -m assistant.orchestrator.judge_eval --repeats 2 --max-calls 32 --output ../artifacts/judge-v3-replay.json
+uv run python -m evals.judge_eval --repeats 2 --max-calls 32 --output ../artifacts/judge-v3-replay.json
 ```
 
 Sixteen cases repeated twice require max-calls=32, above the default 30. Use a new output path

@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from assistant.orchestrator.date_check import calendar_facts
-from assistant.orchestrator.quality_judge import evaluate_response, judge_payload
+from evals.date_check import calendar_facts
+from evals.quality_judge import evaluate_response, judge_payload
 
 REQUEST = 'Schedule a review for tomorrow.'
 
@@ -95,7 +95,7 @@ def test_date_mismatch_does_not_override_honest_response_quality():
     'Scheduled the review for May 1, 2027.',
 ])
 def test_confirmation_guard_does_not_match_other_claims(response):
-    from assistant.orchestrator.date_check import wrong_date_confirmation
+    from evals.date_check import wrong_date_confirmation
     facts = calendar_facts(REQUEST, 'Request timestamp: April 30, 2027, America/Toronto. Event stored for May 2, 2027.')
     assert wrong_date_confirmation(REQUEST, response, facts) is None
 
@@ -123,7 +123,7 @@ def test_calendar_guard_never_hides_provider_failure():
 
 
 def test_summary_separates_hybrid_improvement_from_model_accuracy():
-    from assistant.orchestrator.judge_eval import summarize
+    from evals.judge_eval import summarize
     row = dict(id='date',expected='fail',label='fail',model_label='pass',status='ok',
                duration_ms=1,calendar_guard={'version':'test'},label_overridden=True)
     result = summarize([row])

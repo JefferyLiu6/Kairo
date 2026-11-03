@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from assistant.personal_manager.evals import runner as eval_runner
-import assistant.personal_manager.workflow as pm_workflow
-from assistant.personal_manager.domain.types import PMExtraction, PMIntent
+from evals import pm_runner as eval_runner
+import kairo.agents.personal_manager.workflow as pm_workflow
+from kairo.core.domain.types import PMExtraction, PMIntent
 
 
 def _case_by_input(text: str) -> eval_runner.PMEvalCase:

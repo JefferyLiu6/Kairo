@@ -31,20 +31,11 @@ from pathlib import Path
 
 import pytest
 
-import assistant.personal_manager.workflow as pm_workflow
-from assistant.personal_manager.agent import PMConfig, run_pm
-from assistant.personal_manager.application.clarification import _load_pending
-from assistant.personal_manager.persistence.control_store import list_approval_requests
-from assistant.personal_manager.persistence.store import (
-    ScheduleData,
-    ScheduleEntry,
-    TodoData,
-    TodoItem,
-    load_schedule,
-    load_todos,
-    save_schedule,
-    save_todos,
-)
+import kairo.agents.personal_manager.workflow as pm_workflow
+from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.personal_manager.application.clarification import _load_pending
+from kairo.storage.control_store import list_approval_requests
+from kairo.storage.store import ScheduleData, ScheduleEntry, TodoData, TodoItem, load_schedule, load_todos, save_schedule, save_todos
 
 SESSION = "pm-golden"
 CASES_DIR = Path(__file__).parent / "cases"

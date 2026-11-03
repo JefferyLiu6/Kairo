@@ -1,4 +1,4 @@
-from assistant.orchestrator.interview_demo import demonstrate
+from evals.interview_demo import demonstrate
 
 
 def test_demo_verifies_real_state_and_write_recovery():

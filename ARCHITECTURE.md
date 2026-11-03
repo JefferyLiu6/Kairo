@@ -6,28 +6,49 @@ marketing diagram.
 
 Primary source files:
 
-- [`backend/assistant/orchestrator/agent.py`](backend/assistant/orchestrator/agent.py) - conversational router/translator/harness/humanizer over the PM agent
-- [`backend/assistant/orchestrator/router.py`](backend/assistant/orchestrator/router.py) - heuristic plus model routing for direct vs delegated turns
-- [`backend/assistant/orchestrator/translator.py`](backend/assistant/orchestrator/translator.py) - user request to structured PM trigger prompt
-- [`backend/assistant/orchestrator/harness.py`](backend/assistant/orchestrator/harness.py) - PM result checking, retry, cache fallback, fallback logging
-- [`backend/assistant/personal_manager/agent.py`](backend/assistant/personal_manager/agent.py) - sync/streaming entrypoints and tool-free fallback
-- [`backend/assistant/personal_manager/workflow.py`](backend/assistant/personal_manager/workflow.py) - typed turn coordinator
-- [`backend/assistant/personal_manager/application/extraction.py`](backend/assistant/personal_manager/application/extraction.py) - deterministic/model extraction arbitration
-- [`backend/assistant/personal_manager/application/planner.py`](backend/assistant/personal_manager/application/planner.py) - intent-to-action planning
-- [`backend/assistant/personal_manager/application/approval_policy.py`](backend/assistant/personal_manager/application/approval_policy.py) - destructive/privacy approval gates
-- [`backend/assistant/personal_manager/persistence/`](backend/assistant/personal_manager/persistence) - working memory, approvals, audit, traces, personalization, semantic memory
+- [`backend/kairo/agents/orchestrator/agent.py`](backend/kairo/agents/orchestrator/agent.py) - conversational router/translator/harness/humanizer over the PM agent
+- [`backend/kairo/agents/orchestrator/router.py`](backend/kairo/agents/orchestrator/router.py) - heuristic plus model routing for direct vs delegated turns
+- [`backend/kairo/agents/orchestrator/translator.py`](backend/kairo/agents/orchestrator/translator.py) - user request to structured PM trigger prompt
+- [`backend/kairo/agents/orchestrator/harness.py`](backend/kairo/agents/orchestrator/harness.py) - PM result checking, retry, cache fallback, fallback logging
+- [`backend/kairo/agents/personal_manager/agent.py`](backend/kairo/agents/personal_manager/agent.py) - sync/streaming entrypoints and tool-free fallback
+- [`backend/kairo/agents/personal_manager/workflow.py`](backend/kairo/agents/personal_manager/workflow.py) - typed turn coordinator
+- [`backend/kairo/agents/personal_manager/application/extraction.py`](backend/kairo/agents/personal_manager/application/extraction.py) - deterministic/model extraction arbitration
+- [`backend/kairo/agents/personal_manager/application/planner.py`](backend/kairo/agents/personal_manager/application/planner.py) - intent-to-action planning
+- [`backend/kairo/agents/personal_manager/application/approval_policy.py`](backend/kairo/agents/personal_manager/application/approval_policy.py) - destructive/privacy approval gates
+- [`backend/kairo/storage/`](backend/kairo/storage) - working memory, approvals, audit, traces, personalization, semantic memory
+
+## Package Layout
+
+The backend package is split into layers, and imports only point down:
+
+```text
+api  ->  agents  ->  tools  ->  storage / core  ->  utils
+```
+
+| Layer | Holds | Examples |
+| --- | --- | --- |
+| `kairo/api/` | HTTP only: FastAPI app, auth, rate limits | `app.py`, `auth.py` |
+| `kairo/agents/` | Anything that decides what to do with a message | `orchestrator/`, `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
+| `kairo/tools/` | Actions the agents can take | `executors/`, `calendar/`, `resolvers/`, `memory/`, `web_search.py` |
+| `kairo/storage/` | All SQLite and file persistence | `control_store.py`, `working_memory.py`, `store.py` |
+| `kairo/core/` | Shared foundations, no HTTP and no SQL | `llm.py` (contract gateway), `domain/`, `observability/` |
+| `kairo/utils/` | Small helpers with no app state | `parsing/`, `clock.py`, `formatters.py`, `sensitivity.py` |
+| `evals/` | Eval, judge and monitoring tools, outside the package | `judge_eval.py`, `pm_runner.py` |
+
+`tests/test_architecture.py` fails if any module imports a layer above its own, or if
+`kairo` imports `evals`.
 
 ## System Map
 
 ```mermaid
 flowchart TB
-    UI["React UI<br/>web/src"] <-->|HTTP + SSE| API["FastAPI<br/>assistant/http/pm_app.py"]
+    UI["React UI<br/>web/src"] <-->|HTTP + SSE| API["FastAPI<br/>kairo/api/app.py"]
 
-    API -->|/orchestrator/stream| ORCH["Orchestrator<br/>assistant/orchestrator"]
+    API -->|/orchestrator/stream| ORCH["Orchestrator<br/>kairo/agents/orchestrator"]
     API -->|/personal-manager/stream| PM["Kairo PM workflow<br/>agent.py"]
     ORCH -->|delegates via astream_pm| PM
     ORCH -->|direct reply| OLLM["Orchestrator LLM<br/>chat, routing, humanizing"]
-    ORCH --> OMEM["In-process orchestrator memory<br/>recent turns + PM cache"]
+    ORCH --> OMEM["Orchestrator memory<br/>recent turns (SQLite) + PM cache (in-process)"]
     ORCH --> OTRACE["Orchestrator decision trace<br/>turn_decision_log"]
 
     PM --> TYPED["Typed workflow<br/>workflow.py"]

@@ -51,18 +51,18 @@ test-golden:
 	cd $(BACKEND_DIR) && uv run --extra dev pytest tests/golden -v
 
 test-evals:
-	cd $(BACKEND_DIR) && uv run python -m assistant.personal_manager.evals.runner
+	cd $(BACKEND_DIR) && uv run python -m evals.pm_runner
 
 eval:
-	cd $(BACKEND_DIR) && uv run python -m assistant.personal_manager.evals.runner --json | tee ../eval-results.json
+	cd $(BACKEND_DIR) && uv run python -m evals.pm_runner --json | tee ../eval-results.json
 	@echo "Results saved to eval-results.json"
 
 eval-report:
-	cd $(BACKEND_DIR) && uv run python -m assistant.personal_manager.evals.runner --report | tee ../eval-report.md
+	cd $(BACKEND_DIR) && uv run python -m evals.pm_runner --report | tee ../eval-report.md
 	@echo "Report saved to eval-report.md"
 
 smoke:
-	cd $(BACKEND_DIR) && uv run python -c "from tempfile import TemporaryDirectory; from assistant.personal_manager.agent import PMConfig, run_pm; d = TemporaryDirectory(); reply = run_pm('Add task to smoke test', PMConfig(model='unused', data_dir=d.name, session_id='pm-smoke')); assert \"Added 'smoke test'\" in reply; d.cleanup()"
+	cd $(BACKEND_DIR) && uv run python -c "from tempfile import TemporaryDirectory; from kairo.agents.personal_manager.agent import PMConfig, run_pm; d = TemporaryDirectory(); reply = run_pm('Add task to smoke test', PMConfig(model='unused', data_dir=d.name, session_id='pm-smoke')); assert \"Added 'smoke test'\" in reply; d.cleanup()"
 
 build-web:
 	pnpm --dir $(WEB_DIR) build
@@ -70,8 +70,8 @@ build-web:
 lint: lint-py lint-web
 
 lint-py:
-	cd $(BACKEND_DIR) && uv run --extra dev ruff check assistant tests
-	cd $(BACKEND_DIR) && uv run --extra dev python -m compileall -q assistant tests
+	cd $(BACKEND_DIR) && uv run --extra dev ruff check kairo evals tests
+	cd $(BACKEND_DIR) && uv run --extra dev python -m compileall -q kairo evals tests
 
 lint-web:
 	pnpm --dir $(WEB_DIR) exec tsc -b
@@ -83,12 +83,12 @@ clean:
 
 .PHONY: eval-judge
 eval-judge:
-	cd $(BACKEND_DIR) && uv run python -m assistant.orchestrator.judge_eval --output ../artifacts/judge-replay.json
+	cd $(BACKEND_DIR) && uv run python -m evals.judge_eval --output ../artifacts/judge-replay.json
 
 .PHONY: eval-runtime
 eval-runtime:
-	cd $(BACKEND_DIR) && uv run python -m assistant.orchestrator.runtime_eval --output ../artifacts/runtime-replay-$$(date +%s).json
+	cd $(BACKEND_DIR) && uv run python -m evals.runtime_eval --output ../artifacts/runtime-replay-$$(date +%s).json
 
 .PHONY: eval-offline
 eval-offline:
-	cd $(BACKEND_DIR) && uv run --offline --extra dev python -m assistant.orchestrator.offline_eval
+	cd $(BACKEND_DIR) && uv run --offline --extra dev python -m evals.offline_eval

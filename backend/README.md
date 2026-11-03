@@ -21,7 +21,7 @@ Or directly in this directory:
 uv sync
 uv run uvicorn main:app --host 0.0.0.0 --port 8766 --reload
 uv run pytest
-uv run python -m assistant.personal_manager.evals.runner
+uv run python -m evals.pm_runner
 uv run python scripts/demo_walkthrough.py   # headless end-to-end demo
 uv run python scripts/seed_demo.py          # seed sample session data
 ```
@@ -29,7 +29,7 @@ uv run python scripts/seed_demo.py          # seed sample session data
 ## Layout
 
 ```
-assistant/
+kairo/
 ├── http/pm_app.py              # HTTP API (FastAPI)
 ├── orchestrator/               # Direct/delegate router, translator, harness, humanizer
 └── personal_manager/
@@ -56,6 +56,6 @@ scripts/
 
 - `pytest tests/` — 227 unit + integration tests
 - `pytest tests/test_pm_adversarial.py` — 68 adversarial hardening tests
-- `python -m assistant.personal_manager.evals.runner` — 252 eval cases, 1518 checks
+- `python -m evals.pm_runner` — 252 eval cases, 1518 checks
 
 Current eval results are in [`../eval-report.md`](../eval-report.md). The adversarial regression coverage lives in [`tests/test_pm_adversarial.py`](tests/test_pm_adversarial.py).

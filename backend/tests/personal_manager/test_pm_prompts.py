@@ -11,18 +11,12 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-import assistant.personal_manager.workflow as pm_workflow
-from assistant.personal_manager.agent import PMConfig, run_pm
-from assistant.personal_manager.persistence.control_store import list_approval_requests, pm_db_path
-from assistant.personal_manager.persistence.journal import journal_read
-from assistant.personal_manager.persistence.store import (
-    ScheduleData,
-    ScheduleEntry,
-    load_schedule,
-    load_todos,
-    save_schedule,
-)
-from assistant.personal_manager.domain.types import PMExtraction
+import kairo.agents.personal_manager.workflow as pm_workflow
+from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.storage.control_store import list_approval_requests, pm_db_path
+from kairo.storage.journal import journal_read
+from kairo.storage.store import ScheduleData, ScheduleEntry, load_schedule, load_todos, save_schedule
+from kairo.core.domain.types import PMExtraction
 
 
 # ─── helpers ────────────────────────────────────────────────────────────────
