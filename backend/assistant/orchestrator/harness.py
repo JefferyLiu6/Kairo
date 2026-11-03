@@ -3,22 +3,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
-import math
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from .translator import StructuredAction
+from assistant.shared.llm import ContractError, parse_contract, to_payload
 
-
-@dataclass
-class HarnessVerdict:
-    verdict: str          # "pass" | "retry" | "fallback"
-    confidence: float
-    reason: str
-    suggested_fix: str
-    failure_type: str     # "empty" | "irrelevant" | "read_failed" | "write_failed" | "null"
+from .contracts import HarnessVerdict, JudgeInput, JudgeOutput, StructuredAction
 
 
 _ERROR_PREFIX = "error:"
@@ -82,43 +72,15 @@ def describe_error(exc: BaseException) -> str:
     return f"{type(exc).__name__}, status {status}" if status else type(exc).__name__
 
 
+UNPARSED_VERDICT_REASON = "Could not parse harness verdict"
+
+
 def parse_harness_verdict(raw: str) -> HarnessVerdict:
+    """Validate a raw judge reply against JudgeOutput; anything invalid fails closed."""
     try:
-        match = re.search(r"\{.*\}", raw.strip(), re.DOTALL)
-        if match:
-            data = json.loads(match.group())
-            if not isinstance(data, dict):
-                raise ValueError("Expected object")
-            required = {"verdict", "confidence", "reason", "suggested_fix", "failure_type"}
-            if set(data) != required:
-                raise ValueError("Unexpected verdict fields")
-            if data["verdict"] not in {"pass", "retry", "fallback"}:
-                raise ValueError("Unknown verdict")
-            confidence = data["confidence"]
-            if type(confidence) not in (int, float) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
-                raise ValueError("Invalid confidence")
-            if any(not isinstance(data[k], str) for k in required - {"confidence"}):
-                raise ValueError("Expected string fields")
-            if data["failure_type"] not in {"empty", "irrelevant", "read_failed", "write_failed", "null"}:
-                raise ValueError("Unknown failure type")
-            if data["verdict"] == "retry" and not data["suggested_fix"].strip():
-                raise ValueError("Retry requires a prompt")
-            return HarnessVerdict(
-                verdict=str(data.get("verdict", "fallback")),
-                confidence=float(data.get("confidence", 0.5)),
-                reason=str(data.get("reason", "")),
-                suggested_fix=str(data.get("suggested_fix", "")),
-                failure_type=str(data.get("failure_type", "null")),
-            )
-    except (json.JSONDecodeError, AttributeError, ValueError, TypeError):
-        pass
-    return HarnessVerdict(
-        verdict="fallback",
-        confidence=0.0,
-        reason="Could not parse harness verdict",
-        suggested_fix="",
-        failure_type="null",
-    )
+        return parse_contract(raw, JudgeOutput).to_verdict()
+    except ContractError:
+        return HarnessVerdict("fallback", 0.0, UNPARSED_VERDICT_REASON, "", "null")
 
 
 def evaluate_harness(message: str, action: StructuredAction, pm_output: str,
@@ -128,15 +90,14 @@ def evaluate_harness(message: str, action: StructuredAction, pm_output: str,
     quick = fast_precheck(action, pm_output)
     if quick is not None:
         return quick, "deterministic"
-    payload = (
-        f"User message: {message}\nIntent: {action.intent}\n"
-        f"PM output:\n{pm_output}\n\nUser profile:\n{profile or '(none)'}"
-    )
+    payload = to_payload(JudgeInput(
+        user_message=message, intent=action.intent, pm_output=pm_output, profile=profile or "(none)",
+    ))
     try:
         result = parse_harness_verdict(invoke(HARNESS_SYSTEM, payload))
     except Exception as exc:
         return HarnessVerdict("fallback", 0.0, f"Judge unavailable ({describe_error(exc)})", "", "null"), "provider_error"
-    source = "invalid" if result.reason == "Could not parse harness verdict" else "llm"
+    source = "invalid" if result.reason == UNPARSED_VERDICT_REASON else "llm"
     return result, source
 
 
