@@ -16,6 +16,9 @@ from assistant.shared.tracing import mark_contract_error, mark_fallback, tag_tur
 from assistant.personal_manager.agent import PMConfig, astream_pm
 from assistant.personal_manager.domain.approval_response import has_pending_approval
 from assistant.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
+from assistant.personal_manager.application.clarification import _load_pending
+from assistant.personal_manager.domain.pending import FieldChoicesPending, Pending, is_question, parse_pending
+from assistant.personal_manager.domain.session import normalize_pm_session_id
 
 from .contracts import (
     HumanizeInput,
@@ -309,26 +312,36 @@ def _log_turn(
 
 # ── Main streaming entry point ────────────────────────────────────────────────
 
-def _pending_pm_dialogue(config: OrchestratorConfig):
-    from assistant.personal_manager.application.clarification import _load_pending
-    from assistant.personal_manager.domain.session import normalize_pm_session_id
+def _pending_pm_dialogue(config: OrchestratorConfig) -> PendingQuestion | None:
+    """The question the PM is waiting on in this thread, if any."""
     thread_id = normalize_pm_session_id(config.session_id)
-    pending = _load_pending(thread_id, config.data_dir, user_id=config.user_id or thread_id)
+    payload = _load_pending(thread_id, config.data_dir, user_id=config.user_id or thread_id)
+    if payload is None:
+        return None
+    pending = parse_pending(payload)
     # A displayed task list is reference context, not an unanswered question.
-    return pending if pending and pending.get("type") != "todo_list" else None
+    if not is_question(pending):
+        return None
+    return PendingQuestion(id=payload["_working_memory"]["id"], state=pending)
 
 
-def _pending_id(pending) -> str:
-    return str(((pending or {}).get("_working_memory") or {}).get("id") or "")
+@dataclass(frozen=True)
+class PendingQuestion:
+    id: str          # working-memory record id: unchanged id = the question is still open
+    state: Pending
 
 
-def _still_pending_reply(pending: dict) -> str:
+def _pending_id(pending: PendingQuestion | None) -> str:
+    return pending.id if pending else ""
+
+
+def _still_pending_reply(pending: PendingQuestion) -> str:
     """The PM clears pending state before executing, so an untouched pending
     record after an error means nothing ran and the question is still open."""
-    choices = [c for c in pending.get("choices") or [] if isinstance(c, dict) and c.get("label")]
+    choices = pending.state.choices if isinstance(pending.state, FieldChoicesPending) else []
     if not choices:
         return "Something went wrong on my side and nothing was saved. Could you answer my last question again?"
-    lines = "\n".join(f"{c.get('id')}. {c['label']}" for c in choices)
+    lines = "\n".join(f"{c.id}. {c.label}" for c in choices)
     return (
         "Something went wrong on my side and nothing was saved. "
         f"Your options are still open:\n\n{lines}\n\nReply with a number, or type another date/time."
