@@ -87,7 +87,7 @@ def test_timeout_after_committed_write_never_replays(setup):
 def test_read_retry_exhaustion_discloses_stale_cache(setup):
     config, mp = setup
     a = action(setup, False)
-    memory.get_working_memory(config.user_id, config.session_id).cache_pm('todos', 'Old task snapshot')
+    memory.get_working_memory(config.user_id, config.session_id, config.data_dir).cache_pm('todos', 'Old task snapshot')
     calls = []
     async def pm(*_):
         calls.append(1)
@@ -151,7 +151,7 @@ def test_repeated_completion_keeps_one_task(tmp_path):
 def test_empty_response_after_write_falls_back_and_invalidates_cache(setup):
     config, mp = setup
     action(setup)
-    wm = memory.get_working_memory(config.user_id, config.session_id)
+    wm = memory.get_working_memory(config.user_id, config.session_id, config.data_dir)
     wm.cache_pm('todos', 'obsolete list')
     calls = []
     async def pm(*_):

@@ -248,7 +248,7 @@ def _humanize(
         raise ValueError("No readable PM result to humanize")
     from assistant.personal_manager.persistence.store import _pm_dir
     profile = load_profile(_pm_dir(config.user_id, config.data_dir))
-    wm = get_working_memory(config.user_id, config.session_id)
+    wm = get_working_memory(config.user_id, config.session_id, config.data_dir)
     # Do not parse role prefixes from a flattened transcript or recycle assistant
     # personalization as evidence. Keep only actual user-role records.
     user_messages = [t["content"] for t in wm.turns if t.get("role") == "user"]
@@ -358,11 +358,11 @@ async def _astream_orchestrator(
       ("done",     str) — full reply
     """
     _turn_start = time.monotonic()
-    wm = get_working_memory(config.user_id, config.session_id)
+    wm = get_working_memory(config.user_id, config.session_id, config.data_dir)
     # Per-user profile lives at data/users/<user_id>/PROFILE.md
     from assistant.personal_manager.persistence.store import _pm_dir
     user_data_dir = _pm_dir(config.user_id, config.data_dir)
-    memory_ctx = build_memory_context(config.user_id, config.session_id, user_data_dir)
+    memory_ctx = build_memory_context(config.user_id, config.session_id, user_data_dir, config.data_dir)
     profile = load_profile(user_data_dir)
 
     # ── Step 1: route ─────────────────────────────────────────────────────────

@@ -87,7 +87,7 @@ def capture_final(config: OrchestratorConfig, execute=run_orchestrator, *,
                                        "state_check_passed": passed},
                     })
         finally:
-            _sessions.pop((identifier, identifier), None)
+            _sessions.pop((identifier, identifier, directory), None)
     return {
         "cases": cases, "observations": observations,
         "summary": {"attempted_turns": len(scenarios), "captured_replies": len(cases),
