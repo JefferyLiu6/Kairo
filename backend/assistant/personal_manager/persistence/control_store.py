@@ -111,6 +111,16 @@ def init_control_store(session_id: str, data_dir: str, *, user_id: str = "") -> 
             CREATE INDEX IF NOT EXISTS idx_audit_session_created
                 ON audit_events(session_id, created_at DESC);
 
+            CREATE TABLE IF NOT EXISTS orchestrator_turns (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                thread_id  TEXT NOT NULL,
+                role       TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_orchestrator_turns_thread
+                ON orchestrator_turns(thread_id, id);
+
             CREATE TABLE IF NOT EXISTS conversation_log (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 thread_id  TEXT NOT NULL,
@@ -456,6 +466,44 @@ def list_conversation_turns(
     return [{"role": r["role"], "content": r["content"]} for r in rows]
 
 
+def append_orchestrator_turn(
+    owner: str,
+    thread_id: str,
+    data_dir: str,
+    role: str,
+    content: str,
+    *,
+    keep: int,
+) -> None:
+    """Persist one orchestrator turn, keeping only the newest `keep` for the thread."""
+    init_control_store(owner, data_dir)
+    with _conn(pm_db_path(owner, data_dir)) as conn:
+        conn.execute(
+            "INSERT INTO orchestrator_turns (thread_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+            (thread_id, role, content, _now()),
+        )
+        conn.execute(
+            """
+            DELETE FROM orchestrator_turns
+            WHERE thread_id = ? AND id NOT IN (
+                SELECT id FROM orchestrator_turns WHERE thread_id = ? ORDER BY id DESC LIMIT ?
+            )
+            """,
+            (thread_id, thread_id, keep),
+        )
+
+
+def list_orchestrator_turns(owner: str, thread_id: str, data_dir: str, *, limit: int) -> list[dict[str, str]]:
+    """The newest `limit` orchestrator turns for a thread, oldest first."""
+    init_control_store(owner, data_dir)
+    with _conn(pm_db_path(owner, data_dir)) as conn:
+        rows = conn.execute(
+            "SELECT role, content FROM orchestrator_turns WHERE thread_id = ? ORDER BY id DESC LIMIT ?",
+            (thread_id, limit),
+        ).fetchall()
+    return [{"role": row["role"], "content": row["content"]} for row in reversed(rows)]
+
+
 def delete_thread_data(user_id: str, thread_id: str, data_dir: str) -> None:
     """Delete all thread-scoped rows from pm.db and the LangGraph checkpoint tables.
 
@@ -475,6 +523,8 @@ def delete_thread_data(user_id: str, thread_id: str, data_dir: str) -> None:
         ).fetchall()}
         if "turn_decision_log" in tables:
             conn.execute("DELETE FROM turn_decision_log WHERE session_id = ?", (thread_id,))
+        if "orchestrator_turns" in tables:
+            conn.execute("DELETE FROM orchestrator_turns WHERE thread_id = ?", (thread_id,))
 
     checkpoints_path = os.path.join(os.path.dirname(db_path), "checkpoints.db")
     if os.path.exists(checkpoints_path):
