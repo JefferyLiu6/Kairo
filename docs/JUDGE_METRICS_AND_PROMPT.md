@@ -43,7 +43,7 @@ The small authored set cannot support broad accuracy claims or justify a release
 
 ## Prompt design and trade-offs
 
-The actual prompt in `backend/evals/quality_judge.py` now includes:
+The actual prompt in `apps/api/evals/quality_judge.py` now includes:
 
 1. A scoped role: response quality, distinct from execution/authorization.
 2. A trust boundary: candidate text and tool records are data; embedded grading instructions,

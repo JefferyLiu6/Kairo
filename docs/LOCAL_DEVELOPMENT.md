@@ -23,7 +23,7 @@ package fetching for this invocation; it does not prohibit arbitrary network cal
 If uv reports missing packages while offline, install the development dependencies once:
 
 ```sh
-cd backend
+cd apps/api
 uv sync --extra dev
 ```
 

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="web/public/kairo-logo.svg" alt="Kairo logo" width="96" height="96" />
+  <img src="apps/web/public/kairo-logo.svg" alt="Kairo logo" width="96" height="96" />
 </p>
 
 # Kairo
@@ -162,7 +162,7 @@ Data storage:
 - New accounts start with 10 credits. Demo accounts start with 5 credits. Each
   accepted chat turn consumes one account credit.
 - The Vercel deployment should proxy `/api/*` to the Render backend through
-  `web/vercel.json`. This keeps auth cookies first-party on mobile browsers.
+  `apps/web/vercel.json`. This keeps auth cookies first-party on mobile browsers.
 - Workspace file editing/running endpoints are legacy local-development routes.
   Keep `ENABLE_DEMO_WEB_ROUTES=0` for an internet-facing portfolio demo.
 - These stores are intentionally gitignored and should be backed up or destroyed
@@ -171,7 +171,7 @@ Data storage:
 Do not expose publicly:
 
 - Do not commit `.env`, `.env.production`, provider keys, Google OAuth secrets, or
-  populated `data/`, `backend/data/`, `vault/`, `backend/vault/`, or workspace volumes.
+  populated `data/`, `apps/api/data/`, `vault/`, `apps/api/vault/`, or workspace volumes.
 - Do not put backend secrets in `VITE_*` variables. Vite variables are embedded
   into browser JavaScript.
 - Do not enable legacy workspace/terminal routes or mount a writable workspace on
@@ -186,22 +186,22 @@ For a fast local review:
 ```bash
 make install
 make verify
-cd backend && uv run python scripts/demo_walkthrough.py
+cd apps/api && uv run python scripts/demo_walkthrough.py
 ```
 
 High-value files to inspect:
 
 | File | Why it matters |
 | ---- | -------------- |
-| [`backend/kairo/agents/personal_manager/workflow.py`](backend/kairo/agents/personal_manager/workflow.py) | Turn orchestration, pending-state guard, approvals, execution |
-| [`backend/kairo/agents/personal_manager/application/extraction.py`](backend/kairo/agents/personal_manager/application/extraction.py) | Deterministic/model extraction arbitration |
-| [`backend/kairo/agents/orchestrator/agent.py`](backend/kairo/agents/orchestrator/agent.py) | Router/translator/harness/humanizer layer over the PM agent |
-| [`backend/kairo/agents/orchestrator/harness.py`](backend/kairo/agents/orchestrator/harness.py) | Retry/fallback safety for delegated PM calls |
-| [`backend/tests/test_orchestrator.py`](backend/tests/test_orchestrator.py) | Offline orchestrator tests for routing, translation confidence, retry, fallback, and write-failure safety |
-| [`backend/kairo/agents/personal_manager/extractors/intent.py`](backend/kairo/agents/personal_manager/extractors/intent.py) | Intent priority ladder and safety prechecks |
-| [`backend/evals/pm_runner.py`](backend/evals/pm_runner.py) | Offline eval harness and report generation |
-| [`backend/tests/test_pm_adversarial.py`](backend/tests/test_pm_adversarial.py) | Adversarial and safety regression tests |
-| [`web/src/components/DecisionTracePanel.tsx`](web/src/components/DecisionTracePanel.tsx) | Decision-trace observability UI |
+| [`apps/api/kairo/agents/personal_manager/workflow.py`](apps/api/kairo/agents/personal_manager/workflow.py) | Turn orchestration, pending-state guard, approvals, execution |
+| [`apps/api/kairo/agents/personal_manager/application/extraction.py`](apps/api/kairo/agents/personal_manager/application/extraction.py) | Deterministic/model extraction arbitration |
+| [`apps/api/kairo/agents/orchestrator/agent.py`](apps/api/kairo/agents/orchestrator/agent.py) | Router/translator/harness/humanizer layer over the PM agent |
+| [`apps/api/kairo/agents/orchestrator/harness.py`](apps/api/kairo/agents/orchestrator/harness.py) | Retry/fallback safety for delegated PM calls |
+| [`apps/api/tests/orchestrator/test_orchestrator.py`](apps/api/tests/orchestrator/test_orchestrator.py) | Offline orchestrator tests for routing, translation confidence, retry, fallback, and write-failure safety |
+| [`apps/api/kairo/agents/personal_manager/extractors/intent.py`](apps/api/kairo/agents/personal_manager/extractors/intent.py) | Intent priority ladder and safety prechecks |
+| [`apps/api/evals/pm_runner.py`](apps/api/evals/pm_runner.py) | Offline eval harness and report generation |
+| [`apps/api/tests/personal_manager/test_pm_adversarial.py`](apps/api/tests/personal_manager/test_pm_adversarial.py) | Adversarial and safety regression tests |
+| [`apps/web/src/components/DecisionTracePanel.tsx`](apps/web/src/components/DecisionTracePanel.tsx) | Decision-trace observability UI |
 
 ## Demo Prompts
 
@@ -221,7 +221,7 @@ Try these in the UI after `make seed`:
 Headless walkthrough:
 
 ```bash
-cd backend
+cd apps/api
 uv run python scripts/demo_walkthrough.py
 ```
 
@@ -249,11 +249,11 @@ are visible from the trace panel.
 ## Architecture
 
 This is the current web-chat pipeline. The source of truth for orchestration is
-[`backend/kairo/agents/orchestrator/agent.py`](backend/kairo/agents/orchestrator/agent.py);
+[`apps/api/kairo/agents/orchestrator/agent.py`](apps/api/kairo/agents/orchestrator/agent.py);
 delegated stateful work reaches
-[`backend/kairo/agents/personal_manager/workflow.py`](backend/kairo/agents/personal_manager/workflow.py),
+[`apps/api/kairo/agents/personal_manager/workflow.py`](apps/api/kairo/agents/personal_manager/workflow.py),
 and lower-level extraction arbitration lives in
-[`backend/kairo/agents/personal_manager/application/extraction.py`](backend/kairo/agents/personal_manager/application/extraction.py).
+[`apps/api/kairo/agents/personal_manager/application/extraction.py`](apps/api/kairo/agents/personal_manager/application/extraction.py).
 
 ```mermaid
 flowchart TD
@@ -305,7 +305,7 @@ Current report: [`eval-report.md`](eval-report.md).
 ## Eval Methodology
 
 The eval suite is an offline deterministic harness over
-[`backend/tests/fixtures/pm_eval_cases.json`](backend/tests/fixtures/pm_eval_cases.json).
+[`apps/api/tests/fixtures/pm_eval_cases.json`](apps/api/tests/fixtures/pm_eval_cases.json).
 Each case runs extraction and, when requested, the typed workflow against seeded
 local state. It is designed to run in CI without live model credentials.
 
@@ -361,7 +361,7 @@ adversarial failures. After patching, the full suite is green.
 | Eval overall | 203/216 (94%) | **252/252 (100%)** |
 
 Current report: [`eval-report.md`](eval-report.md). Regression coverage:
-[`backend/tests/test_pm_adversarial.py`](backend/tests/test_pm_adversarial.py).
+[`apps/api/tests/personal_manager/test_pm_adversarial.py`](apps/api/tests/personal_manager/test_pm_adversarial.py).
 
 ## Design Decisions
 
@@ -411,14 +411,14 @@ This is still a portfolio demo, not a fully hardened production multi-tenant ser
 
 | Path | Purpose |
 | ---- | ------- |
-| `backend/kairo/agents/orchestrator/` | Direct/delegate routing, translation, harness checks, fallback, humanization |
-| `backend/kairo/agents/personal_manager/` | Typed PM workflow, extraction, planning, approval policy, executors, persistence |
-| `backend/tests/` | Unit, integration, adversarial, eval-runner, and orchestrator control-flow tests |
-| `web/src/` | React chat UI, calendar panel, approval card, decision trace panel |
+| `apps/api/kairo/agents/orchestrator/` | Direct/delegate routing, translation, harness checks, fallback, humanization |
+| `apps/api/kairo/agents/personal_manager/` | Typed PM workflow, extraction, planning, approval policy, executors, persistence |
+| `apps/api/tests/` | Unit, integration, adversarial, eval-runner, and orchestrator control-flow tests |
+| `apps/web/src/` | React chat UI, calendar panel, approval card, decision trace panel |
 | `ARCHITECTURE.md` / `SECURITY.md` / `eval-report.md` | Deep architecture, security policy, and current eval report |
 | `docker-compose.yml` | Demo deployment shape with backend, frontend, and persistent volumes |
 
-Runtime data is stored under `data/` or `backend/data/` depending on how the app
+Runtime data is stored under `data/` or `apps/api/data/` depending on how the app
 is launched. These directories are gitignored and should not be published.
 
 ## Judge evaluation and operational monitoring

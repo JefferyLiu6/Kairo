@@ -8,7 +8,7 @@ Ten initial fault/control cases ran against the unchanged Desktop checkout (comm
 
 These are deterministic development checks using the production orchestrator recovery loop, controlled router/translator/model/PM outputs, and real local task persistence. They do not establish live-model quality, cloud availability, or exactly-once execution. Faults are injected at explicit boundaries; this is not an Azure outage test.
 
-Recorded evidence is retained outside the repository in the Desktop Kairo_Recovery_Results folder. Run `make eval-offline` or `cd backend && uv run --offline --extra dev pytest tests/test_recovery.py -q`.
+Recorded evidence is retained outside the repository in the Desktop Kairo_Recovery_Results folder. Run `make eval-offline` or `cd apps/api && uv run --offline --extra dev pytest tests/test_recovery.py -q`.
 
 ## Walkthrough
 

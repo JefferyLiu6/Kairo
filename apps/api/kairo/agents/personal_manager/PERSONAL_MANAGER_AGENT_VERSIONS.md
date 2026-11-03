@@ -42,7 +42,7 @@ flowchart TD
 
 **Primary files:**
 
-- `backend/kairo/agents/personal_manager/agent.py`
+- `apps/api/kairo/agents/personal_manager/agent.py`
 - `backend/assistant/personal_manager/store.py`
 - `backend/assistant/personal_manager/habits_db.py`
 - `backend/assistant/personal_manager/journal_db.py`
@@ -158,7 +158,7 @@ These upgrades moved Kairo from a flexible prototype toward an expert-designed p
 | P4 | Eval harness | Added `kairo.agents.personal_manager.eval_runner`, which loads `pm_eval_cases.json`, scores extraction intent/entities/confidence, optionally runs seeded workflow cases, and reports pass/fail results through a CLI. | Parser and workflow quality need to be measurable before adding more intelligence or proactive behavior. The eval harness turns messy phrase support and approval boundaries into repeatable checks. | Fixtures require maintenance as behavior intentionally changes. Deterministic default mode may fail model-only phrases unless `--use-model` or a fake extractor is used. |
 | P5 | Approval and audit visibility API | Added approval detail responses with non-executing previews, redacted sensitive approval payloads, and an audit endpoint for recent PM control events. | Approval systems need human visibility. The user should know what will change, why approval is required, and what already happened before approving high-impact actions. | Preview logic must stay aligned with execution logic. API surface area increases, and private previews need explicit redaction rules to avoid turning observability into a data leak. |
 | P6 | Multi-task planning | Added a planner layer with `PMTaskExtraction` and `PMPlanExtraction`. One user prompt can become several tasks, the whole plan is validated before mutation, blocked plans ask one targeted question, and clear plans execute in order. Risky actions queue approvals while later safe actions continue; hard failures stop later steps. | Real personal-manager requests often contain multiple actions. The agent needs to extract potential tasks, plan them, and execute them one by one without letting unclear tasks cause partial accidental completion. | The all-or-nothing clarification rule can delay clear tasks when one task is unclear. This is intentional: it prevents hidden partial execution before the user resolves the plan. The planner also adds more state to pending clarification handling. |
-| Docs | Agent-local documentation | Kairo's design history now lives under `backend/kairo/agents/personal_manager/PERSONAL_MANAGER_AGENT_VERSIONS.md`; the root-level duplicate was removed. | Agent-specific architecture should live beside the agent code so future maintainers find it in the package they are changing. | The root project no longer has a top-level Kairo architecture file, so repo-level readers need to navigate into the agent package. |
+| Docs | Agent-local documentation | Kairo's design history now lives under `apps/api/kairo/agents/personal_manager/PERSONAL_MANAGER_AGENT_VERSIONS.md`; the root-level duplicate was removed. | Agent-specific architecture should live beside the agent code so future maintainers find it in the package they are changing. | The root project no longer has a top-level Kairo architecture file, so repo-level readers need to navigate into the agent package. |
 
 ### Safety Invariants After v1 Upgrades
 
