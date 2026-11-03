@@ -11,7 +11,7 @@ from typing import Any, AsyncIterator, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from assistant.shared.llm_env import build_llm
-from assistant.shared.tracing import tag_turn, traced
+from assistant.shared.tracing import mark_fallback, tag_turn, traced
 from assistant.personal_manager.agent import PMConfig, astream_pm
 from assistant.personal_manager.domain.approval_response import has_pending_approval
 from assistant.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
@@ -465,7 +465,8 @@ async def _astream_orchestrator(
             fallback_reply=reply,
         )
         pending_after = _pending_pm_dialogue(config) if pending_before and pm_output.strip().lower().startswith("error:") else None
-        if pending_after and _pending_id(pending_after) == _pending_id(pending_before):
+        pending_kept = bool(pending_after and _pending_id(pending_after) == _pending_id(pending_before))
+        if pending_kept:
             reply = _still_pending_reply(pending_after)
             final_verdict = HarnessVerdict(
                 final_verdict.verdict, final_verdict.confidence,
@@ -473,6 +474,13 @@ async def _astream_orchestrator(
                 final_verdict.suggested_fix, final_verdict.failure_type,
             )
             emit("recovery", outcome="pending_kept_after_error")
+        mark_fallback(
+            failure_type=final_verdict.failure_type,
+            intent=action.intent,
+            retry_count=retry_count,
+            pm_error=pm_output.strip().lower().startswith("error:"),
+            pending_kept=pending_kept,
+        )
 
     wm.add_turn("user", message)
     wm.add_turn("assistant", reply)
