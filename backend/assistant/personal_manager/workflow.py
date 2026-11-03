@@ -9,22 +9,9 @@ from .application.approval_flow import _format_approval_prompt
 from .domain.approval_response import has_pending_approval
 from .application.approval_policy import apply_approval_policy
 from .application.clarification import (
-    _apply_clarification_to_plan,
-    _apply_pending_confirmation_response,
-    _apply_pending_field_choice_response,
     _clear_pending,
     _find_plan_blocker,
-    _is_clarification_response,
-    _is_more_options_reply,
-    _is_pending_cancel_reply,
-    _is_pending_clarification_response,
-    _is_something_else_reply,
     _load_pending,
-    _match_pending_disambiguation_candidate,
-    _pending_payload_to_plan,
-    _pending_is_stale,
-    _pending_message_is_dialogue_reply,
-    _reconstruct_with_pending,
     _save_pending_confirmation,
     _save_pending_disambiguation,
     _save_pending_field_choices,
@@ -32,11 +19,11 @@ from .application.clarification import (
 )
 from .application.contextual_scheduling import (
     apply_context_to_explicit_schedule_plan,
-    build_contextual_plan_from_candidate,
     build_contextual_schedule_proposal,
 )
 from .application.field_completion import build_field_completion_proposal
 from .application.memory_query import build_memory_query_reply
+from .application.pending_reply import PendingTurn, resolve_pending_reply
 from .application.planner import plan_pm_actions
 from .application.self_disclosure import (
     activity_disclosure_reply,
@@ -52,10 +39,9 @@ from .application.semantic_memory import (
 from .application.time_slot_recommendation import (
     build_time_slot_recommendation_proposal,
     is_time_slot_recommendation_request,
-    replay_time_slot_recommendation,
 )
 from .application.todo_selection import (
-    prepare_todo_target, remember_todo_list, resume_todo_selection,
+    prepare_todo_target, remember_todo_list,
 )
 from .domain.session import normalize_pm_session_id
 from .domain.types import PMAction, PMExtraction, PMGraphState, PMIntent, PMPlanExtraction, PMTaskExtraction
@@ -181,184 +167,12 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, thread_id: str
         d.set_reply(reply)
         return reply
 
-    pending = _load_pending(thread_id, config.data_dir, user_id=sid)
-    if pending is not None:
-        d.set_working_memory(pending)
-
-    if pending and pending.get("type") == "field_choices" and is_time_slot_recommendation_request(message):
-        _clear_pending(thread_id, config.data_dir, user_id=sid, status="replaced")
-        d.wm_outcome = "replaced_new_request"
-        pending = None
-
-    plan: PMPlanExtraction | None = None
-    effective_message = message
-    extracted_for_guard: PMPlanExtraction | None = None
-    _pending_was_active = pending is not None
-
-    if pending and _is_pending_cancel_reply(message):
-        _clear_pending(thread_id, config.data_dir, user_id=sid, status="cancelled")
-        record_audit_event(
-            thread_id,
-            config.data_dir,
-            user_id=sid,
-            event_type="working_memory_cancelled",
-            intent="DIALOGUE",
-            payload_summary={"message": message},
-            result_summary="Cancelled pending request",
-        )
-        d.wm_outcome = "cancelled"
-        d.route("cancel", "user cancelled pending request")
-        d.wm_after = "cancelled"
-        reply = "Got it — cancelled that pending request."
-        d.set_reply(reply)
-        return reply
-
-    if pending and pending.get("type") in {"todo_selection", "todo_list"}:
-        selected_plan, selection_reply = resume_todo_selection(pending, message, config, sid)
-        if selection_reply is not None:
-            d.route("todo_selection", "task selection needs clarification")
-            d.wm_outcome = "kept"
-            d.wm_after = "active:awaiting_disambiguation"
-            d.set_reply(selection_reply)
-            return selection_reply
-        _clear_pending(thread_id, config.data_dir, user_id=sid,
-                       status="resolved" if selected_plan else "replaced")
-        pending = None
-        plan = selected_plan
-        d.wm_outcome = "resolved" if selected_plan else "replaced_new_request"
-
-    if pending and pending.get("type") == "disambiguation":
-        selected = _match_pending_disambiguation_candidate(pending, message)
-        if selected is not None:
-            parsed_date = str(pending.get("parsed_date") or "")
-            parsed_start = str(pending.get("parsed_start") or "")
-            built = build_contextual_plan_from_candidate(
-                activity=str(selected.get("activity") or ""),
-                label=str(selected.get("label") or ""),
-                parsed_date=parsed_date,
-                parsed_start=parsed_start,
-            )
-            if built is not None:
-                new_plan, confirmation_summary, provenance = built
-                _clear_pending(thread_id, config.data_dir, user_id=sid, status="resolved")
-                _save_pending_confirmation(
-                    thread_id,
-                    config.data_dir,
-                    new_plan,
-                    user_id=sid,
-                    blocking_task_id=new_plan.tasks[0].task_id,
-                    confirmation_summary=confirmation_summary,
-                    original_message=str(pending.get("original_message") or message),
-                    provenance=provenance,
-                )
-                record_audit_event(
-                    thread_id,
-                    config.data_dir,
-                    user_id=sid,
-                    event_type="disambiguation_resolved",
-                    intent=PMIntent.CREATE_SCHEDULE_EVENT.value,
-                    payload_summary={"message": message, "selected": selected},
-                    result_summary=confirmation_summary,
-                )
-                d.wm_outcome = "resolved"
-                d.route("disambiguation_resolved", "user picked one of the disambiguation candidates")
-                d.wm_after = "active:awaiting_confirmation"
-                d.memory_written.append("working_memory:awaiting_confirmation")
-                d.set_reply(confirmation_summary)
-                return confirmation_summary
-
-    # Check for a high-confidence new request *before* running the confirmation
-    # editor. Otherwise "Schedule dentist appointment tomorrow at 9am" arriving
-    # while a basketball draft is pending gets parsed as corrections to the
-    # draft (retitle + retime) instead of a replacement.
-    if pending:
-        extracted_for_guard = extract_pm_plan(message, config)
-        if _is_high_confidence_new_request(extracted_for_guard, message, pending):
-            _clear_pending(thread_id, config.data_dir, user_id=sid, status="replaced")
-            d.wm_outcome = "replaced_new_request"
-            pending = None
-            plan = extracted_for_guard
-        elif _pending_is_stale(pending) and not _pending_message_is_dialogue_reply(message, pending):
-            _clear_pending(thread_id, config.data_dir, user_id=sid, status="replaced")
-            d.wm_outcome = "replaced_stale"
-            pending = None
-
-    if pending and pending.get("type") == "confirmation":
-        confirmation = _apply_pending_confirmation_response(pending, message, config)
-        if confirmation.status == "execute" and confirmation.plan is not None:
-            plan = confirmation.plan
-            pending = None
-            d.wm_outcome = "resolved"
-        elif confirmation.status == "refresh":
-            d.wm_outcome = "kept"
-            d.route("confirmation", "user corrected pending confirmation")
-            d.wm_after = "active:awaiting_confirmation"
-            d.memory_written.append("working_memory:awaiting_confirmation")
-            d.set_reply(confirmation.reply)
-            return confirmation.reply
-
-    if (
-        pending
-        and pending.get("type") == "field_choices"
-        and _is_something_else_reply(message)
-    ):
-        replay = replay_time_slot_recommendation(pending, config)
-        if replay is not None:
-            _save_pending_field_choices(
-                thread_id,
-                config.data_dir,
-                replay.plan,
-                user_id=sid,
-                blocking_task_id=replay.blocking_task_id,
-                missing=replay.missing,
-                choices=replay.choices,
-            )
-            record_audit_event(
-                thread_id,
-                config.data_dir,
-                user_id=sid,
-                event_type="time_slot_recommendation_replay",
-                intent=PMIntent.GENERAL_COACHING.value,
-                payload_summary={"message": message},
-                result_summary=replay.prompt,
-            )
-            d.wm_outcome = "replay"
-            d.route("time_slot_replay", "user asked for a different recommendation")
-            d.wm_after = "active:awaiting_choice"
-            d.memory_written.append("working_memory:awaiting_choice")
-            d.set_reply(replay.prompt)
-            return replay.prompt
-
-    if pending and _is_more_options_reply(message):
-        _clear_pending(thread_id, config.data_dir, user_id=sid, status="replaced")
-        d.wm_outcome = "more_options"
-        d.route("more_options", "user asked for more options on pending choices")
-        d.wm_after = "cancelled"
-        reply = "Ask me again with the time and I'll generate a fresh set of options."
-        d.set_reply(reply)
-        return reply
-
-    if pending and pending.get("type") != "confirmation" and _is_pending_clarification_response(message):
-        pending_plan = _pending_payload_to_plan(pending)
-        if pending_plan is not None:
-            if pending.get("type") == "field_choices":
-                plan = _apply_pending_field_choice_response(pending_plan, pending, message, config)
-            else:
-                plan = _apply_clarification_to_plan(
-                    pending_plan,
-                    str(pending.get("blocking_task_id", "")),
-                    [str(item) for item in pending.get("missing", [])],
-                    message,
-                )
-            d.wm_outcome = "resolved"
-        elif _is_clarification_response(message):
-            reconstructed = _reconstruct_with_pending(pending, message)
-            if reconstructed:
-                effective_message = reconstructed
-            d.wm_outcome = "resolved"
-
-    if _pending_was_active and d.wm_outcome == "none":
-        d.wm_outcome = "kept"
+    turn = PendingTurn.load(message, config, sid, thread_id, d, extract=extract_pm_plan)
+    pending_reply = resolve_pending_reply(turn)
+    if pending_reply is not None:
+        return pending_reply
+    plan, effective_message, extracted_for_guard = turn.plan, turn.effective_message, turn.extracted_for_guard
+    _pending_was_active = turn.was_active
 
     if plan is None:
         plan = extracted_for_guard if extracted_for_guard is not None and effective_message == message else extract_pm_plan(effective_message, config)
@@ -727,21 +541,6 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, thread_id: str
             d.memory_written.append("working_memory:awaiting_disambiguation")
     d.set_reply(state.final_reply)
     return state.final_reply
-
-
-def _is_high_confidence_new_request(
-    plan: PMPlanExtraction,
-    message: str,
-    pending: dict[str, Any],
-) -> bool:
-    if plan.confidence < 0.75 or not plan.tasks:
-        return False
-    first = plan.tasks[0]
-    if first.intent in {PMIntent.UNKNOWN, PMIntent.GENERAL_COACHING}:
-        return False
-    if _pending_message_is_dialogue_reply(message, pending):
-        return False
-    return True
 
 
 def _handle_self_disclosure_turn(
