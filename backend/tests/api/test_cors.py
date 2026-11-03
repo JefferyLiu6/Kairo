@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
-from assistant.http.pm_app import _cors_config
+from kairo.api.app import _cors_config
 
 
 # ── Unit tests for the config logic ──────────────────────────────────────────

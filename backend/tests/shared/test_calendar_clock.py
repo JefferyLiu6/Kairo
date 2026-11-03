@@ -3,12 +3,10 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from assistant.shared import calendar_clock as clock
-from assistant.personal_manager.parsing.datetime import _parse_date
-from assistant.personal_manager.persistence.store import (
-    ScheduleData, ScheduleEntry, RecurrenceRule, save_schedule, get_upcoming_events,
-)
-from assistant.personal_manager.presentation.formatters import _format_date_natural
+from kairo.utils import clock
+from kairo.utils.parsing.datetime import _parse_date
+from kairo.storage.store import ScheduleData, ScheduleEntry, RecurrenceRule, save_schedule, get_upcoming_events
+from kairo.utils.formatters import _format_date_natural
 
 
 @pytest.fixture

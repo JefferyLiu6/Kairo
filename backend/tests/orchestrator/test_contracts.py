@@ -6,16 +6,11 @@ import re
 
 import pytest
 
-import assistant.orchestrator.agent as orch
-from assistant.orchestrator import prompts
-from assistant.orchestrator.contracts import (
-    TRANSLATOR_INTENTS,
-    JudgeOutput,
-    RouterOutput,
-    TranslatorOutput,
-)
-from assistant.orchestrator.harness import UNPARSED_VERDICT_REASON, parse_harness_verdict
-from assistant.orchestrator.translator import parse_translator_response
+import kairo.agents.orchestrator.agent as orch
+from kairo.agents.orchestrator import prompts
+from kairo.agents.orchestrator.contracts import TRANSLATOR_INTENTS, JudgeOutput, RouterOutput, TranslatorOutput
+from kairo.agents.orchestrator.harness import UNPARSED_VERDICT_REASON, parse_harness_verdict
+from kairo.agents.orchestrator.translator import parse_translator_response
 
 _VALID_JUDGE = dict(verdict="pass", confidence=0.9, reason="ok", suggested_fix="", failure_type="null")
 

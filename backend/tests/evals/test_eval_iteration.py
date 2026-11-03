@@ -5,12 +5,12 @@ import json
 
 import pytest
 
-from assistant.orchestrator.capture_eval import capture
-from assistant.orchestrator.judge_compare import compare
-from assistant.orchestrator.judge_eval import run, summarize, validate_cases
-from assistant.orchestrator.monitor_report import summarize_logs
-from assistant.personal_manager.extractors.entities import extract_pm_entities
-from assistant.personal_manager.domain.types import PMIntent
+from evals.capture_eval import capture
+from evals.judge_compare import compare
+from evals.judge_eval import run, summarize, validate_cases
+from evals.monitor_report import summarize_logs
+from kairo.agents.personal_manager.extractors.entities import extract_pm_entities
+from kairo.core.domain.types import PMIntent
 
 
 def report():

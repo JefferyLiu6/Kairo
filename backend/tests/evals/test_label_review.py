@@ -3,9 +3,9 @@ import json
 
 import pytest
 
-from assistant.orchestrator.judge_eval import DEFAULT_CASES
-from assistant.orchestrator.label_review import apply_packet, export_packet
-from assistant.orchestrator.quality_judge import evaluate_response
+from evals.judge_eval import DEFAULT_CASES
+from evals.label_review import apply_packet, export_packet
+from evals.quality_judge import evaluate_response
 
 
 def cases():

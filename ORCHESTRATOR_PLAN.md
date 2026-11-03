@@ -52,7 +52,7 @@ User
 - Read working memory and long-term memory at the start of every turn
 - Reason about user intent, emotional tone, and unstated needs
 - Decide whether to call the PM agent or reply directly
-- Translate vague user language into a clean, TRIGGER_PHRASES.md-grounded prompt before calling PM agent
+- Translate vague user language into a clean, backend/kairo/agents/orchestrator/trigger_phrases.md-grounded prompt before calling PM agent
 - Receive PM agent result, pass to quality harness
 - Humanize the final output — add context, empathy, proactive observations
 - Write new facts to long-term memory after every turn
@@ -66,7 +66,7 @@ User
 **Call PM agent when:**
 - Any stateful action: add / update / delete schedule, todo, habit, journal
 - Any data read: show schedule, list tasks, check habits
-- Anything matching an intent in TRIGGER_PHRASES.md
+- Anything matching an intent in backend/kairo/agents/orchestrator/trigger_phrases.md
 
 **Model:** `gpt-4o` (or `claude-sonnet-4-6`) — strong reasoning and long context for memory
 
@@ -263,11 +263,11 @@ Before calling the PM agent, the orchestrator translates the user's natural lang
 
 | Field | Purpose |
 |---|---|
-| `intent` | Canonical action name — maps 1:1 to TRIGGER_PHRASES.md intents. Used by harness to validate the PM result makes sense for the intent. |
+| `intent` | Canonical action name — maps 1:1 to backend/kairo/agents/orchestrator/trigger_phrases.md intents. Used by harness to validate the PM result makes sense for the intent. |
 | `timeframe` | Extracted time scope — used by retry logic to re-anchor the prompt if PM returns empty. |
 | `entities` | Named people, events, or items extracted from the user message or working memory. Used to detect referent resolution ("that meeting" → "standup"). |
 | `confidence` | How certain the translator is. Below 0.7 → orchestrator asks clarifying question instead of calling PM. |
-| `pm_prompt` | The clean trigger phrase sent to PM agent, grounded in TRIGGER_PHRASES.md. |
+| `pm_prompt` | The clean trigger phrase sent to PM agent, grounded in backend/kairo/agents/orchestrator/trigger_phrases.md. |
 | `is_write` | True for add/update/delete. Drives fallback Rule 1 and Rule 2 — write failures get stricter messaging than read failures. |
 
 ### Examples
@@ -290,9 +290,9 @@ Before calling the PM agent, the orchestrator translates the user's natural lang
 
 **Analytics** — `intent` + `confidence` + `is_write` aggregated over time shows which intents fail most, which trigger phrases need improvement, and where the translator is uncertain.
 
-**Tests** — each example in TRIGGER_PHRASES.md becomes a unit test: input = user message, expected output = structured action with known `intent`, `timeframe`, `entities`, and `pm_prompt`.
+**Tests** — each example in backend/kairo/agents/orchestrator/trigger_phrases.md becomes a unit test: input = user message, expected output = structured action with known `intent`, `timeframe`, `entities`, and `pm_prompt`.
 
-The orchestrator's system prompt includes the full `TRIGGER_PHRASES.md` as reference so the translator knows exactly which `pm_prompt` phrasings the PM agent handles reliably.
+The orchestrator's system prompt includes the full `backend/kairo/agents/orchestrator/trigger_phrases.md` as reference so the translator knows exactly which `pm_prompt` phrasings the PM agent handles reliably.
 
 ---
 
@@ -317,7 +317,7 @@ The orchestrator's system prompt includes the full `TRIGGER_PHRASES.md` as refer
 5a. NO → reply directly with profile + working memory as context
 
 5b. YES →
-   - Translate to trigger phrase (TRIGGER_PHRASES.md grounded)
+   - Translate to trigger phrase (backend/kairo/agents/orchestrator/trigger_phrases.md grounded)
    - Call PM agent
    - Cache result (60s TTL, invalidated on write)
    - Pass result to quality harness
@@ -375,7 +375,7 @@ All use the existing `build_llm()` factory. Requires `OPENAI_API_KEY` in `.env`.
 
 ```
 backend/
-└── assistant/
+└── kairo/
     └── orchestrator/
         ├── __init__.py
         ├── agent.py            # main orchestrator run loop + astream
@@ -383,7 +383,7 @@ backend/
         ├── router.py           # decide: direct reply vs PM agent call
         ├── translator.py       # user message → trigger phrase
         ├── harness.py          # quality judge loop
-        └── prompts.py          # system prompts (includes TRIGGER_PHRASES.md)
+        └── prompts.py          # system prompts (includes backend/kairo/agents/orchestrator/trigger_phrases.md)
 ```
 
 ---
@@ -391,7 +391,7 @@ backend/
 ## Build Order
 
 1. **`memory.py`** — load working memory + profile into context dict
-2. **`translator.py`** — translate user message to trigger phrase using TRIGGER_PHRASES.md
+2. **`translator.py`** — translate user message to trigger phrase using backend/kairo/agents/orchestrator/trigger_phrases.md
 3. **`harness.py`** — quality judge: verdict schema + retry loop
 4. **`router.py`** — direct vs PM decision logic
 5. **`agent.py`** — wire all above into a streaming run loop

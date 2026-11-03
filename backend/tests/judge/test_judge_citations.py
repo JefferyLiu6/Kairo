@@ -3,9 +3,7 @@ import json
 
 import pytest
 
-from assistant.orchestrator.quality_judge import (
-    citation_options, evaluate_response, judge_payload, parse_quality_verdict,
-)
+from evals.quality_judge import citation_options, evaluate_response, judge_payload, parse_quality_verdict
 
 
 def reply(citation_id, **updates):

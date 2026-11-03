@@ -12,16 +12,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 def seed_session(session_id: str, data_dir: str, vault_dir: str) -> None:
     """Seed demo data for `session_id` into `data_dir`/`vault_dir`."""
     from datetime import date, timedelta
-    from assistant.personal_manager.persistence.store import (
-        ScheduleData, ScheduleEntry, RecurrenceRule, TodoData, TodoItem,
-        save_schedule, save_todos,
-    )
-    from assistant.personal_manager.persistence.habits import (
-        habit_add, habit_checkin, _init as _init_habits,
-    )
-    from assistant.personal_manager.persistence.journal import (
-        journal_append, _init as _init_journal,
-    )
+    from kairo.storage.store import ScheduleData, ScheduleEntry, RecurrenceRule, TodoData, TodoItem, save_schedule, save_todos
+    from kairo.storage.habits import habit_add, habit_checkin, _init as _init_habits
+    from kairo.storage.journal import journal_append, _init as _init_journal
 
     today = date.today()
     tomorrow = today + timedelta(days=1)

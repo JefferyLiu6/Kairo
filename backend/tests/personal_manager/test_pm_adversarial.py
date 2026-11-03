@@ -21,21 +21,12 @@ from __future__ import annotations
 
 from datetime import date, timedelta, datetime, timezone
 
-from assistant.personal_manager.agent import PMConfig, run_pm
-from assistant.personal_manager.application.clarification import _load_pending
-from assistant.personal_manager.persistence.personalization import (
-    list_field_choices,
-    list_user_preferences,
-)
-from assistant.personal_manager.persistence.recent_context import save_recent_context
-from assistant.personal_manager.persistence.store import (
-    ScheduleData,
-    ScheduleEntry,
-    load_schedule,
-    load_todos,
-    save_schedule,
-)
-from assistant.personal_manager.persistence.working_memory import list_working_memory
+from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.personal_manager.application.clarification import _load_pending
+from kairo.storage.personalization import list_field_choices, list_user_preferences
+from kairo.storage.recent_context import save_recent_context
+from kairo.storage.store import ScheduleData, ScheduleEntry, load_schedule, load_todos, save_schedule
+from kairo.storage.working_memory import list_working_memory
 
 
 # ---------- shared helpers ----------
@@ -823,24 +814,24 @@ def test_benign_recipe_lookup_is_not_blocked(tmp_path):
 
 
 def test_bare_add_creates_todo(tmp_path):
-    from assistant.personal_manager.extractors.intent import classify_pm_intent
-    from assistant.personal_manager.domain.types import PMIntent
+    from kairo.agents.personal_manager.extractors.intent import classify_pm_intent
+    from kairo.core.domain.types import PMIntent
 
     assert classify_pm_intent("add pick up dry cleaning") == PMIntent.CREATE_TODO
 
 
 def test_bare_add_empty_stays_unknown(tmp_path):
     """Bare verb with no body must not be interpreted as an empty-title todo."""
-    from assistant.personal_manager.extractors.intent import classify_pm_intent
-    from assistant.personal_manager.domain.types import PMIntent
+    from kairo.agents.personal_manager.extractors.intent import classify_pm_intent
+    from kairo.core.domain.types import PMIntent
 
     assert classify_pm_intent("add") == PMIntent.UNKNOWN
 
 
 def test_bare_add_schedule_wins_over_todo(tmp_path):
     """Schedule-shaped adds with a time marker must still route to schedule."""
-    from assistant.personal_manager.extractors.intent import classify_pm_intent
-    from assistant.personal_manager.domain.types import PMIntent
+    from kairo.agents.personal_manager.extractors.intent import classify_pm_intent
+    from kairo.core.domain.types import PMIntent
 
     assert classify_pm_intent(
         "add meeting with Alex tomorrow at 3pm"
@@ -848,8 +839,8 @@ def test_bare_add_schedule_wins_over_todo(tmp_path):
 
 
 def test_bare_add_habit_wins_over_todo(tmp_path):
-    from assistant.personal_manager.extractors.intent import classify_pm_intent
-    from assistant.personal_manager.domain.types import PMIntent
+    from kairo.agents.personal_manager.extractors.intent import classify_pm_intent
+    from kairo.core.domain.types import PMIntent
 
     assert classify_pm_intent(
         "add daily meditation habit"
@@ -859,8 +850,8 @@ def test_bare_add_habit_wins_over_todo(tmp_path):
 def test_typo_colon_command_stays_unknown(tmp_path):
     """'add tsk: review contract' is a typo'd slash-form — keep it UNKNOWN so
     the clarifier asks, rather than creating a todo titled 'tsk: review contract'."""
-    from assistant.personal_manager.extractors.intent import classify_pm_intent
-    from assistant.personal_manager.domain.types import PMIntent
+    from kairo.agents.personal_manager.extractors.intent import classify_pm_intent
+    from kairo.core.domain.types import PMIntent
 
     assert classify_pm_intent("add tsk: review contract") == PMIntent.UNKNOWN
 
@@ -901,9 +892,7 @@ def test_bare_yes_still_gets_no_pending(tmp_path):
 
 def test_past_tense_does_not_save_to_profile(tmp_path):
     """'I used to play X' is context, not a current preference — no profile write."""
-    from assistant.personal_manager.application.self_disclosure import (
-        analyze_activity_disclosures,
-    )
+    from kairo.agents.personal_manager.application.self_disclosure import analyze_activity_disclosures
 
     disclosures = analyze_activity_disclosures("i used to play tennis in college")
     assert len(disclosures) == 1
@@ -912,9 +901,7 @@ def test_past_tense_does_not_save_to_profile(tmp_path):
 
 def test_watch_only_still_saves_to_profile(tmp_path):
     """Watching is valid user context — keep writing to profile."""
-    from assistant.personal_manager.application.self_disclosure import (
-        analyze_activity_disclosures,
-    )
+    from kairo.agents.personal_manager.application.self_disclosure import analyze_activity_disclosures
 
     disclosures = analyze_activity_disclosures("i like watching tennis")
     assert len(disclosures) == 1

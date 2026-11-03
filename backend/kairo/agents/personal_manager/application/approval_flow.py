@@ -1,0 +1,153 @@
+"""Approval flow: approve/reject pending actions from chat or API."""
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from kairo.core.domain.session import normalize_pm_session_id
+from kairo.core.domain.types import PMAction
+from kairo.tools.executors.dispatcher import execute_pm_action
+from kairo.utils.parsing.text import _extract_id
+from kairo.storage.control_store import ApprovalRecord, claim_approval_request, find_approval_request, finish_approval, list_approval_requests, record_audit_event, reject_approval_request
+
+
+class _ApprovalConfig:
+    def __init__(self, *, session_id: str, data_dir: str, vault_dir: Optional[str] = None) -> None:
+        self.user_id = session_id  # already the effective uid stored at approval creation time
+        self.session_id = session_id
+        self.data_dir = data_dir
+        self.vault_dir = vault_dir
+
+
+def approve_pm_request(
+    approval_id: str,
+    data_dir: str,
+    *,
+    vault_dir: Optional[str] = None,
+    session_id: str,
+) -> str:
+    record = claim_approval_request(data_dir, approval_id, session_id=session_id)
+    if record is None:
+        existing = find_approval_request(data_dir, approval_id, session_id=session_id)
+        return _approval_not_claimed_message(approval_id, existing)
+
+    config = _ApprovalConfig(session_id=record.session_id, data_dir=data_dir, vault_dir=vault_dir)
+    action = PMAction(
+        action_type=record.action_type,
+        payload=record.payload,
+        risk_level=record.risk_level,
+        requires_approval=True,
+        summary=record.summary,
+    )
+    result = execute_pm_action(action, config)
+    finish_approval(record.session_id, data_dir, approval_id, ok=bool(result["ok"]), result=result)
+    record_audit_event(
+        record.session_id,
+        data_dir,
+        event_type="approval_executed" if result["ok"] else "approval_failed",
+        action_type=record.action_type,
+        payload_summary=record.summary,
+        result_summary=result["message"],
+        approval_id=approval_id,
+    )
+    return result["message"]
+
+
+def reject_pm_request(
+    approval_id: str,
+    data_dir: str,
+    *,
+    session_id: str,
+) -> str:
+    record = reject_approval_request(data_dir, approval_id, session_id=session_id)
+    if record is None:
+        existing = find_approval_request(data_dir, approval_id, session_id=session_id)
+        return _approval_not_claimed_message(approval_id, existing)
+    record_audit_event(
+        record.session_id,
+        data_dir,
+        event_type="approval_rejected",
+        action_type=record.action_type,
+        payload_summary=record.summary,
+        approval_id=approval_id,
+    )
+    return "Got it — cancelled that action."
+
+
+def approve_from_chat(message: str, config: Any) -> str:
+    sid = getattr(config, "user_id", "") or normalize_pm_session_id(config.session_id)
+    thread_id = normalize_pm_session_id(config.session_id)
+    approval_id = _extract_id(message)
+    if not approval_id:
+        pending = list_approval_requests(sid, config.data_dir, status="pending", limit=10)
+        # Scope generic approval to the current thread only.
+        thread_pending = [a for a in pending if a.payload.get("_thread_id") == thread_id]
+        if not thread_pending:
+            return "You don't have any pending approvals right now."
+        if len(thread_pending) > 1:
+            return _format_pending_choices("approve", thread_pending)
+        approval_id = thread_pending[0].id
+    else:
+        # Explicit ID — verify the approval belongs to this thread before executing.
+        record = find_approval_request(config.data_dir, approval_id, session_id=sid)
+        if record is None or record.payload.get("_thread_id") != thread_id:
+            return f"No approval request found for id {approval_id}."
+    return approve_pm_request(
+        approval_id,
+        config.data_dir,
+        vault_dir=getattr(config, "vault_dir", None),
+        session_id=sid,
+    )
+
+
+def reject_from_chat(message: str, config: Any) -> str:
+    sid = getattr(config, "user_id", "") or normalize_pm_session_id(config.session_id)
+    thread_id = normalize_pm_session_id(config.session_id)
+    approval_id = _extract_id(message)
+    if not approval_id:
+        pending = list_approval_requests(sid, config.data_dir, status="pending", limit=10)
+        # Scope generic rejection to the current thread only.
+        thread_pending = [a for a in pending if a.payload.get("_thread_id") == thread_id]
+        if not thread_pending:
+            return "You don't have any pending approvals right now."
+        if len(thread_pending) > 1:
+            return _format_pending_choices("reject", thread_pending)
+        approval_id = thread_pending[0].id
+    else:
+        # Explicit ID — verify the approval belongs to this thread before rejecting.
+        record = find_approval_request(config.data_dir, approval_id, session_id=sid)
+        if record is None or record.payload.get("_thread_id") != thread_id:
+            return f"No approval request found for id {approval_id}."
+    return reject_pm_request(approval_id, config.data_dir, session_id=sid)
+
+
+def _format_approval_prompt(approval: ApprovalRecord) -> str:
+    return (
+        f"Approval required [{approval.id}]: {approval.summary}\n"
+        f"Risk: {approval.risk_level}.\n"
+        f"Reply `approve {approval.id}` to go ahead, or `reject {approval.id}` to cancel."
+    )
+
+
+def _format_pending_choices(verb: str, pending: list[ApprovalRecord]) -> str:
+    lines = [f"Multiple pending approvals. Tell me which one to {verb}:"]
+    for item in pending:
+        lines.append(f"- [{item.id}] {item.summary}")
+    return "\n".join(lines)
+
+
+def _approval_not_claimed_message(approval_id: str, record: Optional[ApprovalRecord]) -> str:
+    if record is None:
+        return f"No approval request found for id {approval_id}."
+    if record.status == "executed":
+        result = record.result or {}
+        return str(result.get("message") or f"Approval {approval_id} was already executed.")
+    if record.status == "rejected":
+        return f"Approval {approval_id} was already rejected."
+    if record.status == "failed":
+        result = record.result or {}
+        return str(result.get("message") or f"Approval {approval_id} already failed.")
+    if record.status == "executing":
+        return f"Approval {approval_id} is already being executed."
+    if record.status == "approved":
+        return f"Approval {approval_id} was already approved."
+    return f"Approval {approval_id} could not be claimed."
