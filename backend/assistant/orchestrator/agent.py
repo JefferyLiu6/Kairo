@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from assistant.shared.llm_env import build_llm
+from assistant.shared.tracing import tag_turn, traced
 from assistant.personal_manager.agent import PMConfig, astream_pm
 from assistant.personal_manager.domain.approval_response import has_pending_approval
 from assistant.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
@@ -72,7 +73,8 @@ def _llm(config: OrchestratorConfig, *, fast: bool = False):
     return build_llm(config.provider, config.model, config.api_key, config.base_url)
 
 
-@observed("llm_invoke")
+# Not traced as its own run: LangChain already records the model call under its stage.
+@observed("llm_invoke", trace=False)
 def _invoke(llm: Any, system: str, user: str) -> str:
     response = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
     usage = getattr(response, "usage_metadata", None) or {}
@@ -489,9 +491,16 @@ async def _astream_orchestrator(
     yield ("done", reply)
 
 
+@traced("chat_turn")
+async def _traced_turn(message: str, config: OrchestratorConfig):
+    tag_turn(config)
+    async for event in _astream_orchestrator(message, config):
+        yield event
+
+
 async def astream_orchestrator(message: str, config: OrchestratorConfig):
     with span("turn"):
-        async for event in _astream_orchestrator(message, config):
+        async for event in _traced_turn(message, config):
             yield event
 
 
