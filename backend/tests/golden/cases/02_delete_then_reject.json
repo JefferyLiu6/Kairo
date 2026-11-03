@@ -1,0 +1,23 @@
+{
+  "description": "Rejecting a pending delete cancels it and leaves the calendar unchanged.",
+  "seed": {
+    "schedule": [{"id": "dentist1", "title": "Dentist appointment"}]
+  },
+  "turns": [
+    {
+      "user": "Delete my dentist appointment",
+      "expect": {
+        "reply_contains": ["Approval required"],
+        "approvals": {"pending": 1}
+      }
+    },
+    {
+      "user": "reject {approval_id}",
+      "expect": {
+        "reply_contains": ["cancelled that action"],
+        "approvals": {"pending": 0, "rejected": 1},
+        "schedule_titles": ["Dentist appointment"]
+      }
+    }
+  ]
+}

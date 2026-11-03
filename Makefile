@@ -3,7 +3,7 @@ WEB_DIR     := web
 PYTHON      := python3
 
 .PHONY: help install dev seed clean \
-        test test-backend test-evals smoke \
+        test test-backend test-golden test-evals smoke \
         eval eval-report \
         lint lint-py lint-web build-web verify
 
@@ -42,6 +42,9 @@ test: test-backend test-evals smoke
 
 test-backend:
 	cd $(BACKEND_DIR) && uv run pytest
+
+test-golden:
+	cd $(BACKEND_DIR) && uv run --extra dev pytest tests/golden -v
 
 test-evals:
 	cd $(BACKEND_DIR) && uv run python -m assistant.personal_manager.evals.runner

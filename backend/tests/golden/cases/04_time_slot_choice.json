@@ -1,0 +1,20 @@
+{
+  "description": "A time-slot question offers numbered choices; replying with a number books it and closes the question.",
+  "turns": [
+    {
+      "user": "what should I do at 8pm tdy?",
+      "expect": {
+        "reply_contains": ["At 8 PM today", "Reply 1, 2, or 3"],
+        "schedule_titles": [],
+        "has_pending_question": true
+      }
+    },
+    {
+      "user": "2",
+      "expect": {
+        "reply_contains": ["Done! Added"],
+        "has_pending_question": false
+      }
+    }
+  ]
+}

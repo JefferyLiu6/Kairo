@@ -1,0 +1,14 @@
+{
+  "description": "Adding a task saves it straight away, with no approval step.",
+  "turns": [
+    {
+      "user": "Add task to call John tomorrow",
+      "expect": {
+        "reply_contains": ["Added 'call John'"],
+        "todo_titles": ["call John"],
+        "approvals": {"pending": 0},
+        "has_pending_question": false
+      }
+    }
+  ]
+}
