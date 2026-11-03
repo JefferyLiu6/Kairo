@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from ..domain.types import PMExtraction, PMIntent, PMPlanExtraction, PMTaskExtraction
-from ..legacy.workflow_parsing import (
+from ..parsing.cleanup import (
     _clean_lookup_query,
     _clean_schedule_title,
     _clean_todo_title,

@@ -16,9 +16,7 @@ from ..extractors.model import (
     _should_try_model_extraction,
 )
 from ..domain.types import PMExtraction, PMIntent, PMPlanExtraction, PMTaskExtraction
-from ..legacy.workflow_parsing import (
-    _parse_schedule_entries,
-)
+from ..parsing.schedule_text import _parse_schedule_entries
 from ..parsing.datetime import _default_end_time, _has_explicit_time_signal, _parse_date, _parse_time
 from ..parsing.schedule_text import _has_non_schedule_plan_marker, _looks_like_ambiguous_schedulable_routine
 from .self_disclosure import analyze_activity_disclosure
