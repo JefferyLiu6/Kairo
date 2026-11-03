@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from assistant.orchestrator import agent
-from assistant.orchestrator.final_eval import TITLE, capture_final, capture_suite, snapshot
-from assistant.orchestrator.memory import _sessions
-from assistant.personal_manager.persistence.store import _todos_path, todo_add
+from kairo.agents.orchestrator import agent
+from evals.final_eval import TITLE, capture_final, capture_suite, snapshot
+from kairo.agents.orchestrator.memory import _sessions
+from kairo.storage.store import _todos_path, todo_add
 
 
 @pytest.mark.parametrize("expanded", [False, True])
@@ -87,7 +87,7 @@ def test_corrupt_snapshot_is_not_treated_as_empty(tmp_path):
 
 
 def test_cli_requires_live_opt_in_before_execution(tmp_path, monkeypatch):
-    from assistant.orchestrator import final_eval
+    from evals import final_eval
     monkeypatch.setattr("sys.argv", ["final_eval", "--model", "unused", "--output-dir", str(tmp_path / "run")])
     monkeypatch.setattr(final_eval, "capture_final", lambda *_: pytest.fail("Must not execute"))
     with pytest.raises(SystemExit) as exc:
@@ -97,8 +97,8 @@ def test_cli_requires_live_opt_in_before_execution(tmp_path, monkeypatch):
 
 
 def test_cli_packages_failure_evidence_and_monitoring(tmp_path, monkeypatch):
-    from assistant.orchestrator import final_eval
-    from assistant.orchestrator.telemetry import emit, span
+    from evals import final_eval
+    from kairo.core.observability.telemetry import emit, span
     destination = tmp_path / "run"
     monkeypatch.setattr("sys.argv", ["final_eval", "--live", "--model", "stub", "--output-dir", str(destination)])
     def fake_capture(_config):

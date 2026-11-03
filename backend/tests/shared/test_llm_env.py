@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from assistant.shared.llm_env import load_default_llm_from_env
+from kairo.core.llm_env import load_default_llm_from_env
 
 
 def _clear_llm_env(monkeypatch) -> None:

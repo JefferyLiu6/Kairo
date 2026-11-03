@@ -3,9 +3,9 @@ from unittest.mock import patch
 
 import pytest
 
-from assistant.personal_manager.agent import PMConfig, run_pm
-from assistant.personal_manager.application.clarification import _load_pending
-from assistant.personal_manager.persistence.store import TodoData, TodoItem, load_todos, save_todos
+from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.personal_manager.application.clarification import _load_pending
+from kairo.storage.store import TodoData, TodoItem, load_todos, save_todos
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def pm(tmp_path):
     save_todos(TodoData(items=[TodoItem(id='a0000001', title='technical interview'),
                               TodoItem(id='a0000002', title='behavioural interview'),
                               TodoItem(id='a0000003', title='portfolio review')]), 'owner', str(tmp_path))
-    with patch('assistant.personal_manager.agent._run_pm_react', return_value='OFFLINE_FALLBACK'):
+    with patch('kairo.agents.personal_manager.agent._run_pm_react', return_value='OFFLINE_FALLBACK'):
         yield config
 
 
@@ -109,7 +109,7 @@ def test_selection_isolated_by_thread_and_owner(pm, scope):
 
 
 def test_expired_selection_cannot_execute(pm):
-    from assistant.personal_manager.persistence.working_memory import _conn
+    from kairo.storage.working_memory import _conn
     run_pm('Complete the interview task', pm)
     with _conn(pm.session_id, pm.data_dir, user_id=pm.user_id) as conn:
         conn.execute("UPDATE working_memory SET expires_at = '2000-01-01T00:00:00+00:00'")
@@ -148,7 +148,7 @@ def test_title_followup_creates_only_requested_task(pm):
 
 
 def test_missing_removal_target_creates_no_approval(pm):
-    from assistant.personal_manager.persistence.control_store import list_approval_requests
+    from kairo.storage.control_store import list_approval_requests
     reply = run_pm('Remove the nonexistent task', pm)
     assert "Couldn't find" in reply
     assert not list_approval_requests(pm.user_id, pm.data_dir)

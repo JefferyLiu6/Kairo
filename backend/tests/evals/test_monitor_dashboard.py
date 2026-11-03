@@ -1,6 +1,6 @@
 import json
 import pytest
-from assistant.orchestrator.monitor_dashboard import report_summary, build_snapshot, render, main
+from evals.monitor_dashboard import report_summary, build_snapshot, render, main
 
 
 def row(**kwargs):

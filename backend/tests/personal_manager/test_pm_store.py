@@ -3,15 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 
-from assistant.personal_manager.persistence.store import (
-    RecurrenceRule,
-    ScheduleData,
-    ScheduleEntry,
-    format_schedule_for_context,
-    get_upcoming_events,
-    save_schedule,
-    schedule_replace,
-)
+from kairo.storage.store import RecurrenceRule, ScheduleData, ScheduleEntry, format_schedule_for_context, get_upcoming_events, save_schedule, schedule_replace
 
 
 def test_schedule_replace_accepts_schedule_object(tmp_path):

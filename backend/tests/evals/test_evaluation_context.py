@@ -3,10 +3,10 @@ import json
 
 import pytest
 
-from assistant.orchestrator.quality_judge import evaluate_response, judge_payload
-from assistant.orchestrator.judge_eval import run, summarize, content_hash, validate_cases
-from assistant.orchestrator.label_review import digest, export_packet, apply_packet
-from assistant.orchestrator.monitor_dashboard import report_summary
+from evals.quality_judge import evaluate_response, judge_payload
+from evals.judge_eval import run, summarize, content_hash, validate_cases
+from evals.label_review import digest, export_packet, apply_packet
+from evals.monitor_dashboard import report_summary
 
 CONTEXT = dict(
     response_available=True,

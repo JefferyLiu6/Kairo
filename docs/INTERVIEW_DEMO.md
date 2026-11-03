@@ -5,7 +5,7 @@
 From the repository's backend directory, activate your existing Python environment, then run:
 
 ```bash
-python -m assistant.orchestrator.interview_demo --output ../artifacts/interview-demo-01.json
+python -m evals.interview_demo --output ../artifacts/interview-demo-01.json
 ```
 
 Use a new output filename for each run. Existing evidence is never overwritten. The demo needs no API key. It uses disposable synthetic stores and stops if a deterministic scenario unexpectedly falls back to an LLM. Keep the generated JSON open beside the monitoring dashboard.

@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from assistant.orchestrator import telemetry
-from assistant.orchestrator.harness import fast_precheck, parse_harness_verdict
-from assistant.orchestrator.judge_eval import DEFAULT_CASES, run, summarize
-from assistant.orchestrator.quality_judge import evaluate_response, parse_quality_verdict
-from assistant.orchestrator.translator import StructuredAction
+from kairo.core.observability import telemetry
+from kairo.agents.orchestrator.harness import fast_precheck, parse_harness_verdict
+from evals.judge_eval import DEFAULT_CASES, run, summarize
+from evals.quality_judge import evaluate_response, parse_quality_verdict
+from kairo.agents.orchestrator.translator import StructuredAction
 
 
 def valid(**updates):

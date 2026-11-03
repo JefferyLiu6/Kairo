@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from assistant.shared.llm import Contract, ContractError, call_contract, parse_contract, parse_json_object
+from kairo.core.llm import Contract, ContractError, call_contract, parse_contract, parse_json_object
 
 
 class Echo(Contract):

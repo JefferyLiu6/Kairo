@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-import assistant.orchestrator.agent as orch
-from assistant.orchestrator import memory
-from assistant.personal_manager.persistence.control_store import delete_thread_data, list_orchestrator_turns
+import kairo.agents.orchestrator.agent as orch
+from kairo.agents.orchestrator import memory
+from kairo.storage.control_store import delete_thread_data, list_orchestrator_turns
 
 
 @pytest.fixture(autouse=True)

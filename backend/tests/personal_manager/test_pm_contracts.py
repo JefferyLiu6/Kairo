@@ -8,18 +8,13 @@ from typing import get_args
 
 import pytest
 
-import assistant.personal_manager.extractors.model as pm_model
-from assistant.personal_manager import agent as pm_agent
-from assistant.personal_manager.application import extraction, semantic_memory
-from assistant.personal_manager.contracts import (
-    MemoryCandidateOut,
-    ModelPlan,
-    ModelRequest,
-    ModelTask,
-    PassiveFactOut,
-)
-from assistant.personal_manager.domain.types import PMIntent
-from assistant.shared.llm_env import message_text
+import kairo.agents.personal_manager.extractors.model as pm_model
+from kairo.agents.personal_manager import agent as pm_agent
+from kairo.agents.personal_manager.application import extraction
+from kairo.agents.personal_manager.application import semantic_memory
+from kairo.agents.personal_manager.contracts import MemoryCandidateOut, ModelPlan, ModelRequest, ModelTask, PassiveFactOut
+from kairo.core.domain.types import PMIntent
+from kairo.core.llm_env import message_text
 
 CONFIG = SimpleNamespace(provider="ollama", model="test-model", api_key=None, base_url=None)
 

@@ -59,23 +59,23 @@ the authored quality examples are not a substitute for executing them.
 Run these from `backend`. Offline work needs no API key:
 
 ```sh
-uv run python -m assistant.orchestrator.judge_eval --output ../artifacts/judge-v2-replay.json
-uv run python -m assistant.orchestrator.runtime_eval --output ../artifacts/runtime-replay.json
-uv run python -m assistant.orchestrator.label_review export --cases tests/fixtures/judge_development_cases.json --output ../artifacts/development-review-v2.json
+uv run python -m evals.judge_eval --output ../artifacts/judge-v2-replay.json
+uv run python -m evals.runtime_eval --output ../artifacts/runtime-replay.json
+uv run python -m evals.label_review export --cases tests/fixtures/judge_development_cases.json --output ../artifacts/development-review-v2.json
 ```
 
 Choose new output paths to preserve earlier reports. Complete review labels, rationale, and
 reviewer yourself, then import:
 
 ```sh
-uv run python -m assistant.orchestrator.label_review apply --cases tests/fixtures/judge_development_cases.json --packet ../artifacts/development-review-v2.json --output ../artifacts/development-reviewed-v2.json
+uv run python -m evals.label_review apply --cases tests/fixtures/judge_development_cases.json --packet ../artifacts/development-review-v2.json --output ../artifacts/development-reviewed-v2.json
 ```
 
 When model access exists, the user can run these explicitly billable steps:
 
 ```sh
-uv run python -m assistant.orchestrator.final_eval --live --suite expanded --provider openai --model kairo-eval --output-dir ../artifacts/azure-expanded-01
-uv run python -m assistant.orchestrator.runtime_eval --live --provider openai --model kairo-eval --output ../artifacts/runtime-live-01.json
+uv run python -m evals.final_eval --live --suite expanded --provider openai --model kairo-eval --output-dir ../artifacts/azure-expanded-01
+uv run python -m evals.runtime_eval --live --provider openai --model kairo-eval --output ../artifacts/runtime-live-01.json
 ```
 
 Final capture produces `evaluation.json` with judge_status=not_run, plus cases/run/monitor/telemetry.
@@ -83,7 +83,7 @@ Export and complete a review packet for the captured cases, import it into a new
 then use `judge_eval --live --cases` on that dataset. Join the resulting report:
 
 ```sh
-uv run python -m assistant.orchestrator.eval_report --run ../artifacts/azure-expanded-01/run.json --judge ../artifacts/final-judge-01.json --output ../artifacts/combined-01.json
+uv run python -m evals.eval_report --run ../artifacts/azure-expanded-01/run.json --judge ../artifacts/final-judge-01.json --output ../artifacts/combined-01.json
 ```
 
 The join checks a label-independent content hash, exact case/repeat membership, categories, and

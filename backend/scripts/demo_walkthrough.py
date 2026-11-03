@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv(usecwd=False))
 
-from assistant.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.personal_manager.agent import PMConfig, run_pm
 
 
 SEPARATOR = "─" * 78

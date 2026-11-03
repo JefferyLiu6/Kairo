@@ -4,8 +4,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from assistant.http.pm_app import app
-from assistant.persistence.user_store import init_users_db
+from kairo.api.app import app
+from kairo.storage.user_store import init_users_db
 
 
 # ── Shared state reset ────────────────────────────────────────────────────────
@@ -13,7 +13,7 @@ from assistant.persistence.user_store import init_users_db
 @pytest.fixture(autouse=True)
 def _reset_process_local_state():
     """Clear process-local CSRF tokens between tests."""
-    import assistant.http.auth as _auth
+    import kairo.api.auth as _auth
     _auth._csrf_tokens.clear()
     yield
     _auth._csrf_tokens.clear()
@@ -146,7 +146,7 @@ def test_me_authenticated_returns_user(client):
 
 
 def test_auth_demo_starts_with_initial_credits(client, monkeypatch):
-    from assistant.persistence.user_store import DEMO_INITIAL_CREDITS
+    from kairo.storage.user_store import DEMO_INITIAL_CREDITS
 
     monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_RPM", "100")
     res = client.post("/auth/demo")
@@ -175,7 +175,7 @@ def test_logout_clears_cookie(client):
 
 def test_logout_without_session_is_204(client):
     """Logout with a valid CSRF token and no session still succeeds."""
-    import assistant.http.pm_app as _pm_mod
+    import kairo.api.app as _pm_mod
     _pm_mod_orig = _pm_mod.is_valid_csrf_token
     _pm_mod.is_valid_csrf_token = lambda token, request=None: True
     try:
@@ -255,7 +255,7 @@ def test_pm_post_without_csrf_token_is_403(client):
 
 def test_pm_post_with_valid_csrf_token_passes_csrf_check(client, monkeypatch):
     """With a valid CSRF token the middleware passes (business logic may still fail)."""
-    import assistant.http.pm_app as _pm_mod
+    import kairo.api.app as _pm_mod
     monkeypatch.setattr(_pm_mod, "is_valid_csrf_token", lambda token, request=None: True)
 
     _signup(client)
@@ -307,7 +307,7 @@ def test_pm_chat_consumes_one_credit(client):
 def test_pm_chat_returns_402_when_credits_exhausted(client):
     _signup(client)
     _login(client)
-    from assistant.persistence.user_store import get_user_by_email, _conn
+    from kairo.storage.user_store import get_user_by_email, _conn
     import os
 
     data_dir = os.environ["DATA_DIR"]
@@ -329,7 +329,7 @@ def test_pm_chat_returns_402_when_credits_exhausted(client):
 
 def _authed_client_with_csrf(client):
     """Return a csrf-bypassing client and user id after signup+login."""
-    import assistant.http.pm_app as _pm_mod
+    import kairo.api.app as _pm_mod
     _pm_mod.is_valid_csrf_token = lambda token, request=None: True
     _signup(client)
     _login(client)
@@ -338,18 +338,16 @@ def _authed_client_with_csrf(client):
 
 def test_delete_session_purges_transcript(tmp_path, monkeypatch):
     """Deleting a PM thread must remove its conversation_log rows."""
-    from assistant.persistence.user_store import init_users_db, create_user, ensure_thread
-    from assistant.personal_manager.persistence.control_store import (
-        append_conversation_turn, list_conversation_turns, delete_thread_data,
-    )
-    from assistant.persistence.user_store import delete_thread
+    from kairo.storage.user_store import init_users_db, create_user, ensure_thread
+    from kairo.storage.control_store import append_conversation_turn, list_conversation_turns, delete_thread_data
+    from kairo.storage.user_store import delete_thread
 
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     data_dir = str(tmp_path)
     init_users_db(data_dir)
     create_user(data_dir, "owner@example.com", "hunter2hunter2", "Owner")
 
-    from assistant.persistence.user_store import get_user_by_email
+    from kairo.storage.user_store import get_user_by_email
     user = get_user_by_email(data_dir, "owner@example.com")
     thread_id = "thread-del-test"
     ensure_thread(data_dir, user.id, thread_id)
@@ -365,15 +363,15 @@ def test_delete_session_purges_transcript(tmp_path, monkeypatch):
 
 def test_get_messages_returns_404_after_delete(client, monkeypatch):
     """GET /personal-manager/sessions/{id}/messages must 404 after the thread is deleted."""
-    import assistant.http.pm_app as _pm_mod
+    import kairo.api.app as _pm_mod
     monkeypatch.setattr(_pm_mod, "is_valid_csrf_token", lambda token, request=None: True)
 
     _signup(client)
     _login(client)
 
     # Seed a thread directly via the persistence layer.
-    from assistant.persistence.user_store import get_user_by_email, ensure_thread
-    from assistant.personal_manager.persistence.control_store import append_conversation_turn
+    from kairo.storage.user_store import get_user_by_email, ensure_thread
+    from kairo.storage.control_store import append_conversation_turn
 
     # DATA_DIR is set via monkeypatch.setenv in the client fixture; read it back.
     import os
