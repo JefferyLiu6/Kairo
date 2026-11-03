@@ -1,5 +1,5 @@
-BACKEND_DIR := backend
-WEB_DIR     := web
+BACKEND_DIR := apps/api
+WEB_DIR     := apps/web
 PYTHON      := python3
 
 .PHONY: help install dev seed clean \
