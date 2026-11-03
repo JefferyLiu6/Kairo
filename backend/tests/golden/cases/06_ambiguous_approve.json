@@ -1,0 +1,27 @@
+{
+  "description": "With two pending approvals, a bare 'approve' asks which one instead of guessing.",
+  "seed": {
+    "schedule": [
+      {"id": "dentist1", "title": "Dentist appointment"},
+      {"id": "doctor1", "title": "Doctor appointment"}
+    ]
+  },
+  "turns": [
+    {
+      "user": "Delete my dentist appointment",
+      "expect": {"approvals": {"pending": 1}}
+    },
+    {
+      "user": "Delete my doctor appointment",
+      "expect": {"approvals": {"pending": 2}}
+    },
+    {
+      "user": "approve",
+      "expect": {
+        "reply_contains": ["Multiple pending approvals", "Dentist", "Doctor"],
+        "approvals": {"pending": 2, "executed": 0},
+        "schedule_titles": ["Dentist appointment", "Doctor appointment"]
+      }
+    }
+  ]
+}

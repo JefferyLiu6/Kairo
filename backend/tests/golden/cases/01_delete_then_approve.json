@@ -1,0 +1,24 @@
+{
+  "description": "Deleting a calendar event asks for approval; approving it removes the event exactly once.",
+  "seed": {
+    "schedule": [{"id": "dentist1", "title": "Dentist appointment"}]
+  },
+  "turns": [
+    {
+      "user": "Delete my dentist appointment",
+      "expect": {
+        "reply_contains": ["Approval required"],
+        "approvals": {"pending": 1},
+        "schedule_titles": ["Dentist appointment"]
+      }
+    },
+    {
+      "user": "approve {approval_id}",
+      "expect": {
+        "reply_contains": ["Removed 'Dentist appointment' from your calendar."],
+        "approvals": {"pending": 0, "executed": 1},
+        "schedule_titles": []
+      }
+    }
+  ]
+}

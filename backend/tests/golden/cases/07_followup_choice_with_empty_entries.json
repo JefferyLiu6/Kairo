@@ -1,0 +1,36 @@
+{
+  "description": "Regression for cbcac3d (follow-up reply error): a model plan with an empty 'entries' list still lets a numbered reply book the event.",
+  "model_plans": {
+    "Add golf tmr": {
+      "tasks": [
+        {
+          "task_id": "task-1",
+          "intent": "CREATE_SCHEDULE_EVENT",
+          "entities": {"title": "golf", "date": "tomorrow", "entries": []},
+          "confidence": 0.85,
+          "missing_fields": ["start"],
+          "source": "model_structured"
+        }
+      ],
+      "confidence": 0.75
+    }
+  },
+  "turns": [
+    {
+      "user": "Add golf tmr",
+      "expect": {
+        "reply_contains": ["My recommendation is 1"],
+        "schedule_titles": [],
+        "has_pending_question": true
+      }
+    },
+    {
+      "user": "1",
+      "expect": {
+        "reply_contains": ["Added 'golf'"],
+        "schedule_titles": ["golf"],
+        "has_pending_question": false
+      }
+    }
+  ]
+}
