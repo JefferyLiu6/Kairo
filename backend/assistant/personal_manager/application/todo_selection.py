@@ -10,7 +10,8 @@ from typing import Any
 
 from ..domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
 from ..persistence.store import load_todos
-from ..persistence.working_memory import save_working_memory
+from ..domain.pending import TodoListPending, TodoSelectionPending
+from .clarification import _store_pending
 from ..resolvers.todo import resolve_todo_id
 
 TASK_ACTIONS = {PMIntent.COMPLETE_TODO, PMIntent.REMOVE_TODO}
@@ -26,11 +27,9 @@ _NEW_COMMAND = re.compile(
 )
 
 
-def _save(config: Any, thread: str, user: str, payload: dict) -> None:
-    save_working_memory(thread, config.data_dir, user_id=user,
-                        mode='awaiting_disambiguation', source='todo_target_resolution',
-                        expected_reply='task_id_title_or_number', payload=payload,
-                        summary='Task choices shown; awaiting an explicit selection')
+def _save(config: Any, thread: str, user: str, pending: TodoListPending | TodoSelectionPending) -> None:
+    _store_pending(thread, config.data_dir, pending, user_id=user, source='todo_target_resolution',
+                   summary='Task choices shown; awaiting an explicit selection')
 
 
 def remember_todo_list(config: Any, thread: str, user: str, displayed: str) -> bool:
@@ -46,7 +45,7 @@ def remember_todo_list(config: Any, thread: str, user: str, displayed: str) -> b
     if (not rows or shown_ids != [r['id'] for r in rows]
             or displayed != '\n'.join(rendered)):
         return False
-    _save(config, thread, user, {'type': 'todo_list', 'candidates': rows})
+    _save(config, thread, user, TodoListPending(candidates=rows))
     return True
 
 
@@ -63,8 +62,7 @@ def prepare_todo_target(plan: PMPlanExtraction, config: Any, thread: str, user: 
         return None
     candidates = result.get('candidates')
     if candidates:
-        _save(config, thread, user, {'type': 'todo_selection',
-              'plan': plan.model_dump(mode='json'), 'candidates': candidates})
+        _save(config, thread, user, TodoSelectionPending(plan=plan, candidates=candidates))
     return result['message']
 
 

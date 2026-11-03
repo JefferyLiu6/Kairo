@@ -2,11 +2,24 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from pydantic import ValidationError
+
+from ..domain.pending import (
+    PENDING_MODES,
+    ConfirmationPending,
+    DisambiguationPending,
+    FieldChoicesPending,
+    FreeformPending,
+    Pending,
+    PlanPending,
+    parse_pending,
+)
 from ..domain.types import PMExtraction, PMIntent, PMPlanExtraction, PMTaskExtraction
 from ..parsing.cleanup import (
     _clean_lookup_query,
@@ -57,21 +70,40 @@ class ConfirmationResolution:
 
 # ── Pending clarification state ───────────────────────────────────────────────
 
+logger = logging.getLogger(__name__)
+
+
 def _pending_path(session_id: str, data_dir: str) -> str:
     return os.path.join(os.path.dirname(pm_db_path(session_id, data_dir)), "pending.json")
 
 
-def _save_pending(session_id: str, data_dir: str, intent: PMIntent, entities: dict[str, Any], missing: list[str], *, user_id: str = "") -> None:
-    payload = {"intent": intent.value, "entities": entities, "missing": missing}
-    save_working_memory(
+def _store_pending(
+    session_id: str,
+    data_dir: str,
+    pending: Pending,
+    *,
+    user_id: str = "",
+    source: str,
+    summary: str,
+) -> WorkingMemoryRecord:
+    """Save what we are waiting for. The kind decides the working-memory mode."""
+    mode, expected_reply = PENDING_MODES[pending.type]
+    return save_working_memory(
         session_id,
         data_dir,
         user_id=user_id,
-        mode="awaiting_freeform",
-        source="legacy_pending",
-        expected_reply="freeform_answer",
-        payload=payload,
-        summary=f"Pending {intent.value} freeform clarification",
+        mode=mode,
+        source=source,
+        expected_reply=expected_reply,
+        payload=pending.model_dump(mode="json"),
+        summary=summary,
+    )
+
+
+def _save_pending(session_id: str, data_dir: str, intent: PMIntent, entities: dict[str, Any], missing: list[str], *, user_id: str = "") -> None:
+    _store_pending(
+        session_id, data_dir, FreeformPending(intent=intent, entities=entities, missing=missing),
+        user_id=user_id, source="legacy_pending", summary=f"Pending {intent.value} freeform clarification",
     )
 
 
@@ -84,20 +116,9 @@ def _save_pending_plan(
     blocking_task_id: str,
     missing: list[str],
 ) -> None:
-    payload = {
-        "type": "plan",
-        "plan": plan.model_dump(mode="json"),
-        "blocking_task_id": blocking_task_id,
-        "missing": missing,
-    }
-    save_working_memory(
-        session_id,
-        data_dir,
-        user_id=user_id,
-        mode="awaiting_clarification",
-        source="plan_clarification",
-        expected_reply="date_time_or_freeform",
-        payload=payload,
+    _store_pending(
+        session_id, data_dir, PlanPending(plan=plan, blocking_task_id=blocking_task_id, missing=missing),
+        user_id=user_id, source="plan_clarification",
         summary=f"Awaiting clarification for {', '.join(missing) or 'task'}",
     )
 
@@ -112,21 +133,10 @@ def _save_pending_field_choices(
     missing: list[str],
     choices: list[dict[str, Any]],
 ) -> None:
-    payload = {
-        "type": "field_choices",
-        "plan": plan.model_dump(mode="json"),
-        "blocking_task_id": blocking_task_id,
-        "missing": missing,
-        "choices": choices,
-    }
-    save_working_memory(
-        session_id,
-        data_dir,
-        user_id=user_id,
-        mode="awaiting_choice",
-        source=_pending_choice_source(plan, choices),
-        expected_reply="choice_index_or_freeform",
-        payload=payload,
+    pending = FieldChoicesPending(plan=plan, blocking_task_id=blocking_task_id, missing=missing, choices=choices)
+    _store_pending(
+        session_id, data_dir, pending,
+        user_id=user_id, source=_pending_choice_source(plan, choices),
         summary=f"Awaiting choice for {', '.join(missing) or 'task'}",
     )
 
@@ -142,23 +152,13 @@ def _save_pending_disambiguation(
     reply: str,
     original_message: str,
 ) -> None:
-    payload = {
-        "type": "disambiguation",
-        "candidates": candidates,
-        "parsed_date": parsed_date,
-        "parsed_start": parsed_start,
-        "reply": reply,
-        "original_message": original_message,
-    }
-    save_working_memory(
-        session_id,
-        data_dir,
-        user_id=user_id,
-        mode="awaiting_disambiguation",
-        source="contextual_schedule_disambiguation",
-        expected_reply="activity_label",
-        payload=payload,
-        summary=reply,
+    pending = DisambiguationPending(
+        candidates=candidates, parsed_date=parsed_date, parsed_start=parsed_start,
+        reply=reply, original_message=original_message,
+    )
+    _store_pending(
+        session_id, data_dir, pending,
+        user_id=user_id, source="contextual_schedule_disambiguation", summary=reply,
     )
 
 
@@ -174,33 +174,44 @@ def _save_pending_confirmation(
     provenance: dict[str, Any],
     relevance: dict[str, Any] | None = None,
 ) -> None:
-    payload = {
-        "type": "confirmation",
-        "plan": plan.model_dump(mode="json"),
-        "blocking_task_id": blocking_task_id,
-        "confirmation_summary": confirmation_summary,
-        "original_message": original_message,
-        "provenance": provenance,
-    }
-    if relevance is not None:
-        payload["relevance"] = relevance
-    save_working_memory(
-        session_id,
-        data_dir,
-        user_id=user_id,
-        mode="awaiting_confirmation",
-        source="contextual_schedule",
-        expected_reply="yes_no_or_correction",
-        payload=payload,
-        summary=confirmation_summary,
+    pending = ConfirmationPending(
+        plan=plan, blocking_task_id=blocking_task_id, confirmation_summary=confirmation_summary,
+        original_message=original_message, provenance=provenance, relevance=relevance,
+    )
+    _store_pending(
+        session_id, data_dir, pending,
+        user_id=user_id, source="contextual_schedule", summary=confirmation_summary,
     )
 
 
-def _load_pending(session_id: str, data_dir: str, *, user_id: str = "") -> dict[str, Any] | None:
-    record = load_active_working_memory(session_id, data_dir, user_id=user_id)
-    if record is not None:
-        return _pending_payload_from_working_memory(record)
+def load_pending_state(session_id: str, data_dir: str, *, user_id: str = "") -> Pending | None:
+    """The typed pending state for a thread, or None if nothing valid is waiting."""
+    payload = _load_pending(session_id, data_dir, user_id=user_id)
+    return parse_pending(payload) if payload is not None else None
 
+
+def _load_pending(session_id: str, data_dir: str, *, user_id: str = "") -> dict[str, Any] | None:
+    """The pending payload as a dict (plus `_working_memory` metadata), validated on read.
+
+    A stored row that no longer fits its kind is logged, expired and treated as
+    nothing pending, so a corrupt row ends the question instead of crashing the turn.
+    """
+    record = load_active_working_memory(session_id, data_dir, user_id=user_id)
+    if record is None:
+        record = _migrate_pending_file(session_id, data_dir, user_id=user_id)
+    if record is None:
+        return None
+    try:
+        pending = parse_pending(record.payload)
+    except ValidationError as exc:
+        logger.warning("discarding invalid pending state %s (%s): %s", record.id, record.mode, exc.errors()[0]["msg"])
+        clear_active_working_memory(session_id, data_dir, user_id=user_id, status="expired")
+        return None
+    return _pending_payload_from_working_memory(record, pending)
+
+
+def _migrate_pending_file(session_id: str, data_dir: str, *, user_id: str = "") -> WorkingMemoryRecord | None:
+    """One-time move of a pre-working-memory pending.json into working memory."""
     try:
         with open(_pending_path(session_id, data_dir), encoding="utf-8") as f:
             legacy = json.load(f)
@@ -213,7 +224,7 @@ def _load_pending(session_id: str, data_dir: str, *, user_id: str = "") -> dict[
         os.remove(_pending_path(session_id, data_dir))
     except FileNotFoundError:
         pass
-    return _pending_payload_from_working_memory(migrated)
+    return migrated
 
 
 def _clear_pending(session_id: str, data_dir: str, *, user_id: str = "", status: str = "resolved") -> None:
@@ -224,8 +235,8 @@ def _clear_pending(session_id: str, data_dir: str, *, user_id: str = "", status:
         pass
 
 
-def _pending_payload_from_working_memory(record: WorkingMemoryRecord) -> dict[str, Any]:
-    payload = dict(record.payload)
+def _pending_payload_from_working_memory(record: WorkingMemoryRecord, pending: Pending) -> dict[str, Any]:
+    payload = pending.model_dump(mode="json")
     payload["_working_memory"] = {
         "id": record.id,
         "mode": record.mode,
@@ -245,19 +256,9 @@ def _save_legacy_pending_as_working_memory(
     *,
     user_id: str = "",
 ) -> WorkingMemoryRecord:
-    pending_type = payload.get("type")
-    if pending_type == "field_choices":
-        mode = "awaiting_choice"
-        source = "field_completion"
-        expected_reply = "choice_index_or_freeform"
-    elif pending_type == "plan":
-        mode = "awaiting_clarification"
-        source = "plan_clarification"
-        expected_reply = "date_time_or_freeform"
-    else:
-        mode = "awaiting_freeform"
-        source = "legacy_pending"
-        expected_reply = "freeform_answer"
+    pending_type = payload.get("type") or "freeform"
+    mode, expected_reply = PENDING_MODES.get(pending_type, PENDING_MODES["freeform"])
+    source = {"field_choices": "field_completion", "plan": "plan_clarification"}.get(pending_type, "legacy_pending")
     return save_working_memory(
         session_id,
         data_dir,
