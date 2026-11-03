@@ -7,16 +7,34 @@ const _API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 let _csrfToken = "";
 
 
-function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+const _CSRF_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
+
+function _send(path: string, init?: RequestInit): Promise<Response> {
   const url = _API_BASE ? `${_API_BASE}${path}` : path;
   const merged = new Headers(init?.headers);
   merged.set("X-Timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
   merged.set("Content-Type", merged.get("Content-Type") ?? "application/json");
   const method = (init?.method ?? "GET").toUpperCase();
-  if (_csrfToken && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+  if (_csrfToken && _CSRF_METHODS.includes(method)) {
     merged.set("X-CSRF-Token", _csrfToken);
   }
   return fetch(url, { ...init, headers: merged, credentials: "include" });
+}
+
+async function _isCsrfRejection(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false;
+  const body = (await res.clone().json().catch(() => null)) as { detail?: string } | null;
+  return body?.detail === "Invalid or missing CSRF token";
+}
+
+// The backend keeps CSRF tokens in memory, so a redeploy or a free-tier
+// spin-down forgets them. On that rejection, fetch a fresh token and retry once.
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const res = await _send(path, init);
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (!_CSRF_METHODS.includes(method) || !(await _isCsrfRejection(res))) return res;
+  await authCsrf();
+  return _send(path, init);
 }
 
 /** Fire-and-forget ping so a spun-down backend starts waking the moment the page loads. */
