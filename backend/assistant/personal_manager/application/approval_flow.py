@@ -11,10 +11,10 @@ from ..persistence.control_store import (
     ApprovalRecord,
     claim_approval_request,
     find_approval_request,
+    finish_approval,
     list_approval_requests,
     record_audit_event,
     reject_approval_request,
-    update_approval_status,
 )
 
 
@@ -31,7 +31,7 @@ def approve_pm_request(
     data_dir: str,
     *,
     vault_dir: Optional[str] = None,
-    session_id: Optional[str] = None,
+    session_id: str,
 ) -> str:
     record = claim_approval_request(data_dir, approval_id, session_id=session_id)
     if record is None:
@@ -47,8 +47,7 @@ def approve_pm_request(
         summary=record.summary,
     )
     result = execute_pm_action(action, config)
-    final_status = "executed" if result["ok"] else "failed"
-    update_approval_status(record.session_id, data_dir, approval_id, final_status, result=result)
+    finish_approval(record.session_id, data_dir, approval_id, ok=bool(result["ok"]), result=result)
     record_audit_event(
         record.session_id,
         data_dir,
@@ -65,7 +64,7 @@ def reject_pm_request(
     approval_id: str,
     data_dir: str,
     *,
-    session_id: Optional[str] = None,
+    session_id: str,
 ) -> str:
     record = reject_approval_request(data_dir, approval_id, session_id=session_id)
     if record is None:
