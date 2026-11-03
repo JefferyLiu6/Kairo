@@ -1,0 +1,27 @@
+{
+  "description": "Approving the same request twice executes it only once.",
+  "seed": {
+    "schedule": [{"id": "dentist1", "title": "Dentist appointment"}]
+  },
+  "turns": [
+    {
+      "user": "Delete my dentist appointment",
+      "expect": {"approvals": {"pending": 1}}
+    },
+    {
+      "user": "approve {approval_id}",
+      "expect": {
+        "reply_contains": ["Removed 'Dentist appointment' from your calendar."],
+        "approvals": {"pending": 0, "executed": 1},
+        "schedule_titles": []
+      }
+    },
+    {
+      "user": "approve",
+      "expect": {
+        "approvals": {"pending": 0, "executed": 1},
+        "schedule_titles": []
+      }
+    }
+  ]
+}
