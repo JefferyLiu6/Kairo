@@ -4,16 +4,14 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from assistant.shared.llm_env import build_llm, with_retry
-
 from ..extractors.entities import extract_pm_entities
 from ..extractors.intent import _looks_like_pm_coaching_prompt, classify_pm_intent
+from ..contracts import ModelPlan, ModelRequest
 from ..extractors.model import (
     _format_model_extraction_prompt,
     _format_model_plan_prompt,
-    _json_object_from_text,
-    _message_content_to_text,
     _should_try_model_extraction,
+    call_pm_model,
 )
 from ..domain.types import PMExtraction, PMIntent, PMPlanExtraction, PMTaskExtraction
 from ..parsing.schedule_text import _parse_schedule_entries
@@ -226,20 +224,8 @@ def _extract_pm_plan_with_model(message: str, config: Optional[Any]) -> Optional
     if not _should_try_model_extraction(config):
         return None
 
-    try:
-        llm = build_llm(
-            getattr(config, "provider", "openai"),
-            getattr(config, "model", ""),
-            getattr(config, "api_key", None),
-            getattr(config, "base_url", None),
-        )
-        raw = with_retry(lambda: llm.invoke(_format_model_plan_prompt(message)), max_attempts=1)
-        payload = _json_object_from_text(_message_content_to_text(raw))
-        if payload is None:
-            return None
-        return _normalize_plan_extraction(PMPlanExtraction.model_validate(payload))
-    except Exception:
-        return None
+    plan = call_pm_model("plan_extraction", _format_model_plan_prompt(), message, ModelPlan, config)
+    return _normalize_plan_extraction(plan.to_plan()) if plan else None
 
 
 def _task_from_extraction(extraction: PMExtraction, task_id: str) -> PMTaskExtraction:
@@ -379,21 +365,8 @@ def _extract_pm_request_with_model(message: str, config: Optional[Any]) -> Optio
     if not _should_try_model_extraction(config):
         return None
 
-    try:
-        llm = build_llm(
-            getattr(config, "provider", "openai"),
-            getattr(config, "model", ""),
-            getattr(config, "api_key", None),
-            getattr(config, "base_url", None),
-        )
-        raw = with_retry(lambda: llm.invoke(_format_model_extraction_prompt(message)), max_attempts=1)
-        payload = _json_object_from_text(_message_content_to_text(raw))
-        if payload is None:
-            return None
-        parsed = PMExtraction.model_validate(payload)
-        return _normalize_model_extraction(parsed)
-    except Exception:
-        return None
+    request = call_pm_model("request_extraction", _format_model_extraction_prompt(), message, ModelRequest, config)
+    return _normalize_model_extraction(request.to_extraction()) if request else None
 
 
 def _normalize_model_extraction(parsed: PMExtraction) -> PMExtraction:

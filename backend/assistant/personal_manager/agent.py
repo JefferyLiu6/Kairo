@@ -41,7 +41,9 @@ from assistant.shared.usage import UsageTracker
 from .agent_tools import _build_tools as _build_tools
 from .application.validators import _contains_sensitive_terms
 from .executors.memory import execute_memory_action
+from .contracts import PassiveFactOut
 from .extractors.intent import _is_self_disclosure
+from .extractors.model import call_pm_model
 from .domain.types import PMAction
 from .parsing.text import _norm
 from .calendar.service import format_google_calendar_for_context
@@ -383,16 +385,16 @@ A fact worth saving: a genuine preference, dislike, interest, hobby, or biograph
 is stating about themselves — something useful to remember in future conversations.
 NOT worth saving: one-time actions, questions, scheduling requests, speculative statements ("I might try X").
 
-Message: "{message}"
+The user's message arrives as JSON: {"message": "..."}
 
 Respond with a single JSON object and no other text:
-{{
+{
   "should_save": true or false,
   "confidence": 0.0 to 1.0,
   "fact": "third-person restatement (e.g. 'User dislikes spicy food'), or empty string",
   "storage": "profile" or "private",
   "reasoning": "one sentence explaining your decision"
-}}
+}
 
 Storage rules — use "private" for: health, medical, finance, daily routines, relationships.
 Use "profile" for: hobbies, interests, food, sports, general likes/dislikes."""
@@ -410,24 +412,14 @@ def _try_passive_fact_save(message: str, config: PMConfig) -> str | None:
         return None
     if not _is_self_disclosure(_norm(message)):
         return None
+    assessment = call_pm_model("passive_fact", _PASSIVE_EXTRACTION_PROMPT, message, PassiveFactOut, config)
+    if assessment is None or not assessment.should_save or assessment.confidence < _MIN_PASSIVE_CONFIDENCE:
+        return None
+    fact = assessment.fact.strip()
+    if len(fact) < 5:
+        return None
+    sensitive = assessment.storage == "private" or _contains_sensitive_terms(fact)
     try:
-        import json as _json
-        llm = build_llm(config.provider, config.model, config.api_key, config.base_url)
-        result = llm.invoke(_PASSIVE_EXTRACTION_PROMPT.format(message=message))
-        raw = str(getattr(result, "content", result)).strip()
-        # Strip markdown code fences if present
-        raw = raw.strip("`").removeprefix("json").strip()
-        assessment = _json.loads(raw)
-        if not assessment.get("should_save"):
-            return None
-        confidence = float(assessment.get("confidence", 0))
-        if confidence < _MIN_PASSIVE_CONFIDENCE:
-            return None
-        fact = str(assessment.get("fact", "")).strip()
-        if not fact or len(fact) < 5:
-            return None
-        storage = assessment.get("storage", "profile")
-        sensitive = storage == "private" or _contains_sensitive_terms(fact)
         execute_memory_action(
             PMAction(
                 "private_note_append" if sensitive else "remember",

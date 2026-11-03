@@ -5,9 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from assistant.shared.llm_env import build_llm, with_retry
-
-from ..extractors.model import _json_object_from_text, _message_content_to_text, _should_try_model_extraction
+from ..contracts import MemoryCandidateOut, MemoryCandidatesOut
+from ..extractors.model import _should_try_model_extraction, call_pm_model
 from ..parsing.text import _norm
 from ..persistence.semantic_memory import SemanticMemoryRecord, upsert_semantic_memory
 from .validators import _contains_sensitive_terms
@@ -153,49 +152,30 @@ def _interpret_deterministic(message: str) -> list[SemanticMemoryCandidate]:
 def _interpret_with_model(message: str, config: Any | None) -> list[SemanticMemoryCandidate]:
     if not _should_try_model_extraction(config):
         return []
-    try:
-        llm = build_llm(
-            getattr(config, "provider", "openai"),
-            getattr(config, "model", ""),
-            getattr(config, "api_key", None),
-            getattr(config, "base_url", None),
-        )
-        raw = with_retry(lambda: llm.invoke(_format_memory_interpreter_prompt(message)), max_attempts=1)
-        payload = _json_object_from_text(_message_content_to_text(raw))
-        if not isinstance(payload, dict):
-            return []
-        raw_candidates = payload.get("candidates")
-        if not isinstance(raw_candidates, list):
-            return []
-        candidates = [_candidate_from_payload(item, message) for item in raw_candidates if isinstance(item, dict)]
-        return [candidate for candidate in candidates if candidate is not None]
-    except Exception:
+    reply = call_pm_model("memory_interpret", _format_memory_interpreter_prompt(), message, MemoryCandidatesOut, config)
+    if reply is None:
         return []
+    candidates = [_candidate_from_model(item, message) for item in reply.candidates]
+    return [candidate for candidate in candidates if candidate is not None]
 
 
-def _candidate_from_payload(payload: dict[str, Any], fallback_evidence: str) -> SemanticMemoryCandidate | None:
-    memory_type = str(payload.get("memory_type") or "").strip() or "generic_interest"
-    subject = str(payload.get("subject") or "user").strip().lower()
-    predicate = str(payload.get("predicate") or "").strip().lower()
-    object_value = _clean_memory_object(str(payload.get("object") or ""))
-    polarity = str(payload.get("polarity") or "positive").strip().lower()
-    confidence = _float(payload.get("confidence"), 0.0)
-    if not predicate or not object_value or polarity not in {"positive", "negative", "neutral"}:
+def _candidate_from_model(item: MemoryCandidateOut, fallback_evidence: str) -> SemanticMemoryCandidate | None:
+    object_value = _clean_memory_object(item.object)
+    if not object_value:
         return None
-    qualifiers = payload.get("qualifiers")
     return SemanticMemoryCandidate(
-        memory_type=memory_type,
-        subject=subject or "user",
-        predicate=predicate,
+        memory_type=item.memory_type,
+        subject=item.subject.strip().lower() or "user",
+        predicate=item.predicate,
         object=object_value,
-        qualifiers=qualifiers if isinstance(qualifiers, dict) else {},
-        polarity=polarity,
-        confidence=max(0.0, min(confidence, 1.0)),
-        stability=str(payload.get("stability") or "stable").strip().lower(),
-        scheduling_relevance=str(payload.get("scheduling_relevance") or "none").strip().lower(),
-        sensitivity=str(payload.get("sensitivity") or "low").strip().lower(),
+        qualifiers=dict(item.qualifiers),
+        polarity=item.polarity,
+        confidence=item.confidence,
+        stability=item.stability,
+        scheduling_relevance=item.scheduling_relevance,
+        sensitivity=item.sensitivity,
         source="model_memory_interpreter",
-        evidence=str(payload.get("evidence") or fallback_evidence).strip(),
+        evidence=item.evidence.strip() or fallback_evidence.strip(),
     )
 
 
@@ -250,11 +230,6 @@ def _looks_like_bad_interest_value(value: str) -> bool:
     )
 
 
-def _float(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _format_label_list(labels: list[str]) -> str:
@@ -265,27 +240,27 @@ def _format_label_list(labels: list[str]) -> str:
     return f"{', '.join(labels[:-1])}, and {labels[-1]}"
 
 
-def _format_memory_interpreter_prompt(message: str) -> str:
-    return f"""You extract stable personal memory candidates from one user message.
+def _format_memory_interpreter_prompt() -> str:
+    return """You extract stable personal memory candidates from one user message.
 
 Return JSON only with this shape:
-{{
+{
   "candidates": [
-    {{
+    {
       "memory_type": "generic_interest | activity_preference | schedule_preference | dislike | constraint | goal | identity_fact | routine",
       "subject": "user",
       "predicate": "likes | interested_in | prefers | dislikes | wants_to_improve | avoids | reduce",
       "object": "short normalized object",
-      "qualifiers": {{}},
+      "qualifiers": {},
       "polarity": "positive | negative | neutral",
       "confidence": 0.0,
       "stability": "stable | tentative",
       "scheduling_relevance": "none | weak | strong",
       "sensitivity": "low | high",
       "evidence": "brief source phrase"
-    }}
+    }
   ]
-}}
+}
 
 Rules:
 - Extract personal facts/preferences/interests/goals only.
@@ -294,5 +269,5 @@ Rules:
 - Use confidence >= 0.75 only for direct current statements like "I'm interested in joking".
 - For "used to", "rarely", "trying to do less", or "not interested", do not emit a positive like.
 
-Message: {message!r}
+The user's message arrives as JSON: {"message": "..."}
 """
