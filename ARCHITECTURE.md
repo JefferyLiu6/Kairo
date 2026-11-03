@@ -6,16 +6,16 @@ marketing diagram.
 
 Primary source files:
 
-- [`backend/kairo/agents/orchestrator/agent.py`](backend/kairo/agents/orchestrator/agent.py) - conversational router/translator/harness/humanizer over the PM agent
-- [`backend/kairo/agents/orchestrator/router.py`](backend/kairo/agents/orchestrator/router.py) - heuristic plus model routing for direct vs delegated turns
-- [`backend/kairo/agents/orchestrator/translator.py`](backend/kairo/agents/orchestrator/translator.py) - user request to structured PM trigger prompt
-- [`backend/kairo/agents/orchestrator/harness.py`](backend/kairo/agents/orchestrator/harness.py) - PM result checking, retry, cache fallback, fallback logging
-- [`backend/kairo/agents/personal_manager/agent.py`](backend/kairo/agents/personal_manager/agent.py) - sync/streaming entrypoints and tool-free fallback
-- [`backend/kairo/agents/personal_manager/workflow.py`](backend/kairo/agents/personal_manager/workflow.py) - typed turn coordinator
-- [`backend/kairo/agents/personal_manager/application/extraction.py`](backend/kairo/agents/personal_manager/application/extraction.py) - deterministic/model extraction arbitration
-- [`backend/kairo/agents/personal_manager/application/planner.py`](backend/kairo/agents/personal_manager/application/planner.py) - intent-to-action planning
-- [`backend/kairo/agents/personal_manager/application/approval_policy.py`](backend/kairo/agents/personal_manager/application/approval_policy.py) - destructive/privacy approval gates
-- [`backend/kairo/storage/`](backend/kairo/storage) - working memory, approvals, audit, traces, personalization, semantic memory
+- [`apps/api/kairo/agents/orchestrator/agent.py`](apps/api/kairo/agents/orchestrator/agent.py) - conversational router/translator/harness/humanizer over the PM agent
+- [`apps/api/kairo/agents/orchestrator/router.py`](apps/api/kairo/agents/orchestrator/router.py) - heuristic plus model routing for direct vs delegated turns
+- [`apps/api/kairo/agents/orchestrator/translator.py`](apps/api/kairo/agents/orchestrator/translator.py) - user request to structured PM trigger prompt
+- [`apps/api/kairo/agents/orchestrator/harness.py`](apps/api/kairo/agents/orchestrator/harness.py) - PM result checking, retry, cache fallback, fallback logging
+- [`apps/api/kairo/agents/personal_manager/agent.py`](apps/api/kairo/agents/personal_manager/agent.py) - sync/streaming entrypoints and tool-free fallback
+- [`apps/api/kairo/agents/personal_manager/workflow.py`](apps/api/kairo/agents/personal_manager/workflow.py) - typed turn coordinator
+- [`apps/api/kairo/agents/personal_manager/application/extraction.py`](apps/api/kairo/agents/personal_manager/application/extraction.py) - deterministic/model extraction arbitration
+- [`apps/api/kairo/agents/personal_manager/application/planner.py`](apps/api/kairo/agents/personal_manager/application/planner.py) - intent-to-action planning
+- [`apps/api/kairo/agents/personal_manager/application/approval_policy.py`](apps/api/kairo/agents/personal_manager/application/approval_policy.py) - destructive/privacy approval gates
+- [`apps/api/kairo/storage/`](apps/api/kairo/storage) - working memory, approvals, audit, traces, personalization, semantic memory
 
 ## Package Layout
 
@@ -42,7 +42,7 @@ api  ->  agents  ->  tools  ->  storage / core  ->  utils
 
 ```mermaid
 flowchart TB
-    UI["React UI<br/>web/src"] <-->|HTTP + SSE| API["FastAPI<br/>kairo/api/app.py"]
+    UI["React UI<br/>apps/web/src"] <-->|HTTP + SSE| API["FastAPI<br/>kairo/api/app.py"]
 
     API -->|/orchestrator/stream| ORCH["Orchestrator<br/>kairo/agents/orchestrator"]
     API -->|/personal-manager/stream| PM["Kairo PM workflow<br/>agent.py"]
@@ -354,7 +354,7 @@ flowchart LR
     GCAL --> CM
 ```
 
-Runtime data lives under `data/` or `backend/data/` depending on how the app is
+Runtime data lives under `data/` or `apps/api/data/` depending on how the app is
 started. Those directories are gitignored and should not be published.
 
 ## Memory Routing

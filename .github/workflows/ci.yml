@@ -28,10 +28,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          cache-dependency-path: apps/web/pnpm-lock.yaml
 
       - name: Install web dependencies
-        run: pnpm --dir web install --frozen-lockfile
+        run: pnpm --dir apps/web install --frozen-lockfile
 
       - name: Lint
         run: make lint
@@ -55,4 +55,4 @@ jobs:
             artifacts/runtime-replay-*.json
 
       - name: Web build
-        run: pnpm --dir web build
+        run: pnpm --dir apps/web build
