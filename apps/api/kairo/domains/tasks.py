@@ -12,6 +12,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from kairo.core.domain.commands import TodoAddCommand, TodoCompleteCommand, TodoRemoveCommand, action_from_command
+from kairo.core.prompt import prompt
 from kairo.domains.checks import asks_for_a_repeat, date_word_problem, dates_the_wording_allows, past_problem, time_word_problem
 from kairo.domains.registry import Answer, DomainSpec, NotThisDomain, Proposal, ToolContext, ToolSpec
 from kairo.storage.store import load_todos
@@ -75,16 +76,23 @@ def _check_new_todos(args: AddTodos, ctx: ToolContext) -> Optional[str]:
 
 
 def _propose_new_todos(args: AddTodos, ctx: ToolContext) -> Proposal:
-    actions = []
+    # An open task with the same title and the same due date is already there: it is not added
+    # twice, whether the user repeated it or the model carried it over from an earlier message.
+    on_the_list = {(item.title.strip().casefold(), item.due or None)
+                   for item in load_todos(ctx.user_id, ctx.data_dir).items if not item.done}
+    actions, already = [], []
     for item in args.items:
-        day = item.due_date
+        title, day = item.title.strip(), item.due_date
         if item.due_time and not day:  # "at 4pm" with no day: the day the wording points to, else today
             allowed = dates_the_wording_allows(ctx.message, ctx.now)
             day = (min(allowed) if allowed else ctx.now.date()).isoformat()
         due = f"{day}T{item.due_time}:00" if day and item.due_time else day
-        actions.append(action_from_command("todo_add", TodoAddCommand(title=item.title.strip(), due=due),
-                                           summary=f"Add todo: {item.title.strip()}"))
-    return actions
+        if (title.casefold(), due or None) in on_the_list:
+            already.append(title)
+            continue
+        on_the_list.add((title.casefold(), due or None))
+        actions.append(action_from_command("todo_add", TodoAddCommand(title=title, due=due), summary=f"Add todo: {title}"))
+    return actions or Answer("That's already on your list: " + ", ".join(already) + ".")
 
 
 def _find(query: str, ctx: ToolContext) -> tuple[Optional[str], Optional[str], Optional[Answer]]:
@@ -137,8 +145,34 @@ def _open_tasks(ctx: ToolContext) -> str:
     return "\n".join(["Open tasks on the to-do list:", *(f"- {title}" for title in titles[:MAX_SHOWN]), *more])
 
 
+TASKS_GUIDANCE = prompt("tasks_guidance", """\
+- A task is a one-off thing to get done, with or without a deadline. Put every item of a list in
+  one add_todos call.
+- A one-off reminder is a task, due at the time given: "remind me at 9pm to take the bins out"
+  is the task "take the bins out" with due_time 21:00. A reminder that repeats goes to schedule.
+- Anything that repeats is not a task, and neither is a call, meeting, session, appointment, shift,
+  pickup or block of time on the calendar. Those go to schedule, and so does every request to move,
+  cancel or skip one and every question about the schedule or what is coming up.
+- Dates are YYYY-MM-DD and times are 24-hour HH:MM, worked out from the dates above. Set a due
+  date or time only when the user gave one, and always when they did.
+- A title is the user's own words for the thing, in their language, without the date, the time, or
+  words like "todo" and "remind me".
+- To finish or remove a task, give words from its title. Use the conversation to work out what
+  "it" or "the second one" refers to. Finish a task only if it is on the list; never add a task
+  for something the user says they have already done.
+- A question about tasks ("what should I do first?", "what's due today?") is answered with
+  list_todos. Never finish or remove a task because of a question.
+- "Add" always means add_todos, even when something like it is already on the list. Call
+  remove_todo only when the user asks to delete or remove a task.
+- remove_todo removes one task from the to-do list above. Only when the user asks to delete every
+  task at once ("delete all my todos"), call ask_user: say that tasks are removed one at a time and
+  ask which to start with. Cancelling anything that is not on the to-do list is not yours.""")
+
+
 TASKS = DomainSpec(
     name="tasks",
+    guidance=TASKS_GUIDANCE,
+    restate="Could you give me the exact day and time for “{message}”?",
     context=_open_tasks,
     summary="The to-do list: adding things to get done, finishing or removing a task, and what is on the list.",
     tools=(

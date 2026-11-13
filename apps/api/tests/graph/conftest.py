@@ -21,8 +21,8 @@ def item(title, due_date=None, due_time=None):
     return {"title": title, "due_date": due_date, "due_time": due_time}
 
 
-def call(name, **args):
-    return {"name": name, "args": args}
+def call(tool, /, **args):
+    return {"name": tool, "args": args}
 
 
 @pytest.fixture(autouse=True)

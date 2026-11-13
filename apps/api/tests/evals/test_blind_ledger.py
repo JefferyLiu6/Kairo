@@ -120,7 +120,7 @@ def test_record_appends_a_full_run_to_the_ledger(cli, tmp_path, capsys):
     ledger = tmp_path / "scores.jsonl"
     assert cli(["--path", "pm", "--no-save", "--record", "workflow baseline", "--ledger", str(ledger)]) == 0
     (entry,) = load(ledger)
-    assert entry["note"] == "workflow baseline" and entry["path"] == "pm" and entry["turns"] == 85
+    assert entry["note"] == "workflow baseline" and entry["path"] == "pm" and entry["turns"] == 117
     assert "Recorded in" in capsys.readouterr().out
 
 

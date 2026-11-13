@@ -46,8 +46,9 @@ DAILY = {"freq": "daily", "interval": 1, "by_day": []}
     ("standup every weekday at 9:15", weekly("MO", "TU", "WE", "TH", "FR")),
     ("bins out every other thursday at 7pm", weekly("TH", interval=2)),
     ("weekly review at 4pm on fridays", weekly("FR")),
-    ("lunch with Sam on friday at noon", None),            # no repeat asked for: nothing to check
-    ("lunch with Sam on friday at noon", weekly("FR")),    # only what the wording clearly says is checked
+    ("lunch with Sam on friday at noon", None),            # no repeat asked for, none proposed
+    ("yoga on tuesdays and thursdays at 7am", weekly("TU", "TH")),     # "tuesdays" asks for a repeat
+    ("明天下午3点开会", weekly("FR")),                        # no day word this can read: not checked
 ])
 def test_a_repeat_that_agrees_with_the_message_passes(say, recurrence):
     assert repeat_problem(say, recurrence) is None
@@ -60,6 +61,9 @@ def test_a_repeat_that_agrees_with_the_message_passes(say, recurrence):
     ("remind me to take my pill every morning at 8", weekly("MO"), "every day"),
     ("standup every weekday at 9:15", DAILY, "MO"),
     ("bins out every other thursday at 7pm", weekly("TH"), "other"),
+    # Days are named but no repeat is asked for: a repeat would be invented.
+    ("lunch with Sam on friday at noon", weekly("FR"), "does not ask"),
+    ("on call sat sun 9am-5pm", weekly("SA", "SU"), "one event for each day"),
 ])
 def test_a_repeat_that_contradicts_the_message_is_explained(say, recurrence, clue):
     assert clue in repeat_problem(say, recurrence)
