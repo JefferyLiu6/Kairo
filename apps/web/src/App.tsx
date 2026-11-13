@@ -6,6 +6,7 @@ import { InputBar } from "./components/InputBar";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { SchedulePanel } from "./components/SchedulePanel";
 import { DecisionTracePanel } from "./components/DecisionTracePanel";
+import { AboutMePanel } from "./components/AboutMePanel";
 import { KairoPanel } from "./components/KairoPanel";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -40,6 +41,7 @@ function MainApp() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [calendarFull, setCalendarFull] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [scheduleRefreshNonce, setScheduleRefreshNonce] = useState(0);
   const [pmPetRewardNonce, setPmPetRewardNonce] = useState(0);
   const [agentActivity, setAgentActivity] = useState<string | null>(null);
@@ -230,6 +232,7 @@ function MainApp() {
         onTrace={
           mode === "personal-manager" ? () => setTraceOpen((v) => !v) : undefined
         }
+        onAbout={mode === "personal-manager" ? () => setAboutOpen(true) : undefined}
         agentBusy={busy}
         onStopAgent={handleStop}
         onNewChat={mode === "personal-manager" ? handleNewPmSession : handleClear}
@@ -347,6 +350,10 @@ function MainApp() {
         />
       )}
 
+
+      {aboutOpen && (
+        <AboutMePanel refreshNonce={scheduleRefreshNonce} onClose={() => setAboutOpen(false)} />
+      )}
 
       {traceOpen && (
         <DecisionTracePanel
