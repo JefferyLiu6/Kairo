@@ -22,7 +22,7 @@ def test_the_assistant_answers_in_words_from_everything_that_is_stored(chat):
 
     assert chat("Plan my day tomorrow") == "Tomorrow: your 1:1 with Sara at 10, then the investor update."
     coordinator, agent = chat.asked
-    assert agent["prompt"] == "assistant_agent" and agent["tools"] == ["web_search", "answer", "ask_user"]
+    assert agent["prompt"] == "assistant_agent" and agent["tools"] == ["block_time", "web_search", "answer", "ask_user"]
     assert "- send investor update — due Fri 13 Nov" in agent["system"]
     assert "[sara0001] 10:00–11:00 1:1 with Sara" in agent["system"]
     assert "No habits are tracked yet." in agent["system"]
@@ -106,7 +106,7 @@ def test_a_statement_sent_as_a_question_is_said_but_not_kept_as_one(chat):
 
 
 def test_a_refused_injection_attempt_leaves_an_open_question_as_it_was(chat):
-    chat.model.extend([call("hand_off", domain="schedule"), call("ask_user", question="What time on Saturday?")])
+    chat.model.extend([call("hand_off", domain="schedule"), call("ask_user", question="What hour on Saturday?")])
     chat("schedule a dentist appointment on saturday")
     before = chat.question()
 

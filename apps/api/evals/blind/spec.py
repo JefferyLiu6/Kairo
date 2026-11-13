@@ -112,8 +112,9 @@ class Expect(_Model):
         writes = bool(self.adds or self.changes or self.removes)
         if self.kind == "write" and not writes:
             raise ValueError("a write expects at least one of adds, changes, removes")
-        if self.kind != "write" and writes:
-            raise ValueError(f"only a write may list adds, changes or removes, not {self.kind}")
+        # A message with several parts can do one thing and ask approval for another in the same turn.
+        if self.kind not in ("write", "approval") and writes:
+            raise ValueError(f"only a write or an approval may list adds, changes or removes, not {self.kind}")
         if (self.kind == "approval") != (self.approval is not None):
             raise ValueError("`approval` is required for kind approval and not allowed elsewhere")
         if self.kind == "read" and not (self.shows or self.mentions):

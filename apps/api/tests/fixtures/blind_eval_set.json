@@ -3148,6 +3148,294 @@
           }
         }
       ]
+    },
+    {
+      "id": "14_office_manager",
+      "persona": "Runs a small office. Sends several requests in one message and rarely gives a time.",
+      "split": "holdout",
+      "entities": [
+        "team lunch",
+        "walkthrough",
+        "printer paper",
+        "plants"
+      ],
+      "turns": [
+        {
+          "say": "team lunch friday 12-1",
+          "expect": {
+            "kind": "write",
+            "adds": [
+              {
+                "in": "schedule",
+                "match": {
+                  "title": {
+                    "has": [
+                      "lunch"
+                    ]
+                  },
+                  "date": "2026-11-13",
+                  "start": "12:00",
+                  "end": "13:00"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "say": "put a walkthrough of the new room on monday",
+          "note": "A day and no time. Right is to suggest a free time on Monday for approval, or to ask. Storing a time nobody gave is not.",
+          "expect": [
+            {
+              "kind": "approval",
+              "approval": {
+                "action": "schedule_add",
+                "payload": {
+                  "entries.0.date": "2026-11-16",
+                  "entries.0.title": {
+                    "has": [
+                      "walkthrough"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "kind": "ask"
+            }
+          ]
+        },
+        {
+          "say": "yes",
+          "note": "Answers the suggestion above. If a question was asked instead, this turn does not apply.",
+          "expect": {
+            "kind": "write",
+            "given": [
+              {
+                "approval": {
+                  "action": "schedule_add"
+                }
+              }
+            ],
+            "adds": [
+              {
+                "in": "schedule",
+                "match": {
+                  "title": {
+                    "has": [
+                      "walkthrough"
+                    ]
+                  },
+                  "date": "2026-11-16"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "say": "order printer paper and also start tracking a habit called inbox zero",
+          "note": "Two separate things in one message: a task and a habit.",
+          "expect": {
+            "kind": "write",
+            "adds": [
+              {
+                "in": "todos",
+                "match": {
+                  "title": {
+                    "has": [
+                      "printer"
+                    ]
+                  }
+                }
+              },
+              {
+                "in": "habits",
+                "match": {
+                  "name": {
+                    "has": [
+                      "inbox"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "say": "push the team lunch to 12:30 and add a todo to tell everyone",
+          "note": "One part needs approval and the other does not: the task is added now, the move waits.",
+          "expect": {
+            "kind": "approval",
+            "given": [
+              {
+                "in": "schedule",
+                "match": {
+                  "title": {
+                    "has": [
+                      "lunch"
+                    ]
+                  }
+                }
+              }
+            ],
+            "approval": {
+              "action": "schedule_update",
+              "payload": {
+                "updates.0.start": "12:30"
+              }
+            },
+            "adds": [
+              {
+                "in": "todos",
+                "match": {
+                  "title": {
+                    "has": [
+                      "tell"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "say": "approve",
+          "expect": {
+            "kind": "write",
+            "given": [
+              {
+                "approval": {
+                  "action": "schedule_update"
+                }
+              }
+            ],
+            "changes": [
+              {
+                "in": "schedule",
+                "where": {
+                  "title": {
+                    "has": [
+                      "lunch"
+                    ]
+                  }
+                },
+                "to": {
+                  "start": "12:30"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "say": "when am i free on monday afternoon?",
+          "note": "A question, not a request: nothing is stored and nothing is asked for approval.",
+          "expect": {
+            "kind": "open"
+          }
+        },
+        {
+          "say": "delete the printer paper todo and cancel the team lunch",
+          "note": "Two removals in two areas: one approval that covers both.",
+          "expect": {
+            "kind": "approval",
+            "given": [
+              {
+                "in": "todos",
+                "match": {
+                  "title": {
+                    "has": [
+                      "printer"
+                    ]
+                  }
+                }
+              },
+              {
+                "in": "schedule",
+                "match": {
+                  "title": {
+                    "has": [
+                      "lunch"
+                    ]
+                  }
+                }
+              }
+            ],
+            "approval": {
+              "action": "batch"
+            }
+          }
+        },
+        {
+          "say": "approve",
+          "expect": {
+            "kind": "write",
+            "given": [
+              {
+                "approval": {
+                  "action": "batch"
+                }
+              }
+            ],
+            "removes": [
+              {
+                "in": "todos",
+                "where": {
+                  "title": {
+                    "has": [
+                      "printer"
+                    ]
+                  }
+                }
+              },
+              {
+                "in": "schedule",
+                "where": {
+                  "title": {
+                    "has": [
+                      "lunch"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "say": "remind me to water the plants every monday at 9am and note in my journal that the move went fine",
+          "note": "A repeating reminder and a journal entry in one message.",
+          "expect": {
+            "kind": "write",
+            "adds": [
+              {
+                "in": "schedule",
+                "match": {
+                  "title": {
+                    "has": [
+                      "plants"
+                    ]
+                  },
+                  "start": "09:00",
+                  "recurrence.freq": "weekly",
+                  "recurrence.by_day": {
+                    "set": [
+                      "MO"
+                    ]
+                  }
+                }
+              },
+              {
+                "in": "journal",
+                "match": {
+                  "body": {
+                    "has": [
+                      "move"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

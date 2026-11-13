@@ -173,6 +173,13 @@ flowchart TD
     G -->|"a read, an answer, or a question"| R["respond<br/>reply from receipts;<br/>parks an unanswered question"]
     APP --> R
     ACT --> R
+    CO -->|"do_several: two or more separate things"| ST["step<br/>starts the next part;<br/>after the last, asks once for what waited"]
+    ST -->|"a part for an inline domain"| CO
+    ST -->|"a part for an agent domain"| AG
+    ACT -->|"parts left"| ST
+    ACT -->|"a joined message that was not split"| SW["sweep<br/>names a request left out, or none"]
+    SW -->|"a part to do"| ST
+    SW --> R
     R --> V["voice<br/>small model rewords the reply;<br/>kept only if it says the same thing"]
     V --> P["persist<br/>turn memory keeps the draft,<br/>decision log with versions"]
 ```
@@ -182,6 +189,33 @@ How it differs from the orchestrated turn:
 - **A model proposes; code decides.** `coordinate` and `agent` are the only
   nodes whose model decides anything. Each call picks one tool and fills in
   typed arguments. No model has a tool that writes.
+- **A message with several parts is split and done one part at a time.** The
+  coordinator's `do_several` tool splits "move the standup to 10 and add a task
+  to email Sam" into steps, each an area and the user's words for that part (at
+  most four). A wrong split stores things nobody asked for, so code refuses one
+  whose steps all go to the same area, or that has a step with a word the
+  message does not contain; the coordinator gets one more call, and if it
+  insists the message is handled whole. `step` starts each part: an inline domain's part goes back to
+  `coordinate`, which is shown the whole message and told which part to do, and
+  an agent domain's part goes to that agent. Every part passes the same gate. A
+  part is checked against its own words, so a time that belongs to another part
+  is not held against it; if the model added a day or time word the message
+  does not have, the whole message is used instead. `act` runs what needs no
+  approval and holds the rest, and after the last part `step` asks for all of
+  it at once (one approval, or one batch). Only one question is left open: a
+  second part that would need one is named as not done.
+- **A turn that was not split is swept for a request left out.** The
+  coordinator sometimes hands "push the team lunch to 12:30 and add a todo to
+  tell everyone" to the calendar whole, and the task was dropped without a
+  word. For a message that joins things ("and", "then", a comma), `sweep` shows
+  the small model the message beside what was done (`leftover` prompt) and asks
+  for the part left out, copied from the message, or "none". The part is only
+  believed if it is in the message word for word, is at least two words, is not
+  most of the message, and shares no word with what was done. It is then done
+  as a one-part plan: the coordinator places it and the gate checks it. If it
+  needs approval and the turn already asked for one, it is named as not done
+  instead, because a reply carries one approval. A turn that was split, asked a
+  question, or handled an approval is not swept.
 - **The reply is reworded last, and checked.** `respond` builds the reply from
   receipts. `voice` (`graph/voice.py`) has the small model (`PM_MODEL`) reword
   it, and sends the rewording only if `changed_the_facts` finds the same
@@ -250,7 +284,9 @@ be on the day the user named, between 07:00 and 21:00, and free, where an event
 that runs past midnight takes the next morning too. A time the user did not
 give is never stored outright; the approval says it was suggested. A message
 that gives a time, or holds a part of the day ("block Friday morning"), is not
-a suggestion and goes to `create_events`.
+a suggestion and goes to `create_events`. If the agent tries to ask what time
+on a day the user named, the question is sent back once (`check_question` on
+the domain) with the instruction to look and suggest.
 
 Three things are decided by code, not the model: the first day of a daily or
 weekly repeat (the next day it falls on), which times of a day are free, and
@@ -270,12 +306,23 @@ removing it would remove every other day too. An `answer` may describe
 the calendar but may not say that something was added, changed or removed; only
 a receipt can say that.
 
+**Tasks are referred to by id too.** The coordinator is shown the open tasks
+with their ids, and `complete_todo` and `remove_todos` take ids. A pick is held
+to the user's words (`checks.not_what_was_said`): if the message names some
+tasks, the pick is among them, and if it uses a word that is on none of them,
+nothing is picked. The same check guards `remove_events`.
+
 ### The assistant agent
 
 Conversation, advice, planning a day in words and web search go to the
 assistant agent ([`kairo/domains/assistant.py`](apps/api/kairo/domains/assistant.py)).
 It is the catch-all: a message no other domain can place, or a model call the
-graph cannot use, ends up here, so every message gets an answer.
+graph cannot use, ends up here, so every message gets an answer. Its one
+proposing tool is `block_time`: a plan as calendar blocks at times it chooses.
+Each block has to be in the future, between 07:00 and 21:00, free, and clear of
+the others, and the whole plan is one `schedule_add` that waits for approval.
+It is refused unless the message asks for time on the calendar, so "plan my
+day" is answered in words.
 
 - It is shown everything that is stored (open tasks, the calendar, habits,
   remembered facts; private notes only as a count) and answers from that.

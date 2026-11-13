@@ -17,6 +17,10 @@ Each field has one kind of writer:
     receipts, approvals, results           act and approval (what running them left behind)
     notes                                  any node with something to tell the user
     findings                               gate (what a lookup tool returned, for the agent that asked)
+    plan, step_index, focus, findings_from step and coordinate (a message with several parts, done one part at a time)
+    held                                   act (commands of a plan that wait to be asked for together)
+    spent                                  step (model calls made on earlier parts of a plan)
+    swept                                  sweep (which may also start a plan, for a part that was left undone)
     asked                                  whichever node asked the user a new question
     draft                                  respond (the reply as the records give it; what the models read next turn)
     reply, wording                         voice (the reply as the user reads it, and whether it was reworded)
@@ -57,6 +61,15 @@ class GraphState(TypedDict, total=False):
     results: Annotated[list[str], operator.add]       # executors' own messages, used if a write cannot be read back
     notes: Annotated[list[str], operator.add]         # other lines for the reply: read results, questions, answers
     findings: Annotated[list[str], operator.add]      # lookup results, shown to the agent on its next call
+
+    plan: Optional[list[dict[str, str]]]      # the parts of a message with several: [{"domain", "request"}]
+    step_index: int                           # how many parts have been started
+    focus: str                                # the part being done now, in the user's words
+    findings_from: int                        # where this part's lookup results start in `findings`
+    plan_done: bool                           # every part has been done and what waited was asked for
+    swept: bool                               # the turn was checked for a part of the message left undone
+    held: Annotated[list[PMAction], operator.add]     # a plan's commands that need approval, asked for once at the end
+    spent: Annotated[int, operator.add]               # model calls made on the plan's earlier parts
 
     asked: bool                               # a new question was put to the user this turn
     draft: str
