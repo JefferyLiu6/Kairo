@@ -95,12 +95,31 @@ def submit_actions(
 
     Returns one result per thing that happened, each like `submit_action`'s.
     """
+    run_now, waiting = split_by_approval(actions)
+    results = [submit_action(action, config, session_id, thread_id=thread_id, intent=intent)[1] for action in run_now]
+    return results + queue_for_approval(waiting, config, session_id, thread_id=thread_id, intent=intent)
+
+
+def split_by_approval(actions: list[PMAction]) -> tuple[list[PMAction], list[PMAction]]:
+    """(the actions that may run now, the ones that have to wait for approval), by the approval policy."""
     guarded = [apply_approval_policy(action) for action in actions]
-    waiting = [action for action in guarded if action.requires_approval]
-    results = [submit_action(action, config, session_id, thread_id=thread_id, intent=intent)[1]
-               for action in guarded if not action.requires_approval or len(waiting) == 1]
-    if len(waiting) < 2:
-        return results
+    return ([action for action in guarded if not action.requires_approval],
+            [action for action in guarded if action.requires_approval])
+
+
+def queue_for_approval(
+    waiting: list[PMAction],
+    config: Any,
+    session_id: str,
+    *,
+    thread_id: str = "",
+    intent: str = "",
+) -> list[dict[str, Any]]:
+    """Ask for approval of actions that need it: one as an approval of its own, several as one batch."""
+    if not waiting:
+        return []
+    if len(waiting) == 1:
+        return [submit_action(waiting[0], config, session_id, thread_id=thread_id, intent=intent)[1]]
     tid = thread_id or session_id
     lines = [action.summary or action.action_type for action in waiting]
     summary = "\n".join([f"{len(waiting)} changes:", *(f"- {line}" for line in lines)])
@@ -115,8 +134,7 @@ def submit_actions(
     )
     record_audit_event(tid, config.data_dir, user_id=session_id if thread_id else "", event_type="approval_created",
                        intent=intent, action_type=BATCH, payload_summary=summary, approval_id=approval.id)
-    return results + [{"ok": True, "pending": True, "approval_id": approval.id,
-                       "message": _format_approval_prompt(approval)}]
+    return [{"ok": True, "pending": True, "approval_id": approval.id, "message": _format_approval_prompt(approval)}]
 
 
 def _run_approved(record: ApprovalRecord, config: Any) -> dict[str, Any]:

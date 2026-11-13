@@ -26,21 +26,22 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
-from kairo.agents.graph.prompts import COORDINATOR, VOICE
+from kairo.agents.graph.prompts import COORDINATOR, LEFTOVER, VOICE
 from kairo.agents.graph.state import GraphState
 from kairo.agents.graph.voice import VOICE_TIMEOUT, changed_the_facts, sent_as_written, voice_enabled, voice_input
 from kairo.agents.orchestrator.agent import OrchestratorConfig
 from kairo.agents.orchestrator.memory import get_working_memory
-from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat, stored_read_back, submit_actions
+from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, queue_for_approval, reject_from_chat, split_by_approval, stored_read_back, submit_action, submit_actions
 from kairo.agents.personal_manager.application.pending_reply import approval_verb, route_message
 from kairo.agents.personal_manager.extractors.intent import _looks_like_injection
 from kairo.core.domain.pending import GraphQuestion
+from kairo.core.domain.types import PMAction
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.llm_env import build_llm, message_text
 from kairo.core.observability.telemetry import emit
 from kairo.core.prompt import Prompt, prompts_used, record_prompt
 from kairo.domains.catalog import DOMAINS
-from kairo.domains.checks import calendar_hint
+from kairo.domains.checks import calendar_hint, named_in
 from kairo.domains.registry import Answer, DomainSpec, NotThisDomain, Proposed, ToolContext
 from kairo.storage.control_store import append_conversation_turn, list_approval_requests
 from kairo.storage.decision_log import log_orchestrator_turn
@@ -51,6 +52,7 @@ from kairo.utils.clock import local_now
 logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 2          # each model gets one retry after its call is sent back
+MAX_STEPS = 4             # parts of one message the coordinator may plan
 MAX_ROUNDS = 2            # questions in a row about one request before the user is left to restate it
 HISTORY_TURNS = 6
 COORDINATOR_NAME = "coordinator"
@@ -58,6 +60,7 @@ _GRAPH_QUESTION = "graph"  # working-memory source for a question this graph ask
 _REFUSAL = "I can't take instructions embedded inside a user message. Please rephrase in your own words."
 _NOTHING_CHANGED = "I haven't changed anything. Could you say what you'd like me to do, with the day and time?"
 _LOST = "I couldn't finish that. Could you say it another way?"
+_FOCUS = "(Do only this part of the message now: “{part}”. Its other parts are handled separately.)"
 _RETRY = ("(Your last tool call was not accepted: {reason}. Call a tool again with that fixed, {other}"
           "or call ask_user if the message does not say.)")
 
@@ -88,12 +91,30 @@ _ANSWER = _function("answer", "Answer in words, from what you were shown. Never 
 _HAND_BACK = _function("hand_back", "Give the message back when it is not about your domain.", {})
 
 
-def coordinator_tools(*, approval_offered: bool = False) -> list[dict[str, Any]]:
-    """Inline domains' tools, then hand_off and ask_user; decide_approval only while an approval is on offer."""
+SPLIT = "do_several"      # the coordinator's tool for a message with several parts. Not called "plan":
+                          # "plan my day" is a request for advice, and the name invited the model to call it.
+
+
+def _plan_tool() -> dict[str, Any]:
+    """do_several: a message that asks for several separate things, split into the part each area handles."""
+    areas = [domain.name for domain in (*DOMAINS.inline_domains(), *DOMAINS.hand_off_domains())]
+    step = {"type": "object", "additionalProperties": False, "required": ["domain", "request"], "properties": {
+        "domain": {"type": "string", "enum": areas, "description": "The area that handles this part."},
+        "request": {"type": "string", "description": "The user's own words for this part, with the day and time "
+                                                     "words that belong to it."}}}
+    return _function(SPLIT, "Split a message that asks for two or more separate things into steps, one for each "
+                             "thing. Each step is then done on its own, and the user gets one reply.",
+                     {"steps": {"type": "array", "items": step}})
+
+
+def coordinator_tools(*, approval_offered: bool = False, planning: bool = True) -> list[dict[str, Any]]:
+    """Inline domains' tools, then hand_off, plan and ask_user; decide_approval only while an approval
+    is on offer. A part of a plan is not planned again."""
     domains = [domain.name for domain in DOMAINS.hand_off_domains()]
     tools = [tool.schema() for tool in DOMAINS.inline_tools()] + [
         _function("hand_off", "Pass the message to the part of Kairo that handles it.",
                   {"domain": {"type": "string", "enum": domains}}),
+        *([_plan_tool()] if planning else []),
         _ASK_USER,
     ]
     return tools + ([_DECIDE_APPROVAL] if approval_offered else [])
@@ -144,6 +165,16 @@ def reword(config: OrchestratorConfig, system: Prompt, shown: str) -> str:
     It runs on the small model (PM_MODEL), on a short timeout and with no retry: the reply
     is already written, so a rewording that is slow to arrive is not waited for.
     """
+    return _small_model(config, system, shown)
+
+
+def leftover(config: OrchestratorConfig, system: Prompt, shown: str) -> str:
+    """The sweep's one model call, on the same small model and short timeout: the part of the
+    message the turn left undone, in the model's words for "none" or the user's for the part."""
+    return _small_model(config, system, shown)
+
+
+def _small_model(config: OrchestratorConfig, system: Prompt, shown: str) -> str:
     llm = build_llm(config.pm_provider, config.pm_model, config.pm_api_key, config.pm_base_url,
                     timeout=VOICE_TIMEOUT, max_retries=0)
     record_prompt(system)
@@ -171,7 +202,23 @@ def _context(state: GraphState, cfg: OrchestratorConfig, domain: str) -> ToolCon
     question = state.get("question")
     request = question["request"] if question and question["domain"] in (domain, COORDINATOR_NAME) else ""
     return ToolContext(user_id=user, thread_id=thread, data_dir=cfg.data_dir, now=state["now"],
-                       message=state["message"], vault_dir=cfg.vault_dir, request=request)
+                       message=_wording(state), vault_dir=cfg.vault_dir, request=request)
+
+
+_WHEN_WORD = re.compile(r"\d+|\b(?:mon|tue|wed|thu|fri|sat|sun)\w*|\b(?:today|tonight|tomorrow|tmrw|morning|afternoon"
+                        r"|evening|night|noon|midnight|week|month|daily|every|each)\b", re.I)
+
+
+def _wording(state: GraphState) -> str:
+    """The words a proposal is checked against. For one part of a planned message that is the part,
+    so a time that belongs to another part is not held against it ("move the standup to 10 and add a
+    task to email Sam" asks for no task at 10). The part was written by a model, so it is only
+    trusted if it adds no day, time or repeat word of its own; otherwise the whole message is used."""
+    message, part = state["message"], state.get("focus") or ""
+    if not part:
+        return message
+    said = {word.lower() for word in _WHEN_WORD.findall(message)}
+    return part if all(word.lower() in said for word in _WHEN_WORD.findall(part)) else message
 
 
 def _clock(state: GraphState) -> str:
@@ -181,10 +228,23 @@ def _clock(state: GraphState) -> str:
 
 def _turns(state: GraphState, *, other: str = "") -> list[tuple[str, str]]:
     turns = [*state.get("history", []), ("user", state["message"])]
-    turns += [("user", finding) for finding in state.get("findings", [])]
+    if state.get("focus"):
+        # One part of a message with several. The whole message stays in view: its own words are
+        # what a proposal is checked against.
+        turns.append(("user", _FOCUS.format(part=state["focus"])))
+    turns += [("user", finding) for finding in _findings(state)]
     if state.get("rejection"):
         turns.append(("user", _RETRY.format(reason=state["rejection"], other=other)))
     return turns
+
+
+def _findings(state: GraphState) -> list[str]:
+    """What was looked up for the part of the message being done now."""
+    return state.get("findings", [])[state.get("findings_from", 0):]
+
+
+def _planning(state: GraphState) -> bool:
+    return state.get("plan") is not None
 
 
 def _first_call(cfg: OrchestratorConfig, system: Prompt, turns: list[tuple[str, str]],
@@ -216,6 +276,11 @@ def _ask(state: GraphState, cfg: OrchestratorConfig, domain: str, prompt: str, t
     into an endless exchange.
     """
     said = f"{because} {prompt}".strip()
+    if _planning(state) and state.get("asked"):
+        # An earlier part of this message already left the user a question, and only one is kept
+        # open. This part is named as not done, so it is not lost and not claimed.
+        return {"notes": [f"Not done yet: “{state.get('focus') or state['message']}”. Ask me for it again "
+                          "once the question above is settled."], "handler": domain, "route": "respond"}
     if "?" not in prompt and "？" not in prompt:
         # A statement sent as a question (a model sometimes refuses this way). It is said; nothing is open.
         return {"notes": [said], "handler": domain, "route": "respond"}
@@ -341,11 +406,26 @@ async def coordinate(state: GraphState, config: RunnableConfig) -> dict[str, Any
         areas.append("\n".join(part for part in (f"\n{domain.name}: {domain.summary}", str(domain.guidance), shown) if part))
     system = COORDINATOR.render(clock=_clock(state), inline="\n".join(areas), domains=DOMAINS.routing_lines(),
                                 open_question=_coordinator_notes(state))
+    part = bool(state.get("focus"))
     call = _first_call(cfg, system, _turns(state, other="call hand_off if this is not for that tool, "),
-                       coordinator_tools(approval_offered=bool(offer)))
+                       coordinator_tools(approval_offered=bool(offer) and not part, planning=not part))
     update = {"call": call, "attempts": state.get("attempts", 0) + 1, "rejection": None,
               "proposer": COORDINATOR_NAME}
     name, args = (call["name"], call.get("args") or {}) if call else ("", {})
+
+    if name == SPLIT and not part:
+        steps = [{"domain": str(s.get("domain", "")), "request": str(s.get("request", "")).strip()}
+                 for s in args.get("steps") or [] if isinstance(s, dict)]
+        steps = [s for s in steps if DOMAINS.domain(s["domain"]) is not None and s["request"]][:MAX_STEPS]
+        problem = _split_problem(state["message"], steps)
+        if problem is None:
+            return {**update, "plan": steps, "step_index": 0, "handler": COORDINATOR_NAME, "route": "step"}
+        if update["attempts"] < MAX_ATTEMPTS:
+            return {**update, "rejection": problem, "route": "coordinate"}       # once; then the message is not split
+        only = DOMAINS.domain(steps[0]["domain"]) if steps else None
+        if only is not None and only.mode == "agent":
+            return {**update, "domain": only.name, "route": "agent"}
+        return {**update, **_to_catch_all()}
 
     if name == "ask_user" and str(args.get("question", "")).strip():
         return {**update, **_ask(state, cfg, COORDINATOR_NAME, str(args["question"]).strip())}
@@ -380,12 +460,16 @@ async def agent(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     name, args = (call["name"], call.get("args") or {}) if call else ("", {})
 
     if name == "ask_user" and str(args.get("question", "")).strip():
-        return {**update, **_ask(state, cfg, spec.name, str(args["question"]).strip())}
+        question_text = str(args["question"]).strip()
+        refused = spec.check_question(question_text, _context(state, cfg, spec.name)) if spec.check_question else None
+        if refused and attempts < MAX_ATTEMPTS:
+            return {**update, "route": "agent", "rejection": refused}      # once; a second time it is asked
+        return {**update, **_ask(state, cfg, spec.name, question_text)}
     if name == "answer" and str(args.get("text", "")).strip():
         text = str(args["text"]).strip()
         if not _CLAIMS_A_CHANGE.search(text):
             return {**update, "notes": [text], "route": "respond"}
-        if attempts < MAX_ATTEMPTS + (1 if state.get("findings") else 0):
+        if attempts < MAX_ATTEMPTS + (1 if _findings(state) else 0):
             return {**update, "route": "agent",
                     "rejection": "an answer cannot say that something was or will be added, changed or removed; "
                                  "to change anything, call the tool that proposes it"}
@@ -411,7 +495,7 @@ async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     back = "agent" if by_agent else "coordinate"
     spec, owner = DOMAINS.tool(call["name"]), DOMAINS.domain_of(call["name"])
     budget = owner.max_calls if by_agent else MAX_ATTEMPTS
-    limit = min(MAX_ATTEMPTS + len(state.get("findings", [])), budget)
+    limit = min(MAX_ATTEMPTS + len(_findings(state)), budget)
     ctx = _context(state, cfg, owner.name)
     problem, user_facing = None, True
     try:
@@ -429,7 +513,7 @@ async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
         if not user_facing:
             return _ask(state, cfg, owner.name, "Could you say that another way?",
                         because="I couldn't work out what to do with that, so nothing was saved.")
-        return _ask(state, cfg, owner.name, owner.restate.format(message=state["message"]),
+        return _ask(state, cfg, owner.name, owner.restate.format(message=state.get("focus") or state["message"]),
                     because=f"Nothing was saved, because I couldn't settle the details ({problem}).")
 
     if spec.kind == "read":
@@ -472,31 +556,125 @@ def _to_catch_all() -> dict[str, Any]:
     return {"domain": catch_all.name, "agent_attempts": 0, "rejection": None, "route": "agent"}
 
 
+def _split_problem(message: str, steps: list[dict[str, str]]) -> Optional[str]:
+    """Why a message is not to be split into these steps, or None if it may be.
+
+    A split that is wrong stores things nobody asked for, so it has to earn its place: the steps go
+    to at least two different areas (one area takes a whole message as it is), and each step is the
+    user's own words (a step with a word the message does not have was thought up, not asked for).
+    """
+    if len({step["domain"] for step in steps}) < 2:
+        return ("this message is for one area, so it is not split: call that area's tool, or hand_off, with the "
+                "whole message")
+    said = set(re.findall(r"\w+", message.casefold()))
+    for step in steps:
+        added = [word for word in re.findall(r"\w+", step["request"].casefold()) if word not in said]
+        if added:
+            return (f"the step “{step['request']}” is not the user's own words (the message does not say "
+                    f"“{added[0]}”): split a message only into parts it actually has, or do not split it")
+    return None
+
+
+_JOINS = re.compile(r"\b(and|then|also|plus)\b|[,;]", re.I)
+
+
+def sweepable(state: GraphState) -> bool:
+    """Whether a turn that is about to reply should first be checked for a part left undone: once,
+    only for a message that joins things together, and not when it was split, refused, an approval
+    command, or already ended in a question."""
+    return (not state.get("swept") and state.get("plan") is None and not state.get("asked")
+            and state.get("handler") not in (None, "approval") and bool(_JOINS.search(state["message"])))
+
+
+async def sweep(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
+    """Look for a request in the message that the turn did not touch, and do it.
+
+    The coordinator does not always split a message that asks for two things: it hands the whole
+    message to one area, and the other request is dropped without a word. Here the small model is
+    shown the message beside what was done and names the part left out. It is only believed if
+    that part is the user's own words, is not most of the message, and shares no word with what
+    was done; then it is done like a part of a plan, through the same gate.
+    """
+    cfg = _config(config)
+    message, done = state["message"], "\n".join(_lines(state))
+    try:
+        part = leftover(cfg, LEFTOVER, json.dumps({"message": message, "done": done}, ensure_ascii=False)).strip(" \"'“”.")
+    except Exception:
+        logger.exception("the sweep model failed; the turn replies with what it has")
+        return {"swept": True, "route": "respond"}
+    at = message.casefold().find(part.casefold())
+    if (at < 0 or len(part.split()) < 2 or len(part) > 0.8 * len(message) or named_in(part, (done,))):
+        return {"swept": True, "route": "respond"}
+    return {"swept": True, "plan": [{"domain": "", "request": message[at:at + len(part)]}], "step_index": 0,
+            "route": "step"}
+
+
+async def step(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
+    """Start the next part of a planned message, or finish the plan.
+
+    Each part is done like a message of its own: the coordinator calls an inline domain's tool for
+    it, or the domain's agent takes it, and the gate checks what is proposed. What needs approval
+    is held and asked for once, when every part has had its turn.
+    """
+    cfg = _config(config)
+    user, thread = _ids(cfg)
+    steps, index = state["plan"], state.get("step_index", 0)
+    spent = state.get("attempts", 0) + state.get("agent_attempts", 0)
+    if index >= len(steps):
+        done = {"plan_done": True, "focus": "", "spent": spent, "attempts": 0, "agent_attempts": 0, "route": "respond"}
+        held = state.get("held", [])
+        if held and state.get("approvals"):
+            # A part found afterwards needs approval, and the turn has already asked for one. Two
+            # approvals in one reply cannot both be answered, so this part waits and is named.
+            return {**done, "notes": [f"Not done yet: “{steps[-1]['request']}”. Ask me for it again once the "
+                                      "approval above is settled."]}
+        asked = queue_for_approval(held, cfg.pm_config(), user, thread_id=thread, intent="plan")
+        return {**done, "approvals": [str(result["message"]) for result in asked]}
+    part = steps[index]
+    fresh = {"step_index": index + 1, "focus": part["request"], "spent": spent, "attempts": 0, "agent_attempts": 0,
+             "rejection": None, "call": None, "actions": [], "findings_from": len(state.get("findings", []))}
+    area = DOMAINS.domain(part["domain"])      # a part found afterwards has no area yet: the coordinator places it
+    if area is not None and area.mode == "agent":
+        return {**fresh, "domain": part["domain"], "route": "agent"}
+    return {**fresh, "route": "coordinate"}
+
+
 async def act(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     """Run the proposed commands through the approval policy; read the stores back for whatever ran.
-    Several that each need approval are asked for once, as one batch."""
+    Several that each need approval are asked for once, as one batch. In a plan, what needs approval
+    is held until every part is done, so the user is asked once for the whole message."""
     cfg = _config(config)
     user, thread = _ids(cfg)
     approvals: list[str] = []
     results: list[str] = []
+    held: list[PMAction] = []
+    intent = state["call"]["name"]
     with collecting() as made:
-        for result in submit_actions(state.get("actions", []), cfg.pm_config(), user, thread_id=thread,
-                                     intent=state["call"]["name"]):
+        if _planning(state):
+            run_now, held = split_by_approval(state.get("actions", []))
+            outcomes = [submit_action(action, cfg.pm_config(), user, thread_id=thread, intent=intent)[1]
+                        for action in run_now]
+        else:
+            outcomes = submit_actions(state.get("actions", []), cfg.pm_config(), user, thread_id=thread, intent=intent)
+        for result in outcomes:
             (approvals if result.get("pending") else results).append(str(result["message"]))
-    return {"receipts": made.receipts, "approvals": approvals, "results": results}
+    return {"receipts": made.receipts, "approvals": approvals, "results": results, "held": held}
 
 
-async def respond(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
-    """The reply as the records give it: what was read back from storage, then approval prompts, then
-    anything else to say."""
+def _lines(state: GraphState) -> list[str]:
+    """What the turn has to say so far: what was read back from storage, approval prompts, notes."""
     lines: list[str] = []
     receipts = state.get("receipts", [])
     if receipts or state.get("results"):
         # A write the stores could not confirm falls back to the executor's own message.
         lines.append(read_back_reply(receipts) or "\n".join(state.get("results", [])))
-    lines += state.get("approvals", [])
-    lines += state.get("notes", [])
-    lines.append(_park(state, _config(config)) or "")
+    return [line for line in (*lines, *state.get("approvals", []), *state.get("notes", [])) if line]
+
+
+async def respond(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
+    """The reply as the records give it: what was read back from storage, then approval prompts, then
+    anything else to say."""
+    lines = [*_lines(state), _park(state, _config(config)) or ""]
     return {"draft": "\n".join(line for line in lines if line) or "I wasn't able to do that."}
 
 
@@ -537,14 +715,18 @@ async def persist(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     call = state.get("call") or {}
     by = state.get("handler") or COORDINATOR_NAME
     tool = "approval" if by == "approval" else (call.get("name") or "none")
-    attempts = state.get("attempts", 0) + state.get("agent_attempts", 0)
+    attempts = state.get("spent", 0) + state.get("attempts", 0) + state.get("agent_attempts", 0)
+    plan = state.get("plan")
+    if plan:
+        tool = (f"{tool}+swept" if state.get("swept")
+                else "plan(" + ", ".join(part["domain"] for part in plan) + ")")
     used = bundle_versions()
     log_orchestrator_turn(
         thread, cfg.data_dir, user_id=user, message=state["message"], route="GRAPH",
         route_reason=f"tool={tool}; by={by}; model_calls={attempts}; voice={state['wording']}", intent=tool,
         confidence=1.0,
         pm_prompt="", is_write=bool(receipts or state.get("approvals")), harness_verdict="n/a", harness_reason="",
-        retry_count=max(0, attempts - (2 if state.get("agent_attempts") else 1)), reply=state["reply"],
+        retry_count=0 if plan else max(0, attempts - (2 if state.get("agent_attempts") else 1)), reply=state["reply"],
         duration_ms=int((time.monotonic() - config["configurable"]["started"]) * 1000),
         versions={
             "prompts": prompts_used(),

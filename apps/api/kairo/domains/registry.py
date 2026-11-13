@@ -123,6 +123,8 @@ class DomainSpec:
     guidance: Optional[Prompt] = None                       # inline only: when and how the coordinator uses its tools
     restate: str = "Could you say “{message}” another way?"  # what to ask when a proposal could not be made right
     max_calls: int = 3                                      # agent only: model calls in one turn, lookups included
+    # agent only: why a question the agent wants to put to the user should not be asked, if so
+    check_question: Optional[Callable[[str, ToolContext], Optional[str]]] = None
 
     def bundle(self) -> str:
         """One version for everything this domain's agent is told: its prompt and its tool definitions."""

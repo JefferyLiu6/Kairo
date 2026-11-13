@@ -9,11 +9,11 @@ from pydantic import ValidationError
 from evals.blind.spec import Expect, Turn, load_blind_set
 
 
-def test_the_set_is_the_ten_trial_personas_plus_three_written_later_as_a_fresh_holdout():
+def test_the_set_is_the_ten_trial_personas_plus_four_written_later_as_holdouts():
     blind = load_blind_set()
-    assert len(blind.scenarios) == 13 and len({s.id for s in blind.scenarios}) == 13
-    assert sum(len(s.turns) for s in blind.scenarios) == 117
-    assert sum(len(s.turns) for s in blind.scenarios if s.split == "holdout") == 32
+    assert len(blind.scenarios) == 14 and len({s.id for s in blind.scenarios}) == 14
+    assert sum(len(s.turns) for s in blind.scenarios) == 127
+    assert sum(len(s.turns) for s in blind.scenarios if s.split == "holdout") == 42
 
 
 def test_the_clock_is_pinned_to_the_thursday_the_messages_were_written_on():
@@ -25,10 +25,10 @@ def test_the_clock_is_pinned_to_the_thursday_the_messages_were_written_on():
 def test_some_personas_are_held_out_so_tuning_cannot_see_them():
     blind = load_blind_set()
     splits = Counter(s.split for s in blind.scenarios)
-    assert splits["dev"] == 10 and splits["holdout"] == 3
+    assert splits["dev"] == 10 and splits["holdout"] == 4
     # The first three holdouts were seen too often while the graph was built, and became dev.
     assert {s.id for s in blind.scenarios if s.split == "holdout"} == {
-        "11_music_teacher", "12_caregiver", "13_oncall_developer"}
+        "11_music_teacher", "12_caregiver", "13_oncall_developer", "14_office_manager"}
 
 
 def test_every_scenario_names_the_things_a_reply_could_invent():
@@ -46,8 +46,6 @@ def test_most_turns_are_scoreable_so_the_right_rate_means_something():
 @pytest.mark.parametrize("expect", [
     {"kind": "write"},                                                        # nothing to write
     {"kind": "approval"},                                                     # no approval described
-    {"kind": "approval", "approval": {"action": "x"},
-     "adds": [{"in": "todos", "match": {}}]},                                 # approval and a direct write
     {"kind": "read"},                                                         # nothing to show
     {"kind": "open", "adds": [{"in": "todos", "match": {"title": "x"}}]},     # open turns expect no change
     {"kind": "ask", "removes": [{"in": "todos", "where": {}}]},
@@ -68,3 +66,10 @@ def test_a_turn_accepts_one_expectation_or_a_list_of_alternatives():
     assert [e.kind for e in two.alternatives()] == ["ask", "refuse"]
     with pytest.raises(ValidationError):
         Turn.model_validate({"say": "hi", "expect": []})
+
+
+def test_one_turn_may_write_one_thing_and_ask_approval_for_another():
+    """A message with several parts: the safe part is done and the risky one waits."""
+    expect = Expect.model_validate({"kind": "approval", "approval": {"action": "schedule_update"},
+                                    "adds": [{"in": "todos", "match": {"title": "x"}}]})
+    assert expect.adds and expect.approval

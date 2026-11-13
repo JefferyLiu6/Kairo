@@ -43,7 +43,7 @@ Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 | What is it? | A full-stack Kairo agent for calendar, todos, habits, journal, memory, and Google Calendar sync. |
 | What makes it hard? | Natural-language requests can mutate private personal state, so the system must separate understanding from permission, execution, and auditability. |
 | What did I build? | A React UI, FastAPI backend, an agent graph (coordinator, domain agents, a tool registry, a gate that checks every proposal), approval policy, receipts read back from storage, SQLite persistence, two eval harnesses, security doc, deployment path, and decision-trace panel. |
-| Proof it works | 1359 pytest tests; a blind eval of 117 un-coached messages scored by what ends up stored (96% and 97% right, 2 and 0 wrong but reported done, 0 trapped turns in the last two runs, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
+| Proof it works | 1359 pytest tests; a blind eval of 127 un-coached messages scored by what ends up stored (96% and 97% right, 0 wrong but reported done, 0 trapped turns in the last two runs, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
 
 ## Highlights
 
@@ -291,6 +291,10 @@ flowchart TD
     ING --> CO["coordinator<br/>one model call, one tool call"]
     CO -->|"tasks, habits, journal tool"| G["gate<br/>schema and wording checks"]
     CO -->|"hand off"| AG["domain agent<br/>calendar · memory · assistant"]
+    CO -->|"do_several: several parts"| ST["step<br/>one part at a time"]
+    ST --> CO
+    ST --> AG
+    ACT -->|"more parts"| ST
     AG -->|"one of its tools"| G
     AG -->|"answer or question"| R
     G -->|"rejected once:<br/>back to whoever proposed"| CO
@@ -298,6 +302,9 @@ flowchart TD
     G -->|"read result or question"| R["respond<br/>reply built from receipts"]
     APP --> R
     ACT --> R
+    ACT -->|"a joined message,<br/>not split"| SW["sweep<br/>small model: was a request left out?"]
+    SW -->|"yes, in the user's words"| ST
+    SW --> R
     R --> V["voice<br/>small model rewords the reply;<br/>kept only if the facts survive"]
     V --> P["persist<br/>history, decision trace, audit log"]
     P -. read/write .-> DB["SQLite stores:<br/>app state, open question,<br/>approvals, audit events, traces"]
@@ -320,6 +327,23 @@ flowchart TD
   reads the day's free time (worked out by code) and what the user asked to be
   remembered, and suggests a time. A time the user did not give is never stored
   outright: the suggestion waits for their approval and says it was suggested.
+- **A message with several parts is split.** "Move the standup to 10 and add
+  a task to email Sam" becomes two steps, each done and checked like a message
+  of its own, with one reply. Whatever needs approval across the steps is held
+  and asked for once. A split is refused unless its steps go to different areas
+  and are the user's own words.
+- **A request that was left out is looked for.** The coordinator does not
+  always split a message that asks for two things. Before such a turn replies,
+  the small model compares the message with what was done; a request it names
+  that is the user's own words and shares no word with what was done is then
+  done as a part of its own.
+- **A task or event is picked by id, and the pick is checked.** The models see
+  tasks and events with their ids, so "the advisor one" needs no question. A
+  pick is held to the user's words: "delete the standup" with no standup on the
+  calendar removes nothing.
+- **A plan can be put on the calendar.** "Block time tomorrow for my open
+  tasks" becomes one approval listing every block, at times the assistant
+  chose and code checked as free. "Plan my day" stays advice.
 - **Several changes, one approval.** "Delete all my todos" or "delete
   everything on my calendar" is asked for once, in a card that lists every item.
   Approving runs each change through the same executors, with a receipt each.
@@ -342,7 +366,7 @@ up stored, not by what the reply says.
 
 ### Blind eval (the agent graph, live model)
 
-117 un-coached messages from 13 simulated personas, written the way people
+127 un-coached messages from 14 simulated personas, written the way people
 type. A turn is right only if the stores afterwards hold what was asked. The
 bar: at least 70% right, at most 2% wrong-but-reported-done, zero trapped
 turns. Recorded runs on `gpt-4o-mini`: the path it replaced, the graph before
@@ -351,17 +375,18 @@ the voice pass (two runs), and the graph as it runs now:
 | | Previous path | Agent graph, before the voice pass | Agent graph, now |
 | --- | --- | --- | --- |
 | Right, of scoreable turns | 30% | 97% and 97% | **96% and 97%** |
-| Wrong but reported done | 21 turns | 0 and 1 | 2 and 0 |
+| Wrong but reported done | 21 turns | 0 and 1 | 0 and 0 |
 | Trapped by an old question | 9 turns | 0 | 0 |
-| Model calls per turn | 2.05 | 1.52 and 1.51 | 2.39 and 2.42 |
-| Median reply time | 3.7 s | 1.7 s | 2.1 s and 2.0 s |
+| Model calls per turn | 2.05 | 1.52 and 1.51 | 2.51 and 2.54 |
+| Median reply time | 3.7 s | 1.7 s | 2.4 s and 2.4 s |
 | Passes the bar | no | yes | **yes** |
 
 The voice pass rewords each reply with one more model call, which is where the
 extra call and the extra half second come from. "Now" is the last two runs,
-with the calendar agent suggesting a time instead of asking for one and several
-removals asked for in one approval. The two faults in the first of them were
-fixed before the second.
+with the calendar agent suggesting a time instead of asking for one, several
+removals asked for in one approval, and messages with several parts split and
+done part by part. The first two columns are on the set's first 117 turns; "now"
+is on all 127, which adds a persona who sends several requests in one message.
 
 What these numbers are not:
 
