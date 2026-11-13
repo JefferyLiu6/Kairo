@@ -1,87 +1,13 @@
 """The agent graph, one turn at a time: a coordinator that only proposes, and code that checks and stores."""
 from __future__ import annotations
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import pytest
-import time_machine
 
-from kairo.agents.graph import nodes, run_graph
 from kairo.agents.graph.prompts import COORDINATOR
-from kairo.agents.orchestrator import memory as orch_memory
-from kairo.agents.orchestrator.agent import OrchestratorConfig
 from kairo.storage.control_store import list_approval_requests
 from kairo.storage.decision_log import list_turn_decisions
-from kairo.storage.store import TodoData, TodoItem, load_todos, save_todos
-from kairo.storage.working_memory import load_active_working_memory
 
-THREAD, USER = "pm-graph", "graph-user"
-THURSDAY = datetime(2026, 11, 12, 10, 0, tzinfo=ZoneInfo("America/Toronto"))
-
-
-def item(title, due_date=None, due_time=None):
-    return {"title": title, "due_date": due_date, "due_time": due_time}
-
-
-def call(name, **args):
-    return {"name": name, "args": args}
-
-
-@pytest.fixture(autouse=True)
-def fresh_turn_memory():
-    orch_memory._sessions.clear()
-    yield
-    orch_memory._sessions.clear()
-
-
-@pytest.fixture
-def chat(tmp_path, monkeypatch):
-    """Send messages through the real graph and stores. The model and the old assistant are scripted.
-
-    `chat.model` is a list of answers the coordinator's model gives, in order: each is one
-    tool call, or a list of them. `chat.asked` records what the model was shown each time.
-    """
-    config = OrchestratorConfig(session_id=THREAD, user_id=USER, data_dir=str(tmp_path), provider="test",
-                                model="small-model", pm_provider="test", pm_model="unused")
-    script: list = []
-    asked: list[dict] = []
-    handed_off: list[str] = []
-
-    def ask_model(_config, system, turns, tools):
-        asked.append({"system": str(system), "turns": list(turns), "tools": [t["function"]["name"] for t in tools]})
-        assert script, f"the model was asked more often than the test scripted: {turns[-1]}"
-        answer = script.pop(0)
-        return answer if isinstance(answer, list) else [answer]
-
-    async def old_assistant(message, _config):
-        handed_off.append(message)
-        yield ("done", f"(old assistant) {message}")
-
-    monkeypatch.setattr(nodes, "ask_model", ask_model)
-    monkeypatch.setattr(nodes, "astream_orchestrator", old_assistant)
-
-    def send(message: str) -> str:
-        with time_machine.travel(THURSDAY, tick=True):
-            return run_graph(message, config)
-
-    def question():
-        """The open question, read on the same pinned clock it was saved under (it expires after two hours)."""
-        with time_machine.travel(THURSDAY, tick=True):
-            return load_active_working_memory(THREAD, str(tmp_path), user_id=USER)
-
-    send.model, send.asked, send.handed_off, send.question = script, asked, handed_off, question
-    send.data_dir, send.config = str(tmp_path), config
-    return send
-
-
-def todos(chat):
-    return [(t.title, t.due, t.done) for t in load_todos(USER, chat.data_dir).items]
-
-
-def seed(chat, *titles):
-    save_todos(TodoData(items=[TodoItem(id=f"t{i}", title=title) for i, title in enumerate(titles, 1)]),
-               USER, chat.data_dir)
+from tests.graph.conftest import THREAD, USER, call, item, seed, todos
 
 
 # ── Adding tasks ──────────────────────────────────────────────────────────────
@@ -130,21 +56,28 @@ def test_a_date_that_is_still_wrong_after_one_retry_is_never_stored(chat):
     assert question is not None and question.source == "graph"
 
 
-def test_a_repeating_reminder_proposed_as_a_task_is_sent_back_and_handed_off(chat):
+PILL = {"title": "take my blood pressure pill", "date": "2026-11-13", "start": "08:00", "end": None,
+        "recurrence": {"freq": "daily", "interval": 1, "by_day": []}}
+
+
+def test_a_repeating_reminder_proposed_as_a_task_is_sent_back_and_goes_to_the_calendar(chat):
     chat.model.extend([call("add_todos", items=[item("take my blood pressure pill", None, "08:00")]),
-                       call("hand_off", domain="assistant")])
+                       call("hand_off", domain="schedule"), call("create_events", events=[PILL])])
 
     reply = chat("Please remind me to take my blood pressure pill every morning at 8")
 
-    assert reply.startswith("(old assistant)") and todos(chat) == []
-    assert "hand_off" in chat.asked[1]["turns"][-1][1]
+    assert reply == "Added to your calendar: take my blood pressure pill — every day, 8 AM–9 AM."
+    assert todos(chat) == [] and "hand_off" in chat.asked[1]["turns"][-1][1]
 
 
-def test_a_repeating_reminder_the_model_insists_is_a_task_is_handed_off_anyway(chat):
+def test_a_repeating_reminder_the_model_insists_is_a_task_goes_to_the_calendar_anyway(chat):
     insists = call("add_todos", items=[item("take my blood pressure pill", None, "08:00")])
-    chat.model.extend([insists, insists])
-    assert chat("Please remind me to take my pill every morning at 8").startswith("(old assistant)")
-    assert todos(chat) == []
+    chat.model.extend([insists, insists, call("create_events", events=[PILL])])
+
+    reply = chat("Please remind me to take my blood pressure pill every morning at 8")
+
+    assert reply.startswith("Added to your calendar: take my blood pressure pill") and todos(chat) == []
+    assert [asked["prompt"] for asked in chat.asked] == ["coordinator", "coordinator", "schedule_agent"]
 
 
 def test_arguments_that_break_the_schema_are_sent_back_too(chat):
@@ -163,17 +96,16 @@ def test_finishing_a_task_checks_it_off(chat):
     assert todos(chat)[1] == ("buy cat food", None, True)
 
 
-@pytest.mark.parametrize("message, proposed", [
-    ("Cancel the board prep session", call("remove_todo", query="board prep session")),
-    ("I did my morning run", call("complete_todo", query="morning run")),
-])
-def test_something_the_task_list_does_not_have_is_handed_on_because_it_may_live_elsewhere(chat, message, proposed):
+@pytest.mark.parametrize("second", ["hands it off", "insists"])
+def test_something_the_task_list_does_not_have_is_sent_back_because_it_may_live_elsewhere(chat, second):
     seed(chat, "buy cat food")
-    chat.model.append(proposed)
+    not_a_task = call("complete_todo", query="morning run")
+    chat.model.extend([not_a_task, call("hand_off", domain="assistant") if second == "hands it off" else not_a_task])
 
-    reply = chat(message)
+    reply = chat("I did my morning run")
 
-    assert reply == f"(old assistant) {message}" and len(chat.asked) == 1
+    assert reply == "(old assistant) I did my morning run" and len(chat.asked) == 2
+    assert "morning run" in chat.asked[1]["turns"][-1][1] and "hand it off" in chat.asked[1]["turns"][-1][1]
     assert todos(chat) == [("buy cat food", None, False)] and chat.question() is None
 
 
@@ -219,13 +151,13 @@ def test_a_question_about_the_list_is_answered_from_the_list(chat):
 
 # ── Routing ───────────────────────────────────────────────────────────────────
 
-def test_anything_that_is_not_a_task_goes_to_the_assistant_that_was_there_before(chat):
+def test_what_the_graph_has_not_taken_over_goes_to_the_assistant_that_was_there_before(chat):
     chat.model.append(call("hand_off", domain="assistant"))
 
-    reply = chat("Schedule a board prep session Tuesday at 3pm")
+    reply = chat("Add a habit called morning run")
 
-    assert reply == "(old assistant) Schedule a board prep session Tuesday at 3pm"
-    assert chat.handed_off == ["Schedule a board prep session Tuesday at 3pm"]
+    assert reply == "(old assistant) Add a habit called morning run"
+    assert chat.handed_off == ["Add a habit called morning run"]
 
 
 @pytest.mark.parametrize("answer", [[], call("launch_rocket", when="now"), call("hand_off", domain="moon")])
@@ -255,7 +187,8 @@ def test_the_model_is_given_the_calendar_the_tools_and_the_conversation_so_far(c
 
     first, second = chat.asked
     assert "Thursday 2026-11-12 10:00" in first["system"] and "Fri 2026-11-13 (tomorrow)" in first["system"]
-    assert "- assistant: Calendar events" in first["system"]
+    assert "- schedule: The calendar" in first["system"] and "- assistant: Habits" in first["system"]
+    assert "The to-do list is empty." in first["system"] and "- buy milk" in second["system"]
     assert first["tools"] == ["add_todos", "complete_todo", "remove_todo", "list_todos", "hand_off", "ask_user"]
     assert first["turns"] == [("user", "add todo buy milk")]
     assert second["turns"] == [("user", "add todo buy milk"), ("assistant", "Added task: buy milk — no due date."),
@@ -295,5 +228,5 @@ def test_a_graph_turn_is_logged_with_the_bundle_that_produced_it(chat):
 
 def test_a_handed_off_turn_is_logged_by_the_old_assistant_only(chat):
     chat.model.append(call("hand_off", domain="assistant"))
-    chat("Schedule a board prep session Tuesday at 3pm")
+    chat("Add a habit called morning run")
     assert list_turn_decisions(THREAD, chat.data_dir, user_id=USER) == []   # the stub logs nothing; the graph adds nothing

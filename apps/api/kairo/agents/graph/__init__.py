@@ -2,15 +2,18 @@
 The Kairo 2.0 agent graph.
 
     ingest ─► coordinate ─► gate ─► act ─► respond ─► persist
-       │          │  ▲        │                 ▲
-       │          │  └────────┘ (one retry)     │
-       │          └─► assistant (hand-off; answers and logs the turn itself)
+       │        │  │  ▲     ▲ │                 ▲
+       │        │  │  └─────┼─┘ (one retry each)│
+       │        │  └─► agent ─┘                 │
+       │        └─► assistant (hand-off; answers and logs the turn itself)
        └─► approval ────────────────────────────┘
 
-`coordinate` is the only node that calls a model, and the model only proposes:
-one tool call, checked by `gate` before `act` runs it. A domain that has not
-been moved onto the graph yet is handed to the assistant that existed before
-(kairo/agents/orchestrator), so the graph can take over one domain at a time.
+`coordinate` and `agent` are the only nodes that call a model, and a model only
+proposes: one tool call, checked by `gate` before `act` runs it. The coordinator
+calls an inline domain's tools itself and hands other messages to a domain's
+own agent (kairo/domains). A domain that has not been moved onto the graph yet
+is handed to the assistant that existed before (kairo/agents/orchestrator), so
+the graph can take over one domain at a time.
 
 Enable it for web chat with KAIRO_AGENT=graph.
 """
@@ -36,12 +39,13 @@ def _next(state: GraphState) -> str:
 
 def build_graph():
     graph = StateGraph(GraphState)
-    for name in ("ingest", "approval", "coordinate", "gate", "act", "assistant", "respond", "persist"):
+    for name in ("ingest", "approval", "coordinate", "agent", "gate", "act", "assistant", "respond", "persist"):
         graph.add_node(name, getattr(nodes, name))
     graph.add_edge(START, "ingest")
     graph.add_conditional_edges("ingest", _next, ["approval", "coordinate", "respond"])
-    graph.add_conditional_edges("coordinate", _next, ["gate", "assistant", "respond"])
-    graph.add_conditional_edges("gate", _next, ["coordinate", "act", "respond", "assistant"])
+    graph.add_conditional_edges("coordinate", _next, ["gate", "agent", "assistant", "respond", "approval"])
+    graph.add_conditional_edges("agent", _next, ["gate", "agent", "assistant", "respond"])
+    graph.add_conditional_edges("gate", _next, ["coordinate", "agent", "act", "respond", "assistant"])
     graph.add_edge("approval", "respond")
     graph.add_edge("act", "respond")
     graph.add_edge("respond", "persist")

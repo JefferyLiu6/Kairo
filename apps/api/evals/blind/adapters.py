@@ -180,7 +180,7 @@ class GraphPath(OrchestratorPath):
         from kairo.agents.graph.nodes import bundle_version
 
         return {**super().describe(), "bundle": bundle_version(),
-                "note": "KAIRO_AGENT=graph: tasks on the graph, everything else handed to the orchestrator"}
+                "note": "KAIRO_AGENT=graph: tasks and calendar on the graph, the rest handed to the orchestrator"}
 
     def open(self, scenario_id: str, data_dir: str) -> Session:
         from kairo.agents.graph import run_graph
