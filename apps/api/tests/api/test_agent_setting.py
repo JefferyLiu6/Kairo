@@ -31,13 +31,15 @@ def chat(authed_client, monkeypatch):
     return send
 
 
-def test_web_chat_runs_on_the_previous_assistant_unless_told_otherwise(chat, monkeypatch):
+def test_web_chat_runs_on_the_agent_graph_by_default(chat, monkeypatch):
     monkeypatch.delenv("KAIRO_AGENT", raising=False)
-    assert "assistant: add milk" in chat("add milk")
-    monkeypatch.setenv("KAIRO_AGENT", "something-else")
-    assert "assistant: add milk" in chat("add milk")
-
-
-def test_web_chat_runs_on_the_graph_when_the_setting_says_so(chat, monkeypatch):
-    monkeypatch.setenv("KAIRO_AGENT", "Graph ")   # case and stray spaces do not matter
     assert "graph: add milk" in chat("add milk")
+    monkeypatch.setenv("KAIRO_AGENT", "graph")
+    assert "graph: add milk" in chat("add milk")
+    monkeypatch.setenv("KAIRO_AGENT", "something-else")      # an unknown value does not switch the agent off
+    assert "graph: add milk" in chat("add milk")
+
+
+def test_the_previous_assistant_is_one_setting_away(chat, monkeypatch):
+    monkeypatch.setenv("KAIRO_AGENT", "Legacy ")   # case and stray spaces do not matter
+    assert "assistant: add milk" in chat("add milk")

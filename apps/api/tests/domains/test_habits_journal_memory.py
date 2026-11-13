@@ -224,5 +224,5 @@ def test_everything_that_is_stored_can_be_summarised(tmp_path):
 
 def test_the_catalog_runs_habits_and_journal_inline_and_memory_as_an_agent():
     assert [d.name for d in DOMAINS.inline_domains()] == ["tasks", "habits", "journal"]
-    assert [d.name for d in DOMAINS.agent_domains()] == ["schedule", "memory"]
+    assert [d.name for d in DOMAINS.agent_domains()] == ["schedule", "memory", "assistant"]
     assert all(d.guidance for d in DOMAINS.inline_domains())

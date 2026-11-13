@@ -160,18 +160,3 @@ def test_the_audit_log_is_read_from_the_log_not_made_up(chat):
     ]
     assert all(line.startswith("- Thu 12 Nov 10:00 — ") for line in shown[1:])
     assert "X1234567" not in "\n".join(shown)
-
-
-def test_the_old_assistant_is_handed_the_same_memory_location(chat, monkeypatch):
-    from kairo.agents.graph import nodes
-
-    seen = []
-
-    async def old_assistant(message, config):
-        seen.append(config.vault_dir)
-        yield ("done", "ok")
-
-    monkeypatch.setattr(nodes, "astream_orchestrator", old_assistant)
-    chat.model.append(call("hand_off", domain="assistant"))
-    chat("tell me a joke")
-    assert seen == [pm_db_path(USER, chat.data_dir).rsplit("/", 1)[0]]
