@@ -1,17 +1,23 @@
 """
 The Kairo 2.0 agent graph.
 
-    ingest ─► coordinate ─► gate ─► act ─► respond ─► persist
+    ingest ─► coordinate ─► gate ─► act ─► respond ─► voice ─► persist
        │           │  ▲     ▲ │                 ▲
        │           │  └─────┼─┘ (one retry each)│
        │           └─► agent ─┘                 │
        └─► approval ────────────────────────────┘
 
-`coordinate` and `agent` are the only nodes that call a model, and a model only
-proposes: one tool call, checked by `gate` before `act` runs it. The coordinator
-calls an inline domain's tools itself and hands other messages to a domain's
-own agent (kairo/domains). One agent domain is the catch-all, so every message
-is answered on the graph.
+`coordinate` and `agent` are the only nodes whose model decides anything, and a
+model only proposes: one tool call, checked by `gate` before `act` runs it. The
+coordinator calls an inline domain's tools itself and hands other messages to a
+domain's own agent (kairo/domains). One agent domain is the catch-all, so every
+message is answered on the graph.
+
+`respond` builds the reply from what was read back from storage. `voice` then has
+a small model reword it so it sounds like an assistant, and sends the rewording
+only if it says what the draft says (kairo/agents/graph/voice.py). The rewording
+is what the user reads; the models keep reading the draft. KAIRO_VOICE=off sends
+the drafts as written.
 
 Web chat runs on it by default. KAIRO_AGENT=legacy switches back to the previous assistant.
 """
@@ -40,7 +46,7 @@ def _next(state: GraphState) -> str:
 
 def build_graph():
     graph = StateGraph(GraphState)
-    for name in ("ingest", "approval", "coordinate", "agent", "gate", "act", "respond", "persist"):
+    for name in ("ingest", "approval", "coordinate", "agent", "gate", "act", "respond", "voice", "persist"):
         graph.add_node(name, getattr(nodes, name))
     graph.add_edge(START, "ingest")
     graph.add_conditional_edges("ingest", _next, ["approval", "coordinate", "respond"])
@@ -49,7 +55,8 @@ def build_graph():
     graph.add_conditional_edges("gate", _next, ["coordinate", "agent", "act", "respond"])
     graph.add_edge("approval", "respond")
     graph.add_edge("act", "respond")
-    graph.add_edge("respond", "persist")
+    graph.add_edge("respond", "voice")
+    graph.add_edge("voice", "persist")
     graph.add_edge("persist", END)
     return graph.compile()
 

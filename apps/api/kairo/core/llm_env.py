@@ -158,12 +158,17 @@ def has_api_key(provider: str, api_key: Optional[str]) -> bool:
     return bool(env_var and os.environ.get(env_var))
 
 
-def build_llm(provider: str, model: str, api_key: Optional[str], base_url: Optional[str]):
+def build_llm(provider: str, model: str, api_key: Optional[str], base_url: Optional[str], *,
+              timeout: Optional[int] = None, max_retries: Optional[int] = None):
     """
     Build the appropriate LangChain LLM with timeout wired in.
     Centralises LLM construction so all agents get consistent behaviour.
+
+    `timeout` (seconds) and `max_retries` override the defaults for a call that is not worth
+    waiting long for. Ollama's client does not retry, so `max_retries` has no effect there.
     """
-    timeout = llm_timeout()
+    timeout = timeout if timeout is not None else llm_timeout()
+    retries: dict[str, Any] = {} if max_retries is None else {"max_retries": max_retries}
 
     if provider == "ollama":
         from langchain_ollama import ChatOllama
@@ -173,14 +178,14 @@ def build_llm(provider: str, model: str, api_key: Optional[str], base_url: Optio
 
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
-        kwargs: dict[str, Any] = {"model": model, "max_tokens": 4096, "timeout": timeout}
+        kwargs: dict[str, Any] = {"model": model, "max_tokens": 4096, "timeout": timeout, **retries}
         if api_key:
             kwargs["api_key"] = api_key
         return ChatAnthropic(**kwargs)
 
     # Default: OpenAI-compatible
     from langchain_openai import ChatOpenAI
-    kwargs = {"model": model, "timeout": timeout}
+    kwargs = {"model": model, "timeout": timeout, **retries}
     if api_key:
         kwargs["api_key"] = api_key
     if base_url:

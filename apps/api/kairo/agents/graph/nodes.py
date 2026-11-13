@@ -1,11 +1,13 @@
 """
 The graph's nodes.
 
-`coordinate` and `agent` are the only nodes that call a model, and a model can
-only propose: it picks one tool and fills in its arguments. `gate` checks the
-proposal and sends a bad one back to whoever made it, `act` runs it through the
-same approval policy and executors as before and reads the stores back, and
-`respond` builds the reply from what was read back.
+`coordinate` and `agent` are the only nodes whose model decides anything, and a
+model can only propose: it picks one tool and fills in its arguments. `gate`
+checks the proposal and sends a bad one back to whoever made it, `act` runs it
+through the same approval policy and executors as before and reads the stores
+back, and `respond` builds the reply from what was read back. `voice` has a
+small model reword that reply and keeps the rewording only if it says the same
+thing (kairo/agents/graph/voice.py).
 
 A question is asked once. It is offered to the user's next message; if that
 message is about something else the question is parked for one more message
@@ -24,8 +26,9 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
-from kairo.agents.graph.prompts import COORDINATOR
+from kairo.agents.graph.prompts import COORDINATOR, VOICE
 from kairo.agents.graph.state import GraphState
+from kairo.agents.graph.voice import VOICE_TIMEOUT, changed_the_facts, sent_as_written, voice_enabled, voice_input
 from kairo.agents.orchestrator.agent import OrchestratorConfig
 from kairo.agents.orchestrator.memory import get_working_memory
 from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat, stored_read_back, submit_action
@@ -33,7 +36,7 @@ from kairo.agents.personal_manager.application.pending_reply import approval_ver
 from kairo.agents.personal_manager.extractors.intent import _looks_like_injection
 from kairo.core.domain.pending import GraphQuestion
 from kairo.core.domain.session import normalize_pm_session_id
-from kairo.core.llm_env import build_llm
+from kairo.core.llm_env import build_llm, message_text
 from kairo.core.observability.telemetry import emit
 from kairo.core.prompt import Prompt, prompts_used, record_prompt
 from kairo.domains.catalog import DOMAINS
@@ -134,6 +137,22 @@ def ask_model(config: OrchestratorConfig, system: Prompt, turns: list[tuple[str,
     emit("llm_usage", input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"),
          prompt=system.id, model=config.model)
     return [{"name": call["name"], "args": call["args"]} for call in response.tool_calls]
+
+
+def reword(config: OrchestratorConfig, system: Prompt, shown: str) -> str:
+    """The voice pass's one model call. Returns the model's text.
+
+    It runs on the small model (PM_MODEL), on a short timeout and with no retry: the reply
+    is already written, so a rewording that is slow to arrive is not waited for.
+    """
+    llm = build_llm(config.pm_provider, config.pm_model, config.pm_api_key, config.pm_base_url,
+                    timeout=VOICE_TIMEOUT, max_retries=0)
+    record_prompt(system)
+    response = llm.invoke([SystemMessage(content=str(system)), HumanMessage(content=shown)])
+    usage = getattr(response, "usage_metadata", None) or {}
+    emit("llm_usage", input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"),
+         prompt=system.id, model=config.pm_model)
+    return re.sub(r"[ \t]+\n", "\n", message_text(response)).strip()      # no trailing spaces left on a line
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -464,7 +483,8 @@ async def act(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
 
 
 async def respond(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
-    """The reply: what was read back from storage, then approval prompts, then anything else to say."""
+    """The reply as the records give it: what was read back from storage, then approval prompts, then
+    anything else to say."""
     lines: list[str] = []
     receipts = state.get("receipts", [])
     if receipts or state.get("results"):
@@ -473,7 +493,29 @@ async def respond(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     lines += state.get("approvals", [])
     lines += state.get("notes", [])
     lines.append(_park(state, _config(config)) or "")
-    return {"reply": "\n".join(line for line in lines if line) or "I wasn't able to do that."}
+    return {"draft": "\n".join(line for line in lines if line) or "I wasn't able to do that."}
+
+
+async def voice(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
+    """Reword the draft so it sounds like an assistant. The draft is sent as written if it is one of
+    the replies that are never reworded, if the model fails, or if the rewording changed what it says."""
+    cfg = _config(config)
+    draft, receipts = state["draft"], state.get("receipts", [])
+    kept = "voice is off" if not voice_enabled() else sent_as_written(receipts, state.get("approvals", []))
+    if kept is None and _looks_like_injection(state["message"]):
+        kept = "refusal"           # a message that was refused is not shown to another model
+    if kept is None:
+        try:
+            reworded = reword(cfg, VOICE, voice_input(state["message"], draft))
+        except Exception:
+            logger.exception("the voice model failed; the reply is sent as written")
+            kept = "model failed"
+        else:
+            kept = changed_the_facts(draft, reworded, receipts)
+            if kept is None:
+                return {"reply": reworded, "wording": "reworded"}
+            logger.warning("rewording refused (%s); the reply is sent as written", kept)
+    return {"reply": draft, "wording": f"as written ({kept})"}
 
 
 async def persist(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
@@ -484,7 +526,9 @@ async def persist(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     if receipts:
         memory.invalidate_pm_cache()
     memory.add_turn("user", state["message"])
-    memory.add_turn("assistant", state["reply"])
+    # The models read the draft next turn and the user reads the reply. The two say the same thing, and
+    # keeping the draft here means how a reply was worded can never change what a model decides later.
+    memory.add_turn("assistant", state["draft"])
     append_conversation_turn(user, thread, cfg.data_dir, state["message"], state["reply"])   # the history the web app shows
     call = state.get("call") or {}
     by = state.get("handler") or COORDINATOR_NAME
@@ -493,7 +537,8 @@ async def persist(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     used = bundle_versions()
     log_orchestrator_turn(
         thread, cfg.data_dir, user_id=user, message=state["message"], route="GRAPH",
-        route_reason=f"tool={tool}; by={by}; model_calls={attempts}", intent=tool, confidence=1.0,
+        route_reason=f"tool={tool}; by={by}; model_calls={attempts}; voice={state['wording']}", intent=tool,
+        confidence=1.0,
         pm_prompt="", is_write=bool(receipts or state.get("approvals")), harness_verdict="n/a", harness_reason="",
         retry_count=max(0, attempts - (2 if state.get("agent_attempts") else 1)), reply=state["reply"],
         duration_ms=int((time.monotonic() - config["configurable"]["started"]) * 1000),

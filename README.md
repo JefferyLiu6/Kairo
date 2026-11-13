@@ -148,7 +148,8 @@ Optional deploy flags:
 | -------- | ------- | ------- |
 | `MODEL` | provider default | The model web chat runs on (measured on `gpt-4o-mini`) |
 | `KAIRO_AGENT` | unset | Set to `legacy` to switch web chat back to the previous orchestrator |
-| `PM_MODEL` | `MODEL` fallback | Delegated model, used by the previous orchestrator only |
+| `PM_MODEL` | `MODEL` fallback | The small model. On the agent graph it rewords each reply so it sounds like an assistant; on the previous orchestrator it is the delegated model |
+| `KAIRO_VOICE` | unset | Set to `off` to send replies as the records give them, without the rewording call |
 | `RATE_LIMIT_RPM` | `60` | Per-IP and per-user PM requests per minute; `0` disables this limiter |
 | `PM_DEMO_RATE_LIMIT_RPM` / `PM_DEMO_RATE_LIMIT_DAILY` | `20` / `100` | Stricter PM chat limits for temporary demo users |
 | `AUTH_DEMO_RATE_LIMIT_RPM` / `AUTH_DEMO_RATE_LIMIT_DAILY` | `2` / `25` | Public demo-account creation limits by IP |
@@ -200,7 +201,8 @@ High-value files to inspect:
 
 | File | Why it matters |
 | ---- | -------------- |
-| [`apps/api/kairo/agents/graph/nodes.py`](apps/api/kairo/agents/graph/nodes.py) | The agent graph's nodes: ingest, coordinate, agent, gate, act, respond, persist |
+| [`apps/api/kairo/agents/graph/nodes.py`](apps/api/kairo/agents/graph/nodes.py) | The agent graph's nodes: ingest, coordinate, agent, gate, act, respond, voice, persist |
+| [`apps/api/kairo/agents/graph/voice.py`](apps/api/kairo/agents/graph/voice.py) | The voice pass: a small model rewords each reply, and the rewording is sent only if it keeps the draft's facts |
 | [`apps/api/kairo/domains/registry.py`](apps/api/kairo/domains/registry.py) | The tool registry: one typed spec per tool, grouped into domains that run inline or as agents |
 | [`apps/api/kairo/domains/schedule.py`](apps/api/kairo/domains/schedule.py) | The calendar agent: its tools, its checks, and its view of the calendar |
 | [`apps/api/kairo/domains/checks.py`](apps/api/kairo/domains/checks.py) | Checks that compare a proposal with the message's own date, time and repeat wording |

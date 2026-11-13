@@ -463,7 +463,7 @@ async def orchestrator_stream(req: PMChatRequest, request: Request):
         api_key=env.get("api_key") or req.api_key,
         base_url=env.get("base_url") or req.base_url,
         pm_provider=env.get("provider", req.provider),
-        pm_model=os.environ.get("PM_MODEL", env.get("model", req.model)),
+        pm_model=os.environ.get("PM_MODEL") or env.get("model", req.model),   # unset or empty: the main model
         pm_api_key=env.get("api_key") or req.api_key,
         pm_base_url=env.get("base_url") or req.base_url,
     )
