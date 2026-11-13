@@ -2,20 +2,18 @@
 The Kairo 2.0 agent graph.
 
     ingest ─► coordinate ─► gate ─► act ─► respond ─► persist
-       │        │  │  ▲     ▲ │                 ▲
-       │        │  │  └─────┼─┘ (one retry each)│
-       │        │  └─► agent ─┘                 │
-       │        └─► assistant (hand-off; answers and logs the turn itself)
+       │           │  ▲     ▲ │                 ▲
+       │           │  └─────┼─┘ (one retry each)│
+       │           └─► agent ─┘                 │
        └─► approval ────────────────────────────┘
 
 `coordinate` and `agent` are the only nodes that call a model, and a model only
 proposes: one tool call, checked by `gate` before `act` runs it. The coordinator
 calls an inline domain's tools itself and hands other messages to a domain's
-own agent (kairo/domains). A domain that has not been moved onto the graph yet
-is handed to the assistant that existed before (kairo/agents/orchestrator), so
-the graph can take over one domain at a time.
+own agent (kairo/domains). One agent domain is the catch-all, so every message
+is answered on the graph.
 
-Enable it for web chat with KAIRO_AGENT=graph.
+Web chat runs on it by default. KAIRO_AGENT=legacy switches back to the previous assistant.
 """
 from __future__ import annotations
 
@@ -42,18 +40,17 @@ def _next(state: GraphState) -> str:
 
 def build_graph():
     graph = StateGraph(GraphState)
-    for name in ("ingest", "approval", "coordinate", "agent", "gate", "act", "assistant", "respond", "persist"):
+    for name in ("ingest", "approval", "coordinate", "agent", "gate", "act", "respond", "persist"):
         graph.add_node(name, getattr(nodes, name))
     graph.add_edge(START, "ingest")
     graph.add_conditional_edges("ingest", _next, ["approval", "coordinate", "respond"])
-    graph.add_conditional_edges("coordinate", _next, ["gate", "agent", "assistant", "respond", "approval"])
-    graph.add_conditional_edges("agent", _next, ["gate", "agent", "assistant", "respond"])
-    graph.add_conditional_edges("gate", _next, ["coordinate", "agent", "act", "respond", "assistant"])
+    graph.add_conditional_edges("coordinate", _next, ["gate", "agent", "respond", "approval"])
+    graph.add_conditional_edges("agent", _next, ["gate", "agent", "respond"])
+    graph.add_conditional_edges("gate", _next, ["coordinate", "agent", "act", "respond"])
     graph.add_edge("approval", "respond")
     graph.add_edge("act", "respond")
     graph.add_edge("respond", "persist")
     graph.add_edge("persist", END)
-    graph.add_edge("assistant", END)
     return graph.compile()
 
 
@@ -61,8 +58,8 @@ GRAPH = build_graph()
 
 
 def graph_enabled() -> bool:
-    """Whether web chat should run on the graph (KAIRO_AGENT=graph) or on the previous assistant."""
-    return os.environ.get("KAIRO_AGENT", "").strip().lower() == "graph"
+    """Whether web chat runs on the graph. It does unless KAIRO_AGENT=legacy asks for the previous assistant."""
+    return os.environ.get("KAIRO_AGENT", "").strip().lower() != "legacy"
 
 
 async def astream_graph(message: str, config: OrchestratorConfig) -> AsyncIterator[tuple[str, str]]:

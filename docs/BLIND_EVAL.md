@@ -413,6 +413,33 @@ title word for word.
 Reports: `artifacts/blind/graph-20261113T044759Z.json` and `…T045107Z.json`
 (first look), `…T050718Z.json` and `…T051045Z.json` (after the fixes).
 
+### After step 9: every message on the graph
+
+Web chat now runs on the graph by default, and conversation, planning and web
+search are answered by an assistant agent instead of being handed to the
+orchestrator. Two recorded runs of the 117-turn set, 2026-11-13, `gpt-4o-mini`:
+
+| Whole set, 117 turns | Previous path (`KAIRO_AGENT=legacy`) | Agent graph, run 1 | Agent graph, run 2 |
+|---|---|---|---|
+| Right, of scoreable turns | 30% (24 of 81) | 97% (103 of 106) | 97% (103 of 106) |
+| Wrong but reported done | 18% (19 + 2) | 0 | 1 |
+| Trapped turns | 9 | 0 | 0 |
+| Model calls per turn | 2.05 | 1.52 | 1.51 |
+| Reply time, median / 95th | 3.7 s / 6.1 s | 1.7 s / 3.7 s | 1.7 s / 4.1 s |
+| Bar | fail | **pass** | **pass** |
+
+- **No turn takes more than four model calls**, and 112 of 117 take two or
+  fewer. Before this step a turn handed to the orchestrator cost three or four.
+- **What still misses:** "send Contoso the pricing deck after tomorrow's call"
+  (refused twice, asked about); the schedule agent once asked what to call an
+  event; "block friday morning" was once stored on two Fridays. One counted
+  miss is the scorer's: "Yes, you have a cardiology appointment for your dad on
+  Tuesday, November 24" is right but does not repeat the stored title.
+- **The holdout figure (97% in both runs) is not a first look**; see
+  [A fresh holdout](#a-fresh-holdout).
+
+Reports: `artifacts/blind/graph-20261113T053448Z.json` and `…T053811Z.json`.
+
 ## The scores ledger
 
 A prompt's version says that it changed, not whether it got better. The ledger,
