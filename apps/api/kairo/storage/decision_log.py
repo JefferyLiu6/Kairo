@@ -62,8 +62,11 @@ CREATE TABLE IF NOT EXISTS turn_decision_log (
 
     -- Final
     reply_preview   TEXT NOT NULL,
-    wm_after        TEXT NOT NULL   -- active:awaiting_choice | active:awaiting_clarification |
+    wm_after        TEXT NOT NULL,  -- active:awaiting_choice | active:awaiting_clarification |
                                     --   resolved | cancelled | replaced | none
+
+    -- What produced the turn: {"prompts": {name: version}, "models": {...}, "receipts": [...]}
+    versions_json   TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_tdl_session_created
     ON turn_decision_log(session_id, created_at DESC);
@@ -73,6 +76,9 @@ CREATE INDEX IF NOT EXISTS idx_tdl_session_created
 def init_decision_log(session_id: str, data_dir: str, *, user_id: str = "") -> None:
     with _ctrl_conn(pm_db_path(session_id, data_dir, user_id=user_id)) as conn:
         conn.executescript(_SCHEMA)
+        # Logs created before versions were recorded gain the column; their rows read back as {}.
+        if "versions_json" not in {column[1] for column in conn.execute("PRAGMA table_info(turn_decision_log)")}:
+            conn.execute("ALTER TABLE turn_decision_log ADD COLUMN versions_json TEXT NOT NULL DEFAULT '{}'")
 
 
 # ── Accumulator dataclass ─────────────────────────────────────────────────────
@@ -244,8 +250,13 @@ def log_orchestrator_turn(
     reply: str,
     duration_ms: int,
     user_id: str = "",
+    versions: Optional[dict[str, Any]] = None,
 ) -> None:
-    """Write one orchestrator turn into the same turn_decision_log table."""
+    """Write one orchestrator turn into the same turn_decision_log table.
+
+    `versions` says what produced the turn (prompt versions, models, receipt statuses), so
+    fallback and mismatch rates can later be grouped by prompt or model.
+    """
     try:
         init_decision_log(session_id, data_dir, user_id=user_id)
         now = datetime.now(timezone.utc).isoformat()
@@ -268,7 +279,7 @@ def log_orchestrator_turn(
                     execution_mode, routing_reason,
                     blocker_type, blocker_missing, fc_candidates,
                     memory_read, memory_written,
-                    reply_preview, wm_after
+                    reply_preview, wm_after, versions_json
                 ) VALUES (
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
@@ -276,7 +287,7 @@ def log_orchestrator_turn(
                     ?, ?,
                     ?, ?, ?,
                     ?, ?,
-                    ?, ?
+                    ?, ?, ?
                 )
                 """,
                 (
@@ -305,6 +316,7 @@ def log_orchestrator_turn(
                     json.dumps(memory_written, ensure_ascii=False),
                     reply[:300],
                     "none",
+                    json.dumps(versions or {}, ensure_ascii=False, sort_keys=True),
                 ),
             )
     except Exception:
@@ -389,4 +401,5 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         },
         "replyPreview": row["reply_preview"],
         "wmAfter": row["wm_after"],
+        "versions": json.loads(row["versions_json"] or "{}"),
     }

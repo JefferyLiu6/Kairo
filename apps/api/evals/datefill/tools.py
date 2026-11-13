@@ -9,11 +9,13 @@ exists (docs/ideas/kairo-2.0-agent-architecture.md, section 8).
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Literal, Optional
 
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+
+from kairo.domains.checks import calendar_hint, date_word_problem, dates_the_wording_allows, past_problem
 
 _DATE = r"^\d{4}-\d{2}-\d{2}$"
 _TIME = r"^([01]\d|2[0-3]):[0-5]\d$"
@@ -104,24 +106,21 @@ def validate_call(name: str, args: dict[str, Any], *, now: Optional[datetime] = 
         error = exc.errors()[0]
         return f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
     if now is not None:
-        today = now.date().isoformat()
-        for field in ("date", "due_date"):
-            if args.get(field) and args[field] < today:
-                return f"{field} {args[field]} is in the past"
-        one_off = name == "create_event" and not args.get("recurrence")
-        if one_off and args["date"] == today and args["start"] < f"{now:%H:%M}":
-            return f"start {args['start']} has already passed today"
+        one_off_event = name == "create_event" and not args.get("recurrence")
+        return past_problem(args.get("date") or args.get("due_date"), now,
+                            start=args.get("start") if one_off_event else None)
     return None
 
 
-def calendar_hint(now: datetime, days: int = 14) -> str:
-    """The next `days` dates with their weekdays, so 'next Tuesday' is a lookup, not arithmetic."""
-    lines = []
-    for offset in range(days):
-        day = now.date() + timedelta(days=offset)
-        mark = {0: " (today)", 1: " (tomorrow)"}.get(offset, "")
-        lines.append(f"{day:%a} {day.isoformat()}{mark}")
-    return "\n".join(lines)
+def date_contradiction(say: str, name: str, args: dict[str, Any], now: datetime) -> Optional[str]:
+    """Why a proposed date disagrees with the message's own date word, or None if it does not.
+
+    A gate check: a proposal that fails it is not stored; it is retried or turned into a question.
+    Questions, repeating events and messages with no readable date word are left alone.
+    """
+    if name == "ask_user" or args.get("recurrence"):
+        return None
+    return date_word_problem(say, args.get("date") if name == "create_event" else args.get("due_date"), now)
 
 
 _RULES = """\
@@ -130,10 +129,10 @@ Turn the user's message into exactly one kind of proposal by calling a tool.
   something. Use add_todo only for a one-off thing to get done, with or without a deadline.
 - Dates are YYYY-MM-DD and times are 24-hour HH:MM. Work them out from the current date above.
 - A time that has already passed today means the next time that day comes around.
-- Read the time of day from context ("dinner at 7" is 19:00, "tonight at 8" is 20:00). A bare hour with
-  no am/pm and nothing in the message that settles morning or evening ("meeting at 7") is not yours to
-  pick: call ask_user.
-- If an event has no date or no time at all, call ask_user. Never invent one.
+- Read the time of day from context ("dinner at 7" is 19:00, "tonight at 8" is 20:00). For a bare hour
+  with nothing to settle morning or evening ("meeting at 7"), pick the likelier reading; the user is
+  shown the time and can correct it.
+- If an event has no date at all, or no time at all, call ask_user. Never invent one.
 - Only set an end time, a due date or a repeat when the user asked for it.
 - The title is the user's own words for the thing, without date, time or repeat words."""
 
@@ -149,3 +148,7 @@ def system_prompt(arm: str, now: datetime) -> str:
     else:
         raise ValueError(f"unknown arm {arm!r}; use one of {ARMS}")
     return f"{clock}\n\n{_RULES}"
+
+
+__all__ = ["ARMS", "TOOLS", "calendar_hint", "date_contradiction", "dates_the_wording_allows", "openai_tools",
+           "single_call", "system_prompt", "validate_call"]

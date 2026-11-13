@@ -167,7 +167,16 @@ def test_model_calls_and_tokens_are_counted_for_any_chat_model_in_the_turn():
 
 
 def test_the_known_paths_are_registered_by_name():
-    assert {"pm", "orchestrator"} <= set(PATHS)
+    assert {"pm", "orchestrator", "graph"} <= set(PATHS)
+
+
+def test_the_graph_path_reports_its_bundle_and_needs_credentials_like_web_chat(monkeypatch, tmp_path):
+    described = PATHS["graph"]().describe()
+    assert len(described["bundle"]) == 8 and "coordinator" in described["prompts"]
+    for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_API_KEY", "OLLAMA", "OLLAMA_BASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(PathUnavailable):
+        PATHS["graph"]().open("x", str(tmp_path))
 
 
 def test_the_orchestrator_path_refuses_to_run_without_model_credentials(monkeypatch, tmp_path):

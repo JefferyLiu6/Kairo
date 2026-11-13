@@ -29,7 +29,7 @@ from typing import Any, Callable, Literal, Optional, Sequence, Union
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from evals.blind.scoring import assign, matches, mismatched_fields
-from evals.datefill.tools import ARMS, openai_tools, single_call, system_prompt, validate_call
+from evals.datefill.tools import ARMS, date_contradiction, openai_tools, single_call, system_prompt, validate_call
 from evals.paths import API_ROOT, FIXTURES
 
 DEFAULT_CASES = FIXTURES / "date_fill_cases.json"
@@ -112,7 +112,7 @@ class Call:
 @dataclass(frozen=True)
 class Verdict:
     outcome: str   # right | safe_miss | wrong
-    kind: str      # ok, asked, no_call, invalid, guessed, wrong_date, wrong_time, wrong_recurrence, ...
+    kind: str      # ok, asked, no_call, invalid, date_check, guessed, wrong_date, wrong_time, ...
     detail: str = ""
 
 
@@ -158,6 +158,11 @@ def judge(case: Case, calls: Sequence[Call], *, now: Optional[datetime] = None) 
         problem = validate_call(call.name, call.args, now=now)
         if problem:
             return Verdict("safe_miss", "invalid", f"{call.name}: {problem}")
+    if now is not None:
+        for call in calls:
+            contradiction = date_contradiction(case.say, call.name, call.args, now)
+            if contradiction:  # the gate stops it, even if it happens to be an acceptable answer
+                return Verdict("safe_miss", "date_check", f"{call.name}: {contradiction}")
     if any(_fits(alternative, calls) for alternative in case.expect):
         return Verdict("right", "ok")
     if all(call.name == "ask_user" for call in calls):

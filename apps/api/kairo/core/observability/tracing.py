@@ -84,6 +84,13 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
+def tag_prompt(name: str, version: str) -> None:
+    """Record which version of a prompt the current run used (`prompt.<name>: <version>`)."""
+    run = get_current_run_tree()
+    if run is not None:
+        run.add_metadata({f"prompt.{name}": version})
+
+
 def mark_contract_error(stage: str) -> None:
     """Tag the current trace when a stage's model reply failed its JSON contract."""
     run = get_current_run_tree()
