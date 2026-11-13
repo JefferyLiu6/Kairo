@@ -211,6 +211,20 @@ def own_words_problem(text: str, said: tuple[str, ...], what: str) -> Optional[s
     return None if kept >= 0.8 else f"{what} is kept in the user's own words; copy them from the message without rewording"
 
 
+_FILLER = frozenset({"the", "and", "with", "for", "from", "about", "this", "that", "your", "todo", "task", "event"})
+
+
+def named_in(title: str, said: tuple[str, ...]) -> bool:
+    """Whether any word of `title` appears in what the user said.
+
+    Words are looked for as substrings, so it also works for languages written without spaces.
+    """
+    spoken = " ".join(said).casefold()
+    words = [word for word in re.findall(r"\w+", title.casefold())
+             if word not in _FILLER and (len(word) >= 3 or not word.isascii())]
+    return any(word in spoken for word in words)
+
+
 def say_dates(days: set[date]) -> str:
     """Dates with their weekdays, for telling a model which one was meant: '2026-11-13 (Fri)'."""
     return " or ".join(f"{day.isoformat()} ({day:%a})" for day in sorted(days))
