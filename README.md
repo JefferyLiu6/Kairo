@@ -519,6 +519,7 @@ This is still a portfolio demo, not a fully hardened production multi-tenant ser
 | `apps/web/src/` | React chat UI, calendar panel, approval card, decision trace panel |
 | `ARCHITECTURE.md` / `SECURITY.md` / `eval-report.md` | Deep architecture, security policy, and the offline suite's report |
 | `docs/BLIND_EVAL.md` / `docs/MODEL_DATE_TEST.md` / `docs/ideas/` | Blind eval method and every result, the model date test, and the 2.0 plan and design |
+| `docs/archive/` | Documents from earlier versions: the orchestrator plan, the judge and monitoring write-ups, and individual fix notes. Not maintained |
 | `docker-compose.yml` | Demo deployment shape with backend, frontend, and persistent volumes |
 
 Runtime data is stored under `data/` or `apps/api/data/` depending on how the app
@@ -527,6 +528,6 @@ is launched. These directories are gitignored and should not be published.
 ## Judge evaluation and operational monitoring
 
 The response-quality benchmark, runtime judge safeguards, and content-free telemetry are
-documented in [docs/EVAL_MONITORING.md](docs/EVAL_MONITORING.md). Run `make eval-judge`
+documented in [docs/archive/EVAL_MONITORING.md](docs/archive/EVAL_MONITORING.md). Run `make eval-judge`
 for the credential-free replay contract suite. Replay agreement is not live-model accuracy.
-Azure Container Apps monitoring queries are in [docs/monitoring.kql](docs/monitoring.kql).
+Azure Container Apps monitoring queries are in [docs/archive/monitoring.kql](docs/archive/monitoring.kql).
