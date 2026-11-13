@@ -1,0 +1,147 @@
+"""
+The tool registry: one `ToolSpec` per tool, grouped into domains.
+
+Everything a model is shown about a tool comes from its spec: the name, the
+description (the argument model's docstring) and the strict argument schema.
+A tool never writes. A `propose` tool turns its arguments into typed commands
+(`PMAction`) that the gate checks and executes; a `read` tool returns text.
+
+A domain runs `inline` (its tools go to the coordinator) or as an `agent` (the
+coordinator hands the message off). Switching is one word in the domain's spec.
+
+`Registry.register` refuses an incomplete domain, so a tool cannot exist
+without the parts that make it safe to call.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Callable, Literal, Optional, Union
+
+from langchain_core.utils.function_calling import convert_to_openai_tool
+from pydantic import BaseModel
+
+from kairo.core.domain.types import PMAction
+
+_TOOL_NAME = re.compile(r"[a-z][a-z0-9_]*")
+
+
+@dataclass(frozen=True)
+class ToolContext:
+    """What a tool may know about the turn it is called in."""
+
+    user_id: str
+    thread_id: str
+    data_dir: str
+    now: datetime
+    message: str = ""               # the user's message, for checks against its own wording
+    vault_dir: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Answer:
+    """What to tell the user when a tool cannot or need not act."""
+
+    text: str
+    asks: bool = False              # the text is a question the user is expected to answer
+    topic: str = ""                 # what the question is about, for the open-question record
+    elsewhere: bool = False         # nothing in this domain matched; the request may belong to another one
+
+
+class NotThisDomain(str):
+    """A check's verdict that the request belongs elsewhere. The text says why; if the model does
+    not hand it off itself when told, the graph does."""
+
+
+Proposal = Union[list[PMAction], Answer]
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    kind: Literal["read", "propose"]
+    args: type[BaseModel]                                   # the model-facing arguments; its docstring is the description
+    examples: tuple[str, ...] = ()                          # messages this tool should be called for
+    check: Optional[Callable[[Any, ToolContext], Optional[str]]] = None   # why the arguments must be redone, if so
+    propose: Optional[Callable[[Any, ToolContext], Proposal]] = None      # arguments -> typed commands, or an answer
+    read: Optional[Callable[[Any, ToolContext], str]] = None              # arguments -> text for the user
+
+    @property
+    def description(self) -> str:
+        return " ".join((self.args.__doc__ or "").split())
+
+    def schema(self) -> dict[str, Any]:
+        """The tool as a strict function definition: the model cannot omit a field or change its type."""
+        tool = convert_to_openai_tool(self.args, strict=True)
+        tool["function"]["name"] = self.name
+        tool["function"]["description"] = self.description
+        return tool
+
+
+@dataclass(frozen=True)
+class DomainSpec:
+    name: str
+    summary: str                                            # one line, shown to the coordinator for routing
+    tools: tuple[ToolSpec, ...] = ()
+    mode: Literal["inline", "agent"] = "inline"
+
+
+class Registry:
+    def __init__(self) -> None:
+        self._domains: dict[str, DomainSpec] = {}
+        self._tools: dict[str, ToolSpec] = {}
+
+    def register(self, domain: DomainSpec) -> None:
+        """Add a domain. Raises ValueError, naming the gap, if any part of it is missing."""
+        if domain.name in self._domains:
+            raise ValueError(f"domain {domain.name!r} is already registered")
+        if domain.mode == "inline" and not domain.tools:
+            raise ValueError(f"inline domain {domain.name!r} has no tools")
+        seen: set[str] = set()
+        for tool in domain.tools:
+            if not _TOOL_NAME.fullmatch(tool.name):
+                raise ValueError(f"tool name {tool.name!r} must be lower_snake_case")
+            if tool.name in seen or tool.name in self._tools:
+                raise ValueError(f"tool {tool.name!r} is registered more than once")
+            seen.add(tool.name)
+            if not tool.description:
+                raise ValueError(f"tool {tool.name!r} needs a description (the docstring of its arguments)")
+            if tool.kind == "propose" and tool.propose is None:
+                raise ValueError(f"tool {tool.name!r} must say what it proposes (propose=...)")
+            if tool.kind == "propose" and not tool.examples:
+                raise ValueError(f"tool {tool.name!r} needs at least one example message")
+            if tool.kind == "read" and tool.read is None:
+                raise ValueError(f"tool {tool.name!r} must say what it reads (read=...)")
+            tool.schema()  # fails here, not in front of a user, if the arguments cannot be made strict
+        self._domains[domain.name] = domain
+        self._tools.update({tool.name: tool for tool in domain.tools})
+
+    def tool(self, name: str) -> ToolSpec:
+        try:
+            return self._tools[name]
+        except KeyError:
+            raise ValueError(f"unknown tool {name!r}") from None
+
+    def inline_tools(self) -> list[ToolSpec]:
+        return [tool for domain in self._domains.values() if domain.mode == "inline" for tool in domain.tools]
+
+    def agent_domains(self) -> list[DomainSpec]:
+        return [domain for domain in self._domains.values() if domain.mode == "agent"]
+
+    def routing_lines(self, *, mode: Literal["inline", "agent"]) -> str:
+        return "\n".join(f"- {d.name}: {d.summary}" for d in self._domains.values() if d.mode == mode)
+
+    def fingerprint(self) -> str:
+        """Short hash of everything a model is shown about the tools and domains.
+
+        Rewording a description or renaming an argument changes it, the same way editing a
+        prompt changes the prompt's version.
+        """
+        shown = {
+            "tools": [tool.schema() for tool in self._tools.values()],
+            "domains": [(d.name, d.summary, d.mode) for d in self._domains.values()],
+        }
+        return hashlib.sha256(json.dumps(shown, sort_keys=True).encode("utf-8")).hexdigest()[:8]

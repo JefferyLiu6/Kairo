@@ -40,6 +40,8 @@ def test_an_entry_carries_what_was_run_and_how_it_scored():
     assert entry["recorded_at"] == "2026-11-12T23:56:39+00:00" and entry["note"] == "with receipts"
     assert (entry["path"], entry["model"], entry["pm_model"]) == ("orchestrator", "gpt-4o-mini", "gpt-4o-mini")
     assert entry["prompt_set"] == "abc123def456" and entry["prompts"]["translate"] == "1a478512"
+    assert entry["bundle"] is None
+    assert entry_from_report({**REPORT, "path": {**REPORT["path"], "bundle": "0f1e2d3c"}}, "n")["bundle"] == "0f1e2d3c"
     assert entry["eval_set"] == "e515cf5b8d8b" and entry["turns"] == 85 and entry["code"] == "34bf142"
     assert (entry["right_rate"], entry["wrong_but_reported_done_rate"], entry["trapped"]) == (0.3906, 0.1647, 3)
     assert (entry["dev_right_rate"], entry["holdout_right_rate"]) == (0.42, 0.3333)
