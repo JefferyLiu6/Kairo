@@ -1612,6 +1612,136 @@ body {
   flex: 1;
 }
 
+/* ── About me panel ── */
+.about-panel {
+  --about-amber-text: oklch(0.44 0.10 75);
+  --about-amber-bg: oklch(0.95 0.05 85);
+  width: 520px;
+  max-height: 78vh;
+}
+
+.about-subtitle {
+  margin-top: 1px;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.about-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.about-score {
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--teal-bg);
+  color: var(--teal-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.about-score-warn {
+  background: var(--about-amber-bg);
+  color: var(--about-amber-text);
+}
+
+.about-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+
+.about-section-warn {
+  color: var(--about-amber-text);
+}
+
+.about-section-count {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.about-list {
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.about-fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.about-fact + .about-fact {
+  border-top: 1px solid var(--border);
+}
+
+.about-fact-lost {
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+
+.about-fact-text {
+  flex: 1 1 60%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.about-fact-tag {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 5px;
+  white-space: nowrap;
+  color: var(--about-amber-text);
+  background: var(--about-amber-bg);
+}
+
+.about-fact-tag-kept {
+  color: var(--teal-dim);
+  background: var(--teal-bg);
+}
+
+.about-note,
+.about-empty,
+.about-private {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text2);
+}
+
+.about-note {
+  margin-top: 8px;
+}
+
+.about-footer {
+  flex-shrink: 0;
+  padding: 10px 20px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text2);
+}
+
 /* ── Workspace panel ── */
 .ws-overlay {
   position: fixed;
