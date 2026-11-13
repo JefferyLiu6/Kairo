@@ -448,8 +448,7 @@ async def orchestrator_stream(req: PMChatRequest, request: Request):
     from kairo.agents.graph import astream_graph, graph_enabled
     from kairo.agents.orchestrator.agent import OrchestratorConfig, astream_orchestrator
     from kairo.storage.user_store import ensure_thread
-    # KAIRO_AGENT=graph runs the 2.0 agent graph; anything it has not taken over yet is handed
-    # to the previous assistant from inside the graph.
+    # Web chat runs on the agent graph. KAIRO_AGENT=legacy switches back to the previous assistant.
     stream_turn = astream_graph if graph_enabled() else astream_orchestrator
     thread_id = normalize_pm_session_id(req.session_id)
     # Register the thread in users.db

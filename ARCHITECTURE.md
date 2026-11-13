@@ -70,10 +70,13 @@ flowchart TB
     EXEC --> GCAL["Google Calendar<br/>optional sync/write path"]
 ```
 
-## Orchestrated Web Turn
+## Orchestrated Web Turn (the previous path, `KAIRO_AGENT=legacy`)
 
-The React app uses `/orchestrator/stream` for Kairo chat. The older
-`/personal-manager/stream` endpoint still exists for direct Kairo PM streaming.
+Web chat (`/orchestrator/stream`) now runs on the [agent graph](#agent-graph-the-web-chat-path)
+by default. This section describes the path it replaced, which still answers
+web chat when `KAIRO_AGENT=legacy` is set and still serves the older
+`/personal-manager/chat` and `/personal-manager/stream` endpoints and the demo
+`/chat/stream` route.
 
 ```mermaid
 flowchart TD
@@ -143,14 +146,13 @@ Important boundaries:
 - Orchestrator memory is in-process and resets on backend restart. Durable PM
   state remains in Kairo's stores below.
 
-## Agent Graph (Kairo 2.0, behind `KAIRO_AGENT=graph`)
+## Agent Graph (the web chat path)
 
-With `KAIRO_AGENT=graph`, `/orchestrator/stream` runs
-[`kairo/agents/graph`](apps/api/kairo/agents/graph) instead of the
-orchestrator. Without it, nothing below is used. The graph takes domains over
-one at a time: tasks, habits, the journal, the calendar and memory so far. Web
-search, planning a day and conversation are handed, whole, to the orchestrator
-described above.
+`/orchestrator/stream` runs [`kairo/agents/graph`](apps/api/kairo/agents/graph).
+Every message is answered on it: tasks, habits and the journal by the
+coordinator's own tools; the calendar, memory and everything else by a domain's
+own agent. Nothing is handed to the previous orchestrator. `KAIRO_AGENT=legacy`
+switches web chat back to it.
 
 ```mermaid
 flowchart TD
@@ -158,13 +160,13 @@ flowchart TD
     ING -->|"approve / reject"| APP["approval<br/>no model"]
     ING --> CO["coordinate<br/>one model call, one tool call"]
     CO -->|"a tasks, habits or journal tool"| G["gate<br/>schema, date, time, repeat<br/>and own-words checks"]
-    CO -->|"hand_off to schedule or memory"| AG["agent<br/>that domain's agent: its own prompt,<br/>tools and view of its store"]
+    CO -->|"hand_off to schedule, memory<br/>or assistant; or nothing usable"| AG["agent<br/>that domain's agent: its own prompt,<br/>tools and view of its store"]
     CO -->|"yes or no to the approval just asked"| APP
-    CO -->|"hand_off to assistant,<br/>or nothing usable"| OLD["assistant<br/>the orchestrator answers and logs the turn"]
     CO -->|"ask_user"| R
     AG -->|"one of its tools"| G
     AG -->|"answer or ask_user"| R
-    AG -->|"hand_back"| OLD
+    AG -->|"hand_back: on to the assistant agent"| AG
+    G -->|"a lookup result,<br/>back to the agent"| AG
     G -->|"rejected, first time:<br/>back to whoever proposed"| CO
     G -->|"rejected, first time"| AG
     G -->|"proposed commands"| ACT["act<br/>approval policy, executors,<br/>read-back"]
@@ -197,8 +199,10 @@ How it differs from the orchestrated turn:
   routes it there. A lookup that finds nothing in the domain's own store is
   sent back once, and then handed on, because the thing may live elsewhere.
 - **Model calls per turn:** one for a tasks, habits or journal request, two
-  for a calendar or memory request (coordinator, then that agent), none for
-  approve or reject.
+  for a calendar, memory or conversation turn (coordinator, then that agent),
+  three when the assistant looks something up, none for approve or reject.
+- **Every turn is written to the conversation history** the web app reads back
+  (`conversation_log`), as well as to the turn memory and the decision log.
 - **Kept words are copied, not reworded.** A journal entry or a remembered
   fact that is mostly not the user's own words is sent back.
 - **An approval can be answered in plain words**, but only right after it was
@@ -223,13 +227,28 @@ code never has to find an event from a description.
 | `change_occurrence` | `schedule_add_override` for one day of a repeating event |
 | `end_series` | `schedule_cancel_series_from` |
 | `show_events` | nothing: lists a day or a range, read from the calendar |
-| `answer`, `ask_user`, `hand_back` | nothing: every agent has these three |
+| `answer`, `ask_user`, `hand_back` | nothing: every agent has these (the catch-all agent has no `hand_back`) |
 
 Two things are decided by code, not the model: the first day of a daily or
 weekly repeat (the next day it falls on), and whether a new event overlaps
 something already there (said in the reply as a note). An `answer` may describe
 the calendar but may not say that something was added, changed or removed; only
 a receipt can say that.
+
+### The assistant agent
+
+Conversation, advice, planning a day in words and web search go to the
+assistant agent ([`kairo/domains/assistant.py`](apps/api/kairo/domains/assistant.py)).
+It is the catch-all: a message no other domain can place, or a model call the
+graph cannot use, ends up here, so every message gets an answer.
+
+- It is shown everything that is stored (open tasks, the calendar, habits,
+  remembered facts; private notes only as a count) and answers from that.
+- It has no tool that changes anything, and like every `answer` its reply may
+  not say that something was added, changed or removed.
+- `web_search` is a lookup: its result goes back to the agent, which then
+  answers. A query that contains private details is not run. An agent may be
+  called at most three times in a turn.
 
 ### Memory
 
@@ -280,13 +299,14 @@ Tools come from a registry (`kairo/domains`). A domain declares its tools as
 `ToolSpec`s: a name, strict typed arguments whose docstring is the description
 shown to the model, an optional `check`, and either `propose` (arguments to
 typed commands) or `read`. `Registry.register` refuses a domain with a missing
-part. A domain runs one of three ways:
+part. A tool is a `propose` (arguments to typed commands), a `read` (text for
+the user) or a `lookup` (text for the agent that called it). A domain runs one
+of two ways:
 
 | Mode | How it runs | Now |
 |---|---|---|
 | `inline` | its tools are given to the coordinator, with the domain's own guidance and view of its store | tasks, habits, journal |
-| `agent` | the coordinator hands off to the domain's own agent: its own prompt, tools and view of its store | schedule, memory |
-| `legacy` | the coordinator hands off to the orchestrator; the one fallback | web search, planning, conversation |
+| `agent` | the coordinator hands off to the domain's own agent: its own prompt, tools and view of its store | schedule, memory, assistant (the catch-all) |
 
 Adding a domain is a module in `kairo/domains` and one line in `catalog.py`.
 The coordinator's prompt is assembled from the registry: each inline domain

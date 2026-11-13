@@ -140,7 +140,7 @@ class PMWorkflowPath:
 
 
 class OrchestratorPath:
-    """The web-chat path, configured the way `/orchestrator/stream` configures it."""
+    """The previous web-chat path (KAIRO_AGENT=legacy), configured the way `/orchestrator/stream` configures it."""
 
     name = "orchestrator"
 
@@ -172,7 +172,7 @@ class OrchestratorPath:
 
 
 class GraphPath(OrchestratorPath):
-    """The 2.0 agent graph, configured like web chat. What it has not taken over goes to the orchestrator."""
+    """The agent graph, configured like web chat. Every message is answered on it."""
 
     name = "graph"
 
@@ -180,8 +180,7 @@ class GraphPath(OrchestratorPath):
         from kairo.agents.graph.nodes import bundle_version
 
         return {**super().describe(), "bundle": bundle_version(),
-                "note": "KAIRO_AGENT=graph: tasks, habits, journal, calendar and memory on the graph; "
-                        "web search, planning and conversation handed to the orchestrator"}
+                "note": "the agent graph, as web chat runs it by default; nothing is handed to the orchestrator"}
 
     def open(self, scenario_id: str, data_dir: str) -> Session:
         from kairo.agents.graph import run_graph
