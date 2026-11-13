@@ -58,6 +58,22 @@ def test_a_due_date_and_time_are_carried_into_the_command(tmp_path):
     assert [a.payload["due"] for a in tool.propose(args, context)] == ["2026-11-13", "2026-11-16T17:00:00"]
 
 
+def test_a_task_that_is_already_on_the_list_with_the_same_due_date_is_not_added_again(tmp_path):
+    save_todos(TodoData(items=[TodoItem(id="t1", title="send investor update", due="2026-11-13"),
+                               TodoItem(id="t2", title="fix figure 3")]), USER, str(tmp_path))
+    # A model sometimes repeats the previous message's task alongside the new one.
+    tool, args, context = call("add_todos", tmp_path, "Add todo: review Q4 hiring plan", items=[
+        item("Send investor update", "2026-11-13"), item("review Q4 hiring plan")])
+    assert [a.payload["title"] for a in tool.propose(args, context)] == ["review Q4 hiring plan"]
+    # The same title with a new due date is a new task.
+    tool, args, context = call("add_todos", tmp_path, "add todo fix figure 3 due friday", items=[item("fix figure 3", "2026-11-13")])
+    assert [a.payload["due"] for a in tool.propose(args, context)] == ["2026-11-13"]
+    # Nothing new at all is said, not stored.
+    tool, args, context = call("add_todos", tmp_path, "add todo fix figure 3", items=[item("fix figure 3")])
+    answer = tool.propose(args, context)
+    assert isinstance(answer, Answer) and answer.text == "That's already on your list: fix figure 3."
+
+
 def test_a_time_with_no_date_means_today(tmp_path):
     tool, args, context = call("add_todos", tmp_path, items=[item("leave for the dentist", None, "16:00")])
     assert tool.propose(args, context)[0].payload["due"] == "2026-11-12T16:00:00"

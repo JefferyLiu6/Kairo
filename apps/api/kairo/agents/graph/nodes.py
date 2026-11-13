@@ -109,7 +109,8 @@ def _hash(*shown: Any) -> str:
 
 def bundle_versions() -> dict[str, str]:
     """A version for everything each model is told: its prompt and every tool definition it is shown."""
-    versions = {COORDINATOR_NAME: _hash(COORDINATOR.version, coordinator_tools(approval_offered=True))}
+    versions = {COORDINATOR_NAME: _hash(COORDINATOR.version, [d.guidance.version for d in DOMAINS.inline_domains()],
+                                        coordinator_tools(approval_offered=True))}
     for domain in DOMAINS.agent_domains():
         versions[domain.name] = _hash(domain.bundle(), _AGENT_TOOLS)
     return versions
@@ -242,14 +243,17 @@ def _coordinator_notes(state: GraphState) -> str:
 
 
 def _approval_on_offer(cfg: OrchestratorConfig, history: list[tuple[str, str]]) -> Optional[dict[str, str]]:
-    """The one approval the user can answer in plain words: this thread's only pending one, and only
-    while its prompt is the last thing Kairo said."""
-    user, thread = _ids(cfg)
-    pending = [a for a in list_approval_requests(user, cfg.data_dir, status="pending", limit=10)
-               if a.payload.get("_thread_id") == thread]
-    if len(pending) != 1 or not history or history[-1][0] != "assistant" or f"[{pending[0].id}]" not in history[-1][1]:
+    """The approval a yes or no refers to: the one whose prompt is the last thing Kairo said.
+
+    Only while that prompt is the last thing said, and only if it asked for exactly one approval.
+    An older approval the user never answered stays pending and does not get in the way.
+    """
+    if not history or history[-1][0] != "assistant":
         return None
-    return {"id": pending[0].id, "summary": pending[0].summary}
+    user, thread = _ids(cfg)
+    asked = [a for a in list_approval_requests(user, cfg.data_dir, status="pending", limit=20)
+             if a.payload.get("_thread_id") == thread and f"[{a.id}]" in history[-1][1]]
+    return {"id": asked[0].id, "summary": asked[0].summary} if len(asked) == 1 else None
 
 
 # ── Nodes ─────────────────────────────────────────────────────────────────────
@@ -280,7 +284,12 @@ async def ingest(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     turns = get_working_memory(user, thread, cfg.data_dir).turns[-HISTORY_TURNS:]
     update["history"] = [(turn["role"], turn["content"]) for turn in turns]
     update["offer"] = _approval_on_offer(cfg, update["history"])
-    update["route"] = "approval" if route_message(message, theirs) == "approval_command" else "coordinate"
+    update["route"] = "coordinate"
+    if route_message(message, theirs) == "approval_command":
+        update["route"] = "approval"
+        if update["offer"] and " " not in message.strip():
+            # A bare approve or reject right after a prompt answers that prompt.
+            update["decision"] = f"{approval_verb(message)} {update['offer']['id']}"
     return update
 
 
@@ -306,8 +315,12 @@ async def approval(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
 async def coordinate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     cfg = _config(config)
     offer = state.get("offer")
-    shown = [domain.context(_context(state, cfg, domain.name)) for domain in DOMAINS.inline_domains() if domain.context]
-    system = COORDINATOR.render(clock=_clock(state), context="\n".join(shown), domains=DOMAINS.routing_lines(),
+    areas = []
+    for domain in DOMAINS.inline_domains():
+        record_prompt(domain.guidance)
+        shown = domain.context(_context(state, cfg, domain.name)) if domain.context else ""
+        areas.append("\n".join(part for part in (f"\n{domain.name}: {domain.summary}", str(domain.guidance), shown) if part))
+    system = COORDINATOR.render(clock=_clock(state), inline="\n".join(areas), domains=DOMAINS.routing_lines(),
                                 open_question=_coordinator_notes(state))
     call = _first_call(cfg, system, _turns(state, other="call hand_off if this is not for that tool, "),
                        coordinator_tools(approval_offered=bool(offer)))
@@ -391,7 +404,7 @@ async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
         if not user_facing:
             return _ask(state, cfg, owner.name, "Could you say that another way?",
                         because="I couldn't work out what to do with that, so nothing was saved.")
-        return _ask(state, cfg, owner.name, f"Could you give me the exact day and time for “{state['message']}”?",
+        return _ask(state, cfg, owner.name, owner.restate.format(message=state["message"]),
                     because=f"Nothing was saved, because I couldn't settle the details ({problem}).")
 
     if spec.kind == "read":
@@ -402,7 +415,8 @@ async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
             # Not in this domain's store. It may live in another one, so the model is told once;
             # if it insists, the assistant with the whole picture answers.
             if attempts < MAX_ATTEMPTS:
-                return {"rejection": f"{proposal.text} If it belongs elsewhere, hand it off instead", "route": back}
+                return {"rejection": f"{proposal.text} If it is something else (a habit, a calendar event), use "
+                                     "the tool or hand-off for that instead", "route": back}
             return _send_elsewhere("", owner.name)
         if proposal.asks:
             return _ask(state, cfg, owner.name, proposal.text, proposal.topic)

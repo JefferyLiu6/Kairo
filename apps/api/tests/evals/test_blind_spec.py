@@ -9,11 +9,11 @@ from pydantic import ValidationError
 from evals.blind.spec import Expect, Turn, load_blind_set
 
 
-def test_the_set_is_the_ten_trial_personas_and_their_eighty_five_messages():
+def test_the_set_is_the_ten_trial_personas_plus_three_written_later_as_a_fresh_holdout():
     blind = load_blind_set()
-    assert len(blind.scenarios) == 10
-    assert sum(len(s.turns) for s in blind.scenarios) == 85
-    assert len({s.id for s in blind.scenarios}) == 10
+    assert len(blind.scenarios) == 13 and len({s.id for s in blind.scenarios}) == 13
+    assert sum(len(s.turns) for s in blind.scenarios) == 117
+    assert sum(len(s.turns) for s in blind.scenarios if s.split == "holdout") == 32
 
 
 def test_the_clock_is_pinned_to_the_thursday_the_messages_were_written_on():
@@ -23,8 +23,12 @@ def test_the_clock_is_pinned_to_the_thursday_the_messages_were_written_on():
 
 
 def test_some_personas_are_held_out_so_tuning_cannot_see_them():
-    splits = Counter(s.split for s in load_blind_set().scenarios)
-    assert splits["dev"] == 7 and splits["holdout"] == 3
+    blind = load_blind_set()
+    splits = Counter(s.split for s in blind.scenarios)
+    assert splits["dev"] == 10 and splits["holdout"] == 3
+    # The first three holdouts were seen too often while the graph was built, and became dev.
+    assert {s.id for s in blind.scenarios if s.split == "holdout"} == {
+        "11_music_teacher", "12_caregiver", "13_oncall_developer"}
 
 
 def test_every_scenario_names_the_things_a_reply_could_invent():

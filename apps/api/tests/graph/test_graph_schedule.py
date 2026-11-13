@@ -212,6 +212,24 @@ def test_approving_in_plain_words_is_only_offered_right_after_the_prompt(chat):
     assert len(list_approval_requests(USER, chat.data_dir, status="pending")) == 1
 
 
+def test_approve_right_after_a_prompt_means_that_prompt_even_if_an_older_one_was_never_answered(chat):
+    move_discovery_call(chat)                                   # asked, and never answered
+    chat.model.extend([TO_SCHEDULE, call("skip_occurrence", event_id="gym00001", date="2026-11-13")])
+    chat("Skip gym this Friday")                                # asked just now
+
+    assert chat("approve") == "Skipping gym on Fri 13 Nov; the rest of the series stays."
+    (still_pending,) = list_approval_requests(USER, chat.data_dir, status="pending")
+    assert still_pending.action_type == "schedule_update"
+    assert ("discovery call", "2026-11-18", "11:00", "12:00") in calendar(chat)
+
+    # With no prompt just shown, a bare approve still has to say which one.
+    chat.model.extend([TO_SCHEDULE, call("skip_occurrence", event_id="gym00001", date="2026-11-16"),
+                       call("add_todos", items=[item("buy milk")])])
+    chat("Skip gym on monday")
+    chat("add todo buy milk")
+    assert chat("approve").startswith("Multiple pending approvals.")
+
+
 def test_the_first_message_is_never_offered_an_approval(chat):
     chat.model.append(call("list_todos"))
     chat("what's on my list")

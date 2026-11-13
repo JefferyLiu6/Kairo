@@ -47,6 +47,8 @@ def dates_the_wording_allows(say: str, now: datetime) -> Optional[set[date]]:
         return {today + timedelta(days=1)}
     if re.search(r"\b(today|tonight|this (morning|afternoon|evening))\b", text):
         return {today}
+    if re.search(r"\byesterday\b", text):
+        return {today - timedelta(days=1)}
     if found := re.search(r"\b(\d{1,2})/(\d{1,2})\b", text):
         named = _next_occurrence(today, int(found[1]), int(found[2])) if int(found[1]) <= 12 else None
         return {named} if named else None
@@ -66,8 +68,11 @@ def dates_the_wording_allows(say: str, now: datetime) -> Optional[set[date]]:
     if len(weekdays) == 1 and not re.search(r"\b(every|each)\b", text):
         ahead = (weekdays.pop() - today.weekday()) % 7
         nearest = today + timedelta(days=ahead)
-        # "next friday" is read both ways, and so is the weekday that is today.
-        return {nearest, nearest + timedelta(days=7)} if ahead == 0 or re.search(r"\bnext\b", text) else {nearest}
+        # The weekday that is today is read both ways. So is "next friday" while that Friday is
+        # still in this week; once the nearest one is already in next week, "next" means that one.
+        this_week = nearest.isocalendar()[:2] == today.isocalendar()[:2]
+        both = ahead == 0 or (this_week and bool(re.search(r"\bnext\b", text)))
+        return {nearest, nearest + timedelta(days=7)} if both else {nearest}
     return None
 
 
@@ -140,12 +145,21 @@ def time_word_problem(say: str, proposed: Optional[str]) -> Optional[str]:
 
 _REPEATS = re.compile(
     r"\b(every|each)\s+(other\s+)?(day|morning|afternoon|evening|night|week|weekday|weekend|month|year|"
-    r"mon\w*|tue\w*|wed\w*|thu\w*|fri\w*|sat\w*|sun\w*)\b|\b(daily|nightly|weekly|monthly)\b", re.I)
+    r"mon\w*|tue\w*|wed\w*|thu\w*|fri\w*|sat\w*|sun\w*)\b|\b(daily|nightly|weekly|monthly)\b"
+    r"|\b(mon|tues|wednes|thurs|fri|satur|sun|week)days\b|\bweekends\b", re.I)
 
 
 def asks_for_a_repeat(say: str) -> bool:
-    """Whether the message's own wording asks for something that repeats ("every morning", "weekly")."""
+    """Whether the message's own wording asks for something that repeats ("every morning", "weekly", "on fridays")."""
     return bool(_REPEATS.search(say))
+
+
+_REMEMBER = re.compile(r"\b(remember|keep in mind|note that|for future reference|don['’]?t forget)\b", re.I)
+
+
+def asks_to_remember(say: str) -> bool:
+    """Whether the message's own wording asks for something to be remembered ("remember that …", "note that …")."""
+    return bool(_REMEMBER.search(say))
 
 
 _DAY_CODES = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
@@ -160,6 +174,11 @@ def repeat_problem(say: str, recurrence: Optional[dict]) -> Optional[str]:
     "every day" and "every other". A message with no repeat wording is not checked.
     """
     if not asks_for_a_repeat(say):
+        # Days are named but no repeat is asked for ("on call sat sun"): a repeat would be invented.
+        # A message that names no day this can read is not checked.
+        if recurrence and _NAMED_DAYS.search(say.lower()):
+            return ("the message names days but does not ask for a repeat; make one event for each day named, "
+                    "with recurrence null")
         return None
     if not recurrence:
         return "the message asks for something that repeats, but no repeat was set"
@@ -176,6 +195,20 @@ def repeat_problem(say: str, recurrence: Optional[dict]) -> Optional[str]:
     if re.search(r"\bevery other\b", text) and (recurrence.get("interval") or 1) != 2:
         return "the message says every other, so the interval must be 2"
     return None
+
+
+def own_words_problem(text: str, said: tuple[str, ...], what: str) -> Optional[str]:
+    """Why `text` is not the user's own words, if most of it is not in what they said.
+
+    Something kept on the user's behalf (a journal entry, a fact to remember) is copied, not
+    reworded. A very short message is not checked: it may point at something said earlier.
+    """
+    spoken = set(re.findall(r"\w+", " ".join(said).casefold()))
+    words = re.findall(r"\w+", text.casefold())
+    if len(spoken) < 6 or not words:
+        return None
+    kept = sum(word in spoken for word in words) / len(words)
+    return None if kept >= 0.8 else f"{what} is kept in the user's own words; copy them from the message without rewording"
 
 
 def say_dates(days: set[date]) -> str:

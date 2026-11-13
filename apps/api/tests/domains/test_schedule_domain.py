@@ -115,10 +115,30 @@ def test_an_event_that_agrees_with_the_message_passes(tmp_path, message, propose
     assert tool.check(args, ctx) is None
 
 
+def test_days_named_without_a_repeat_are_separate_events_not_a_series(tmp_path):
+    said = "dinner service fri and sat 5pm to 11pm"
+    invented = [event("dinner service", "2026-11-13", "17:00", "23:00", recurrence=weekly("FR", "SA")),
+                event("dinner service", "2026-11-14", "17:00", "23:00")]
+    tool, args, ctx = call("create_events", tmp_path, said, events=invented)
+    assert "does not ask" in tool.check(args, ctx)
+    each_day = [event("dinner service", day, "17:00", "23:00") for day in ("2026-11-13", "2026-11-14")]
+    tool, args, ctx = call("create_events", tmp_path, said, events=each_day)
+    assert tool.check(args, ctx) is None
+
+
 def test_one_repeating_event_per_weekday_is_sent_back_to_be_one_event(tmp_path):
     days = [event("gym", "2026-11-16", "06:00", recurrence=weekly(day)) for day in ("MO", "WE", "FR")]
     tool, args, ctx = call("create_events", tmp_path, "Schedule gym every Monday, Wednesday and Friday at 6am", events=days)
     assert "one event" in tool.check(args, ctx) and "by_day" in tool.check(args, ctx)
+    # The same goes for one repeating day plus loose copies of the others.
+    mixed = [event("gym", "2026-11-16", "06:00", recurrence=weekly("MO")), event("gym", "2026-11-18", "06:00"),
+             event("gym", "2026-11-20", "06:00")]
+    tool, args, ctx = call("create_events", tmp_path, "Schedule gym every Monday, Wednesday and Friday at 6am", events=mixed)
+    assert "one event" in tool.check(args, ctx)
+    # Several separate dates with no repeat asked for are several events.
+    shifts = [event("night shift", day, "19:00", "07:30") for day in ("2026-11-13", "2026-11-14", "2026-11-15")]
+    tool, args, ctx = call("create_events", tmp_path, "night shift 7pm to 7:30am fri sat sun", events=shifts)
+    assert tool.check(args, ctx) is None
     # Different things that each repeat are fine.
     tool, args, ctx = call("create_events", tmp_path, "gym every monday at 6am and yoga every friday at 7am", events=[
         event("gym", "2026-11-16", "06:00", recurrence=weekly("MO")), event("yoga", "2026-11-13", "07:00", recurrence=weekly("FR"))])

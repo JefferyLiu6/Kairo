@@ -337,6 +337,8 @@ D = date  # shorthand for the table below
     ("i need to finish the report by friday", {D(2026, 11, 13)}),          # the nearest Friday, not next week's
     ("cal fri 3pm standup 30m", {D(2026, 11, 13)}),
     ("meet Alex next friday at 4pm", {D(2026, 11, 13), D(2026, 11, 20)}),   # "next" is read both ways
+    ("discovery call next wednesday at 11am", {D(2026, 11, 18)}),           # already in next week: one reading
+    ("dentist next monday", {D(2026, 11, 16)}),
     ("standup thursday 9:30am", {D(2026, 11, 12), D(2026, 11, 19)}),       # today is Thursday
     ("lunch with Sam on the 20th at noon", {D(2026, 11, 20)}),
     ("dad's birthday dinner on the 3rd at 7pm", {D(2026, 12, 3)}),         # this month's 3rd has passed
