@@ -12,7 +12,7 @@ read the likelier way and shown; a date or time is never invented.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from typing import Any, Callable, Literal, Optional
 
@@ -32,13 +32,14 @@ from kairo.core.prompt import prompt_template
 from kairo.domains.checks import (
     asks_for_a_repeat,
     dates_the_wording_allows,
+    named_in,
     past_problem,
     range_the_wording_gives,
     repeat_problem,
     say_dates,
     times_the_wording_gives,
 )
-from kairo.domains.registry import DomainSpec, Proposal, Proposed, ToolContext, ToolSpec
+from kairo.domains.registry import Answer, DomainSpec, Proposal, Proposed, ToolContext, ToolSpec
 from kairo.storage.store import ScheduleEntry, _entry_recurrence, expand_series, load_schedule
 from kairo.tools.calendar.service import CalendarService, is_google_calendar_connected
 from kairo.tools.resolvers.schedule import _google_event_ref, resolve_schedule_targets
@@ -283,6 +284,18 @@ class ShowEvents(_Args):
 
 # ── Checks against the message's own wording ──────────────────────────────────
 
+def _for_this_message(ctx: ToolContext, *titles: str) -> ToolContext:
+    """The context to check a proposal against.
+
+    A message that names what it is about is a request of its own. It is not held to the wording
+    of an earlier request, even if a question about that one was still open ("What day is Ben's
+    drums?" answered with "team sync daily 10:15"). An answer that does not name it ("3pm") is.
+    """
+    if ctx.request and titles and all(named_in(title, (ctx.message,)) for title in titles):
+        return replace(ctx, request="")
+    return ctx
+
+
 def _first(ctx: ToolContext, read: Callable[[str], Any]) -> Any:
     """What `read` finds in this message or, if it says nothing on the point, in the request it answers."""
     for text in ctx.wordings():
@@ -314,6 +327,7 @@ def _unknown(event_id: str) -> str:
 
 
 def _check_new_events(args: CreateEvents, ctx: ToolContext) -> Optional[str]:
+    ctx = _for_this_message(ctx, *(event.title for event in args.events))
     # With several events the message's date and time words may each belong to one of them, so only
     # a single event is compared with the wording. A date in the past is refused either way.
     alone = len(args.events) == 1
@@ -355,6 +369,7 @@ def _check_update(args: UpdateEvent, ctx: ToolContext) -> Optional[str]:
         return (f"'{event.title}' repeats, so it has no single day to move; to change one day use "
                 "change_occurrence, and to change its time on every day set new_start only")
     # The message may name two days (the old one and the new one), so the day is not compared with it.
+    ctx = _for_this_message(ctx, event.title)
     return past_problem(args.new_date, ctx.now) or _start_problem(ctx, args.new_start, required=not args.new_date)
 
 
@@ -368,6 +383,7 @@ def _occurrence_problem(event_id: str, day: str, ctx: ToolContext) -> Optional[s
         return _unknown(event_id)
     if not event.repeats:
         return f"'{event.title}' does not repeat; use update_event or remove_event for it"
+    ctx = _for_this_message(ctx, event.title)
     return (past_problem(day, ctx.now) or _date_problem(ctx, day)
             or (None if _happens_on(event, day) else f"'{event.title}' does not happen on {day}"))
 
@@ -440,13 +456,28 @@ def _series_start(event: EventArgs, ctx: ToolContext) -> str:
     return event.date
 
 
+def _same_event(title: str, day: str, start: str, recurrence: Optional[Recurrence], other: Event) -> bool:
+    """Whether a proposed event is one already on the calendar: the same time on the same day or the
+    same repeat, under a title that shares a word with it (a model may retitle what it repeats)."""
+    if other.start != start or not (named_in(title, (other.title,)) or named_in(other.title, (title,))):
+        return False
+    if recurrence is None or other.recurrence is None:
+        return recurrence is None and other.recurrence is None and other.date == day
+    return (other.recurrence.get("freq") == recurrence.freq
+            and set(other.recurrence.get("by_day") or []) == set(recurrence.by_day))
+
+
 def _propose_new_events(args: CreateEvents, ctx: ToolContext) -> Proposal:
+    ctx = _for_this_message(ctx, *(event.title for event in args.events))
     existing = load_events(ctx)
-    entries, notes = [], []
+    entries, notes, already = [], [], []
     for event in args.events:
         title = event.title.strip() or "Scheduled block"
         end = event.end or _smart_end_time(event.start, title)
         starts = _series_start(event, ctx) if event.recurrence else event.date
+        if any(_same_event(title, starts, event.start, event.recurrence, other) for other in existing):
+            already.append(title)       # there already; often carried over by the model from an earlier message
+            continue
         entries.append({"title": title, "date": starts, "start": event.start, "end": end,
                         "recurrence": event.recurrence.model_dump() if event.recurrence else None})
         day = date.fromisoformat(starts)
@@ -454,6 +485,8 @@ def _propose_new_events(args: CreateEvents, ctx: ToolContext) -> Proposal:
             if _overlaps(event.start, end, other):
                 notes.append(f"Note: {title} overlaps with {other.title} ({_hours(other.start, other.end)}) "
                              f"on {_day(day)}.")
+    if not entries:
+        return Answer("That's already on your calendar: " + ", ".join(already) + ".")
     summary = f"Add {len(entries)} schedule events" if len(entries) > 1 else f"Add schedule event: {entries[0]['title']}"
     return Proposed([action_from_command("schedule_add", ScheduleAddCommand(entries=entries), summary=summary)],
                     notes=tuple(notes))
@@ -590,6 +623,8 @@ Dates and times:
   pick the likelier reading; the user is shown the time and can correct it.
 - "Friday morning" with no hour is a time held in the morning: pick 09:00 to 12:00.
 - Only set an end time or a repeat when the user asked for one.
+- Something that repeats needs no start date. Never ask when it starts: give today's date, and its
+  first day is worked out for you.
 $open_question""")
 
 
