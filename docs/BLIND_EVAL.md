@@ -472,6 +472,84 @@ recorded runs of the 117-turn set, 2026-11-13, `gpt-4o-mini`:
 
 Reports: `artifacts/blind/graph-20261113T123719Z.json` and `…T124444Z.json`.
 
+### After the calendar agent looks before it asks
+
+Given a day but no time, the calendar agent now reads the day's free time
+(`find_free_time`) and suggests one (`suggest_event`), which waits for the
+user's approval. The runner counts what each turn hands back to the user: a
+new question, or an approval to give. One turn's expectation changed with the
+behaviour: "schedule a dentist appointment on saturday" is right if a Saturday
+time is suggested for approval, or if a question is asked. Two recorded runs,
+2026-11-13, `gpt-4o-mini`:
+
+| Whole set, 117 turns | Before (voice pass, run 2) | Run 1 | Run 2 |
+|---|---|---|---|
+| Right, of scoreable turns | 96% (100 of 104) | 96% (102 of 106) | 98% (104 of 106) |
+| Wrong but reported done | 1 | 1 | 0 |
+| Trapped turns | 0 | 0 | 0 |
+| Replies that end in a question | 9 | 4 | 4 |
+| Approvals asked for | 16 | 20 | 19 |
+| Model calls per turn | 2.38 | 2.40 | 2.38 |
+| Reply time, median / 95th | 2.6 s / 6.3 s | 2.3 s / 5.5 s | 2.1 s / 4.2 s |
+| Bar | pass | **pass** | **pass** |
+
+- **Questions went from 9 to 4, but only one of the five is this change.** The
+  dentist turn is the only one in the set that names a day and no time. The
+  other four differ because of what the models decided on earlier turns, which
+  varies between runs. The set needs more turns of this kind before the count
+  means much.
+- **The suggestion uses what is remembered.** The nurse had said "i sleep until
+  2pm after night shifts". The first version suggested 7:30 AM, straight after
+  a night shift. Listing the usual hours first moved it to 9 AM. Making the
+  agent write what limits the time before it gives a start moved it to 2 PM,
+  in three runs of three.
+- **Run 1 found a regression, fixed before run 2.** "block friday morning for
+  the Acme logo work" was suggested for approval instead of stored as 9 to 12.
+  A part of the day with no length is now refused as a suggestion.
+- **An update that changes nothing is sent back.** "add shift tomorrow 7pm to
+  7:30am", with that shift already there, had been turned into an approval to
+  move it to the time it already had.
+- **The memory fault is still there.** Run 1's one false claim is the
+  background profile tidy-up rewording "Maya's mum" to "User's mum" again.
+
+Reports: `artifacts/blind/graph-20261113T175000Z.json` and `…T175538Z.json`.
+
+### After batch approvals
+
+Several removals are now proposed in one call (`remove_todos`, `remove_events`)
+and asked for in one approval that lists each. Two expectations changed with
+the behaviour: "Delete all my todos" and the "reject" after it accept a `batch`
+approval as well as a single one. Two recorded runs, 2026-11-13, `gpt-4o-mini`:
+
+| Whole set, 117 turns | Run 1 | Run 2 |
+|---|---|---|
+| Right, of scoreable turns | 96% (101 of 105) | 97% (102 of 105) |
+| Wrong but reported done | 2 (1 wrong save, 1 false claim) | 0 |
+| Trapped turns | 0 | 0 |
+| Questions put to the user | 3 | 3 |
+| Approvals asked for | 18 | 20 |
+| Model calls per turn | 2.39 | 2.42 |
+| Reply time, median / 95th | 2.1 s / 5.6 s | 2.0 s / 4.4 s |
+| Bar | pass, at the limit | **pass** |
+
+- **Run 1's wrong save came from the previous step.** Told not to ask for a
+  time, the agent stored "pharmacy pickup tmrw" at 9 AM through `create_events`.
+  The gate now refuses a time in `create_events` when the message has no digit
+  and no word that places it in the day. In run 2 the same turn became a
+  suggestion waiting for approval, which the set counts as a miss: it expects a
+  task or a question there.
+- **Run 1's false claim was the profile tidy-up again**, this time turning a
+  fact stored in Chinese into English. Its prompt asked for facts to be merged
+  and put in the third person; it now says to copy every kept fact exactly. No
+  rewritten fact in run 2. One run is not proof it is gone.
+- **Found while trying scenarios:** "can i fit a 90 min workshop on thursday
+  afternoon?" was answered with an event to approve. A question is now refused
+  as a suggestion and answered from the free-time lookup instead.
+- **The set has one bulk request,** and at that point its list holds one task,
+  so the batch path is covered by the scripted tests, not by these runs.
+
+Reports: `artifacts/blind/graph-20261113T181829Z.json` and the run after it.
+
 ## The scores ledger
 
 A prompt's version says that it changed, not whether it got better. The ledger,

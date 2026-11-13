@@ -153,7 +153,7 @@ def test_a_proposal_can_carry_notes_and_a_verdict_can_name_where_a_request_belon
 
 
 def test_the_app_catalog_has_tasks_inline_the_calendar_as_an_agent_and_the_assistant_as_the_catch_all():
-    assert {tool.name for tool in DOMAINS.domain("tasks").tools} == {"add_todos", "complete_todo", "remove_todo", "list_todos"}
+    assert {tool.name for tool in DOMAINS.domain("tasks").tools} == {"add_todos", "complete_todo", "remove_todos", "list_todos"}
     assert "schedule" in [domain.name for domain in DOMAINS.agent_domains()]
     assert DOMAINS.fallback().name == "assistant"
     assert DOMAINS.fallback().mode == "agent" and DOMAINS.hand_off_domains()[-1].name == "assistant"

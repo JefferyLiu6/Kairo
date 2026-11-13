@@ -27,6 +27,8 @@ export function ApprovalCard({ id, summary, risk, onAction, disabled }: Props) {
   };
 
   const riskLabel = risk.charAt(0).toUpperCase() + risk.slice(1);
+  const [heading, ...rest] = summary.split("\n").map((line) => line.trim()).filter(Boolean);
+  const items = rest.map((line) => line.replace(/^-\s*/, ""));
 
   return (
     <div className={`approval-card approval-risk-${risk}`}>
@@ -37,7 +39,15 @@ export function ApprovalCard({ id, summary, risk, onAction, disabled }: Props) {
         </span>
       </div>
 
-      <p className="approval-summary">{summary}</p>
+      {/* A batch's summary is a heading line and one "- " line for each change. */}
+      <p className="approval-summary">{heading}</p>
+      {items.length > 0 && (
+        <ul className="approval-items">
+          {items.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ul>
+      )}
 
       {chosen ? (
         <div className={`approval-result approval-result-${chosen}`} role="status">
@@ -51,7 +61,7 @@ export function ApprovalCard({ id, summary, risk, onAction, disabled }: Props) {
             onClick={() => handle("approve")}
             disabled={disabled}
           >
-            ✓ Approve
+            ✓ {items.length > 1 ? "Approve all" : "Approve"}
           </button>
           <button
             type="button"
@@ -59,7 +69,7 @@ export function ApprovalCard({ id, summary, risk, onAction, disabled }: Props) {
             onClick={() => handle("reject")}
             disabled={disabled}
           >
-            ✗ Reject
+            ✗ {items.length > 1 ? "Reject all" : "Reject"}
           </button>
         </div>
       )}

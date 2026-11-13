@@ -128,7 +128,7 @@ def test_several_matching_tasks_become_one_question_that_is_asked_once(chat):
 
 def test_removing_a_task_waits_for_approval_and_approving_needs_no_model(chat):
     seed(chat, "rotate API keys")
-    chat.model.append(call("remove_todo", query="rotate"))
+    chat.model.append(call("remove_todos", queries=["rotate"]))
 
     prompt = chat("delete the rotate api keys todo")
 
@@ -191,7 +191,7 @@ def test_the_model_is_given_the_calendar_the_tools_and_the_conversation_so_far(c
     assert "tasks: The to-do list" in first["system"] and "habits: Habits the user tracks" in first["system"]
     assert "No habits are tracked yet." in first["system"]
     assert "The to-do list is empty." in first["system"] and "- buy milk" in second["system"]
-    assert first["tools"] == ["add_todos", "complete_todo", "remove_todo", "list_todos",
+    assert first["tools"] == ["add_todos", "complete_todo", "remove_todos", "list_todos",
                               "add_habit", "log_habit", "remove_habit", "show_habits",
                               "write_journal", "show_journal", "hand_off", "ask_user"]
     assert first["turns"] == [("user", "add todo buy milk")]

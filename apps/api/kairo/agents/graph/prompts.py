@@ -41,8 +41,8 @@ How to sound:
 Examples
 draft: Added task: buy milk — due Fri 13 Nov, 5 PM.
 reply: Done, I've added buy milk to your tasks, due Friday, November 13 at 5 PM.
-draft: Tasks are removed one at a time. Which task would you like to start with?
-reply: I can only remove tasks one at a time. Which one would you like to start with?
+draft: I found several tasks that match 'report' — which one do you mean?
+reply: A few tasks match 'report'. Which one do you mean?
 
 Reply with the reworded text only.""")
 
