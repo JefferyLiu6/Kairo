@@ -1,6 +1,6 @@
 """The package layout's one rule: imports point down.
 
-    api  ->  agents  ->  tools  ->  storage / core  ->  utils
+    api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 
 A module may import from its own layer or any layer below it, never above.
 Nothing in `kairo` imports the eval tools in `evals/`.
@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 KAIRO = Path(__file__).resolve().parents[1] / "kairo"
-LAYER_RANK = {"api": 4, "agents": 3, "tools": 2, "storage": 1, "core": 1, "utils": 0}
+LAYER_RANK = {"api": 5, "agents": 4, "domains": 3, "tools": 2, "storage": 1, "core": 1, "utils": 0}
 
 
 def _imports(path: Path) -> list[str]:

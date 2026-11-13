@@ -18,6 +18,8 @@ from typing import Any, Callable, Iterator, Optional, Protocol
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.tracers.context import register_configure_hook
 
+from evals import prompt_versions
+from evals.blind.ledger import prompt_set
 from evals.blind.snapshot import Snapshot, read_snapshot
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.llm_env import load_default_llm_from_env
@@ -100,6 +102,7 @@ class _KairoSession:
         self.data_dir = data_dir
         self.vault_dir = os.path.dirname(pm_db_path(self.user_id, data_dir)) if vault_in_user_dir else None
         self.reply_to: Callable[[str], str]
+        self.config: Any = None   # the path's own config, for a path that builds on another
 
     def send(self, message: str) -> Sent:
         with count_model_calls() as usage:
@@ -118,7 +121,8 @@ class PMWorkflowPath:
     name = "pm"
 
     def describe(self) -> dict[str, Any]:
-        return {"model": None, "note": "typed workflow only; model credentials are hidden from it"}
+        return {"model": None, "prompt_set": None, "prompts": {},
+                "note": "typed workflow only; model credentials are hidden from it"}
 
     def open(self, scenario_id: str, data_dir: str) -> Session:
         from kairo.agents.personal_manager.agent import PMConfig, run_pm
@@ -142,8 +146,10 @@ class OrchestratorPath:
 
     def describe(self) -> dict[str, Any]:
         env = load_default_llm_from_env()
+        prompts = prompt_versions.current()
         return {"provider": env.get("provider"), "model": env.get("model"),
                 "pm_model": os.environ.get("PM_MODEL", env.get("model")),
+                "prompt_set": prompt_set(prompts), "prompts": prompts,
                 "note": "mirrors kairo/api/app.py orchestrator_stream, including no memory vault"}
 
     def open(self, scenario_id: str, data_dir: str) -> Session:
@@ -160,11 +166,33 @@ class OrchestratorPath:
             pm_provider=env["provider"], pm_model=os.environ.get("PM_MODEL", env["model"]),
             pm_api_key=env.get("api_key"), pm_base_url=env.get("base_url"),
         )
+        session.config = config
         session.reply_to = lambda message: run_orchestrator(message, config)
+        return session
+
+
+class GraphPath(OrchestratorPath):
+    """The 2.0 agent graph, configured like web chat. What it has not taken over goes to the orchestrator."""
+
+    name = "graph"
+
+    def describe(self) -> dict[str, Any]:
+        from kairo.agents.graph.nodes import bundle_version
+
+        return {**super().describe(), "bundle": bundle_version(),
+                "note": "KAIRO_AGENT=graph: tasks on the graph, everything else handed to the orchestrator"}
+
+    def open(self, scenario_id: str, data_dir: str) -> Session:
+        from kairo.agents.graph import run_graph
+
+        session = super().open(scenario_id, data_dir)
+        config = session.config
+        session.reply_to = lambda message: run_graph(message, config)
         return session
 
 
 PATHS: dict[str, Callable[[], Path]] = {
     PMWorkflowPath.name: PMWorkflowPath,
     OrchestratorPath.name: OrchestratorPath,
+    GraphPath.name: GraphPath,
 }

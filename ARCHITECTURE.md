@@ -22,13 +22,14 @@ Primary source files:
 The backend package is split into layers, and imports only point down:
 
 ```text
-api  ->  agents  ->  tools  ->  storage / core  ->  utils
+api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 ```
 
 | Layer | Holds | Examples |
 | --- | --- | --- |
 | `kairo/api/` | HTTP only: FastAPI app, auth, rate limits | `app.py`, `auth.py` |
-| `kairo/agents/` | Anything that decides what to do with a message | `orchestrator/`, `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
+| `kairo/agents/` | Anything that decides what to do with a message | `graph/` (2.0 agent graph), `orchestrator/`, `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
+| `kairo/domains/` | What Kairo can do, declared as typed tools grouped by area | `registry.py`, `tasks.py`, `checks.py`, `catalog.py` |
 | `kairo/tools/` | Actions the agents can take | `executors/`, `calendar/`, `resolvers/`, `memory/`, `web_search.py` |
 | `kairo/storage/` | All SQLite and file persistence | `control_store.py`, `working_memory.py`, `store.py` |
 | `kairo/core/` | Shared foundations, no HTTP and no SQL | `llm.py` (contract gateway), `domain/`, `observability/` |
@@ -118,6 +119,10 @@ are read before and after, the difference is checked against the command, and a
 | `failed` | The executor refused or errored | Its own explanation, or "nothing was saved" for an internal error |
 | `unverified` | Success reported, nothing changed locally (already done, or written to Google Calendar) | Not used; the turn goes to the judge as before |
 
+The decision log row for each orchestrator turn records what produced it in a
+`versions` field: the prompts sent (name and version), the models, and the
+receipt statuses.
+
 An approved change is read back the same way; the sentence is kept with the
 approval so sending the approval again returns the same reply. A receipt shows
 what is stored, including the weekday, date and times, so a request the
@@ -137,6 +142,66 @@ Important boundaries:
   confirmed asks the user to retry or check the target data directly.
 - Orchestrator memory is in-process and resets on backend restart. Durable PM
   state remains in Kairo's stores below.
+
+## Agent Graph (Kairo 2.0, behind `KAIRO_AGENT=graph`)
+
+With `KAIRO_AGENT=graph`, `/orchestrator/stream` runs
+[`kairo/agents/graph`](apps/api/kairo/agents/graph) instead of the
+orchestrator. Without it, nothing below is used. The graph takes domains over
+one at a time: tasks so far. Everything else is handed, whole, to the
+orchestrator described above.
+
+```mermaid
+flowchart TD
+    A["User message"] --> ING["ingest<br/>injection check, open question,<br/>recent turns"]
+    ING -->|"approve / reject"| APP["approval<br/>no model"]
+    ING --> CO["coordinate<br/>one model call, one tool call"]
+    CO -->|"a tasks tool"| G["gate<br/>schema, date checks"]
+    CO -->|"hand_off, or nothing usable"| OLD["assistant<br/>the orchestrator answers and logs the turn"]
+    CO -->|"ask_user"| R
+    G -->|"rejected, first time"| CO
+    G -->|"proposed commands"| ACT["act<br/>approval policy, executors,<br/>read-back"]
+    G -->|"a read, an answer, or a question"| R["respond<br/>reply from receipts"]
+    APP --> R
+    ACT --> R
+    R --> P["persist<br/>turn memory, decision log with versions"]
+```
+
+How it differs from the orchestrated turn:
+
+- **The model proposes; code decides.** `coordinate` is the only node that
+  calls a model. It picks one tool and fills in typed arguments. It has no tool
+  that writes.
+- **One parse.** The arguments are the command. Nothing re-reads text
+  afterwards, so there is no trigger phrase and no regex extraction on this
+  path.
+- **The gate can send a proposal back.** A due date that contradicts the
+  message's own date word ("by friday" proposed as next week's Friday), a date
+  in the past, or arguments that break the schema go back to the model once
+  with the reason. If the second attempt fails too, nothing is stored and the
+  user is asked.
+- **Same execution path as before.** `act` uses `submit_action`
+  (`application/approval_flow.py`), the function the typed workflow now uses
+  too: approval policy, approval queue, executors, audit events, receipts.
+- **A domain says when a request is not its own.** A check can answer "this
+  belongs elsewhere" (a repeating reminder is not a task), and a lookup that
+  finds nothing in the domain's own store hands the turn on, because the thing
+  may be a calendar event or a habit.
+- **One model call per turn** for a tasks request; none for approve or reject.
+- **A question is asked once.** A question the graph asks is kept until the
+  user's next message, shown to the coordinator then, and taken off the table.
+  It cannot capture later messages.
+
+Tools come from a registry (`kairo/domains`). A domain declares its tools as
+`ToolSpec`s: a name, strict typed arguments whose docstring is the description
+shown to the model, an optional `check`, and either `propose` (arguments to
+typed commands) or `read`. `Registry.register` refuses a domain with a missing
+part. A domain runs `inline` (its tools go to the coordinator) or as an `agent`
+(the coordinator hands off); the orchestrator is registered as the `assistant`
+agent domain for everything not yet moved.
+
+The coordinator's prompt and every tool definition it is shown are hashed into
+one bundle version, recorded with each turn in the decision log.
 
 ## PM Turn Flow
 

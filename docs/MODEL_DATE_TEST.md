@@ -13,8 +13,13 @@ isolation, before anything is built on it.
 
 ## Answer
 
-**Yes, on the right model and with four things in the contract. Not on the
-model the repo uses today.**
+**Yes, on `gpt-4o-mini`, with five things in the contract and one policy
+choice.** The first round (below) found it only held on `gpt-5.4-mini`. That
+model was judged too expensive, so a follow-up on 2026-11-13 added a date check
+in code and a pick-and-show rule for bare hours; with those, `gpt-4o-mini` had
+no wrong answers in 282. See [the follow-up](#follow-up-staying-on-gpt-4o-mini).
+
+### First round
 
 | Model, single-call arm | Right | Safe miss | Wrong | Decision |
 |---|---|---|---|---|
@@ -92,6 +97,9 @@ wrong: "fri" or "by friday" on a Thursday became next week's Friday, and "the
 
 ## Decision and what it changes
 
+Superseded in part by the follow-up below: items 1 and 4 were settled on
+2026-11-13 in favour of `gpt-4o-mini` with a date check, and pick-and-show.
+
 1. **Use `gpt-5.4-mini`, or a model that passes this test, for filling tool
    arguments.** `gpt-4o-mini` fails at 9% wrong. I do not know current prices
    for `gpt-5.4-mini`; a call here uses about 1,000 input and 50 output tokens,
@@ -107,6 +115,58 @@ wrong: "fri" or "by friday" on a Thursday became next week's Friday, and "the
 4. **A decision for Jeffery:** on a bare hour, should Kairo ask, or pick the
    likelier reading and show it in the receipt? Asking only works on
    `gpt-5.4-mini`. Picking-and-showing works on every model but stores a guess.
+
+## Follow-up: staying on gpt-4o-mini
+
+`gpt-5.4-mini` was judged too expensive. The cheaper models' wrong answers were
+only two kinds, bare-hour guesses and wrong dates, and both can be handled
+without a better model:
+
+- **Pick-and-show for a bare hour.** "Meeting tomorrow at 7" has no right
+  answer. The model picks the likelier reading and the receipt states the time
+  in full, so a wrong pick is visible and one message from fixed. The five
+  bare-hour cases now accept either hour or a question, and the prompt says to
+  pick. This is a product decision made on 2026-11-13, not a test fix.
+- **A date check in code** (`date_contradiction` in
+  `apps/api/evals/datefill/tools.py`). It reads one English date word in the
+  message ("tomorrow", "friday", "the 3rd", "nov 24", "12/1") and rejects a
+  proposal whose date disagrees. It does not parse the request; a message it
+  cannot read is not checked. A rejected proposal is a safe miss.
+
+Fresh runs, single-call arm, 282 answers each:
+
+| Model | Right | Safe miss | Wrong | Decision |
+|---|---|---|---|---|
+| `gpt-4o-mini` | 94.7% | 5.3% | 0.0% | **go** |
+| `gpt-4.1-mini` | 94.7% | 2.5% | 2.8% | mitigate |
+| `gpt-5.4-nano` | 88.3% | 9.6% | 2.1% | mitigate |
+
+On `gpt-4o-mini` the date check stopped 11 answers ("fri" and "by friday"
+proposed as next week's Friday, "the day after tomorrow" off by two days, a
+"tonight" task with no date) and the earlier checks stopped 4. It rejected no
+correct answer. In the plain `date_only` arm it stopped 65, which shows the
+check carries weight on its own.
+
+What this does and does not establish:
+
+- **The check was written after seeing the first round's errors.** The fresh
+  run confirms it on new answers to the same messages, not on new messages.
+- **One run of 282 cannot separate 0% from about 1%.**
+- **English only.** A date word in another language is not checked.
+- **A date word used loosely can cause a false rejection** ("after tomorrow's
+  call" on a task with no deadline). That costs a question, never a wrong save.
+- **The 5% of safe misses still need handling.** The design sends a rejected
+  proposal back to the model once with the reason before asking the user. That
+  retry is not built or measured yet; it belongs to step 5.
+- **The other two small models got worse or stayed above the bar** with the
+  same contract, so the result is specific to `gpt-4o-mini`.
+
+Decision: build step 5 on `gpt-4o-mini`, with the date check in the gate and
+pick-and-show for bare hours. `gpt-5.4-mini` remains an option as an escalation
+for rejected proposals only.
+
+Reports: `gpt-4o-mini-20261113T014053Z`, `gpt-4.1-mini-20261113T014153Z`,
+`gpt-5.4-nano-20261113T014125Z`.
 
 ## How the test changed while running
 

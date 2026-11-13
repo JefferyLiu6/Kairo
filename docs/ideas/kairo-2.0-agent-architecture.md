@@ -1,6 +1,6 @@
 # Kairo 2.0 — Agent Architecture (proposal)
 
-**Date:** 2026-11-12 · **Status:** Proposal for review. No code has been changed.
+**Date:** 2026-11-12 · **Status:** Steps 1 to 5 of the build order (section 11) are done; the graph runs behind `KAIRO_AGENT=graph`.
 **Context:** [idea-refine working doc](kairo-2.0-idea-refine.md), decision 9 ·
 **Replaces, once built:** the orchestrator and PM sections of [`ARCHITECTURE.md`](../../ARCHITECTURE.md)
 
@@ -464,7 +464,7 @@ widens the first one.
 |---|---|---|
 | **The prompt is no longer the whole instruction.** With tool calling, the model also reads every tool's name, description and argument schema, and the coordinator reads the domain summaries | Renaming a tool argument or rewording a description changes behaviour as much as editing the system prompt, and today's hash would not move | Version the **agent bundle**: one hash over the system prompt template, the tool specs the agent sees (name, description, JSON schema), and the domain summaries. One bundle per agent: `coordinator@…`, `schedule@…`, `memory@…` |
 | **Model and settings are not part of the version** | The same text on a different model or temperature is a different system | Record the triple `bundle version · model id · parameters` everywhere a version is recorded |
-| **A hash says a prompt changed, not whether it got better** | The snapshot test is satisfied by running `make prompt-versions`; nothing requires an eval | A **scores ledger**, `evals/prompt_scores.jsonl`: one line per eval run with bundle versions, model, date, and the agreed metrics (right, wrong-but-reported-done, trapped turns, cost and latency). The snapshot test additionally requires a ledger entry for the current versions |
+| **A hash says a prompt changed, not whether it got better** | The snapshot test is satisfied by running `make prompt-versions`; nothing requires an eval | A **scores ledger**, `apps/api/evals/scores.jsonl` (built in step 4): one line per eval run with bundle versions, model, date, and the agreed metrics (right, wrong-but-reported-done, trapped turns, cost and latency). The snapshot test additionally requires a ledger entry for the current versions |
 | **Old versions exist only in git history** | Cannot replay an old prompt against new cases, or roll back without a revert | Prompts live in files, `kairo/prompts/<name>.md`. Accepting a change copies the outgoing text to `kairo/prompts/archive/<name>@<version>.md`. `load_prompt(name, version=…)` can load either |
 | **Versions are only on LangSmith traces** | The local decision trace and the UI cannot show them; without LangSmith there is no link between a bad turn and the prompt that produced it | `persist` writes the bundle versions and model id into `turn_decision_log`, and `emit("llm_usage", …)` carries them, so mismatch and fallback rates can be grouped by version |
 
@@ -577,10 +577,10 @@ and improve the live path before the rewrite is finished.
 | Step | Delivers | Why here | Status |
 |---|---|---|---|
 | 1 | **Blind eval set and state-based scorer.** 85 un-coached messages with expected stored outcomes, runnable against any path | Every later step is judged against it | Done — see [BLIND_EVAL.md](../BLIND_EVAL.md) |
-| 2 | **Model date test.** Can the small model fill `create_event` correctly for the set's date and time phrasings? | The assumption the whole design rests on; a day to check | Done — see [MODEL_DATE_TEST.md](../MODEL_DATE_TEST.md). Holds on `gpt-5.4-mini` (about 1% wrong), fails on `gpt-4o-mini` (9%) |
+| 2 | **Model date test.** Can the small model fill `create_event` correctly for the set's date and time phrasings? | The assumption the whole design rests on; a day to check | Done — see [MODEL_DATE_TEST.md](../MODEL_DATE_TEST.md). Holds on `gpt-4o-mini` once a date check and pick-and-show for bare hours are added (0 wrong of 282 in the follow-up run); without them it is 9% wrong |
 | 3 | **Gate, execute, verify and receipts, wired into the current live path** | Replaces the judge and humanizer for writes now: no false "couldn't confirm", no reply that disagrees with storage, two fewer model calls | Done — `kairo/tools/receipts.py`, [results](../BLIND_EVAL.md#after-step-3-receipts-on-the-web-chat-path). "Couldn't confirm" replies 32 → 1, calls per turn 2.5 → 2.0, median reply 4.9 s → 3.2 s. Wrong saves unchanged, as expected |
-| 4 | **Scores ledger and versions in the decision log** (section 8.3) | From here every prompt or tool change is scored and recorded | |
-| 5 | **Registry, graph state, coordinator, tasks inline** | The simplest end-to-end slice of the new graph | |
+| 4 | **Scores ledger and versions in the decision log** (section 8.3) | From here every prompt or tool change is scored and recorded | Done — ledger at `apps/api/evals/scores.jsonl` ([how to use it](../BLIND_EVAL.md#the-scores-ledger)); each orchestrator decision row has a `versions` field. The bundle hash, prompt archive and pin-or-trial setting from section 8.3 wait for the tool registry |
+| 5 | **Registry, graph state, coordinator, tasks inline** | The simplest end-to-end slice of the new graph | Done — `kairo/domains/` and `kairo/agents/graph/`, behind `KAIRO_AGENT=graph`; the orchestrator is untouched and takes every hand-off; the typed workflow now submits commands through the same `submit_action` the graph uses, with no change in behaviour (252 of 252 on the old suite). On the 20 task turns of the blind set: 19 right, 0 wrong, 1 safe miss, 1.05 model calls and 1.2 s median, against 9 right and 9 wrong on web chat ([results](../BLIND_EVAL.md#after-step-5-tasks-on-the-agent-graph)). Not built yet from this step's scope: the startup check that refuses to boot (the registry refuses an incomplete domain at import instead), the prompt archive and the pin-or-trial setting |
 | 6 | **Schedule agent, with open questions built in** (`expects`, `parked`) | The schedule agent cannot work without asking for a missing time; fixes the pending trap where it occurs | |
 | 7 | **Several requests in one message, in parallel** | An optimisation, not a prerequisite | |
 | 8 | **Memory agent, then habits and journal** | Each is a registry entry; confirms the extension path | |
@@ -605,20 +605,21 @@ Decisions for Jeffery:
 
 1. **Agent or inline per domain at the start.** Proposed: schedule and memory
    as agents, tasks, habits and journal inline.
-2. **Model.** Tested in step 2. `gpt-4o-mini`, the repo's default, gets 9% of
-   date and time answers wrong even with the full contract; `gpt-5.4-mini` gets
-   about 1%. Proposed: `gpt-5.4-mini` for filling tool arguments, after a price
-   check against the $20 cap (about 1,000 input and 50 output tokens per call).
-   The test also made four contract elements requirements, not options: the
-   calendar hint in state, one proposal per request, tool wording that says a
-   task never repeats or holds time, and past-date and repeat-shape checks in
-   the gate. "One proposal per request" means several requests in one message
-   must be split by the coordinator or carried in a list-typed tool, not left
-   to parallel tool calls.
+2. **Model.** Decided 2026-11-13: `gpt-4o-mini`. `gpt-5.4-mini` got about 1%
+   of date and time answers wrong against 9% for `gpt-4o-mini`, but was judged
+   too expensive. With a date check in the gate and pick-and-show for bare
+   hours, `gpt-4o-mini` had no wrong answers in a fresh run of 282
+   ([follow-up](../MODEL_DATE_TEST.md#follow-up-staying-on-gpt-4o-mini)). The
+   test made five contract elements requirements: the calendar hint in state,
+   one proposal per request, tool wording that says a task never repeats or
+   holds time, past-date and repeat-shape checks, and the date check against
+   the message's own date word. "One proposal per request" means several
+   requests in one message must be split by the coordinator or carried in a
+   list-typed tool, not left to parallel tool calls.
 3. **Whether `respond` may use a model.** Proposed: templates for writes and
    approvals, optional model wording for read summaries only.
 4. **Where this lives in the code.** Proposed: a new `kairo/agents/graph/`
    package and `kairo/domains/<name>/`, leaving `orchestrator/` and
    `personal_manager/` untouched until step 5.
-5. **A bare hour.** "Meeting tomorrow at 7": ask, or pick the likelier reading
-   and show it in the receipt? Only `gpt-5.4-mini` reliably asks when told to.
+5. **A bare hour.** Decided 2026-11-13: pick the likelier reading and show it
+   in the receipt. Asking only worked on `gpt-5.4-mini`.

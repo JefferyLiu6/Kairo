@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from kairo.core.prompt import Prompt, prompt
 from kairo.agents.personal_manager.contracts import MemoryCandidateOut, MemoryCandidatesOut
 from kairo.agents.personal_manager.extractors.model import _should_try_model_extraction, call_pm_model
 from kairo.tools.memory.semantic import (
@@ -55,8 +56,7 @@ def _candidate_from_model(item: MemoryCandidateOut, fallback_evidence: str) -> S
     )
 
 
-def _format_memory_interpreter_prompt() -> str:
-    return """You extract stable personal memory candidates from one user message.
+_MEMORY_PROMPT = prompt("memory_interpret", """You extract stable personal memory candidates from one user message.
 
 Return JSON only with this shape:
 {
@@ -85,4 +85,8 @@ Rules:
 - For "used to", "rarely", "trying to do less", or "not interested", do not emit a positive like.
 
 The user's message arrives as JSON: {"message": "..."}
-"""
+""")
+
+
+def _format_memory_interpreter_prompt() -> Prompt:
+    return _MEMORY_PROMPT

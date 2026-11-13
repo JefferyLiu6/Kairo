@@ -210,7 +210,10 @@ def chat_invoker(llm: Any, stage: str) -> Callable[[str, str], str]:
     """`invoke(system, user) -> text` for the contract gateway; the run is named after `stage`."""
     from langchain_core.messages import HumanMessage, SystemMessage
 
+    from kairo.core.prompt import record_prompt
+
     def invoke(system: str, user: str) -> str:
+        record_prompt(system)
         response = llm.invoke(
             [SystemMessage(content=system), HumanMessage(content=user)],
             config={"run_name": stage},

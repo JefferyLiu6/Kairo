@@ -16,7 +16,7 @@ from kairo.core.observability.tracing import traced
 
 logger = logging.getLogger("kairo.telemetry")
 _context: ContextVar[tuple[str, str] | None] = ContextVar("kairo_trace", default=None)
-_FIELDS = {"outcome", "verdict", "source", "retry_count", "input_tokens", "output_tokens"}
+_FIELDS = {"outcome", "verdict", "source", "retry_count", "input_tokens", "output_tokens", "prompt", "model"}
 
 
 def configure_telemetry() -> None:

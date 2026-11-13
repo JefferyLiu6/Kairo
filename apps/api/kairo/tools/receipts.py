@@ -311,7 +311,8 @@ def _event(item: Mapping[str, Any]) -> str:
     return f"{item.get('title') or 'Untitled'} — {when}" if when else str(item.get("title") or "Untitled")
 
 
-def _due(item: Mapping[str, Any]) -> str:
+def due_phrase(item: Mapping[str, Any]) -> str:
+    """'due Fri 13 Nov', 'due Fri 13 Nov, 5 PM' or 'no due date' for a stored task."""
     due = item.get("due")
     if not due:
         return "no due date"
@@ -344,12 +345,12 @@ def _sentence(change: Change) -> str:
         return _schedule_change(before, after)
     if change.store == "todos":
         if change.kind == "added":
-            return f"Added task: {after.get('title')} — {_due(after)}."
+            return f"Added task: {after.get('title')} — {due_phrase(after)}."
         if change.kind == "removed":
             return f"Removed task: {before.get('title')}."
         if after.get("done") and not before.get("done"):
             return f"Checked off: {after.get('title')}."
-        return f"Updated task: {after.get('title')} — {_due(after)}."
+        return f"Updated task: {after.get('title')} — {due_phrase(after)}."
     if change.store == "habits":
         if change.kind == "added":
             return f"Now tracking: {after.get('name')}."

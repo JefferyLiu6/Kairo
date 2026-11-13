@@ -5,9 +5,8 @@ from typing import Any, Optional
 
 from kairo.agents.personal_manager.application import approval_flow as _approval_flow
 from kairo.agents.personal_manager.application import extraction as _extraction
-from kairo.agents.personal_manager.application.approval_flow import _format_approval_prompt
+from kairo.agents.personal_manager.application.approval_flow import submit_action
 from kairo.core.domain.approval_response import has_pending_approval
-from kairo.agents.personal_manager.application.approval_policy import apply_approval_policy
 from kairo.agents.personal_manager.application.clarification import _clear_pending, _find_plan_blocker, _load_pending, _save_pending_confirmation, _save_pending_disambiguation, _save_pending_field_choices, _save_pending_plan
 from kairo.agents.personal_manager.application.contextual_scheduling import apply_context_to_explicit_schedule_plan, build_contextual_schedule_proposal
 from kairo.agents.personal_manager.application.field_completion import build_field_completion_proposal
@@ -24,7 +23,7 @@ from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.domain.types import PMAction, PMExtraction, PMGraphState, PMIntent, PMPlanExtraction, PMTaskExtraction
 from kairo.tools.executors.dispatcher import execute_pm_action
 from kairo.agents.personal_manager.extractors.intent import _looks_like_injection, _safe_for_react_fallback
-from kairo.storage.control_store import create_approval_request, pm_db_path, record_audit_event
+from kairo.storage.control_store import pm_db_path, record_audit_event
 from kairo.storage.decision_log import TurnDecision
 from kairo.storage.recent_context import list_recent_context
 
@@ -688,49 +687,15 @@ def _is_explicit_memory_request(message: str) -> bool:
 def _execute_pm_plan(plan: PMPlanExtraction, config: Any, session_id: str, *, thread_id: str = "") -> str:
     results: list[tuple[str, str]] = []
     single_action_plan = len(plan.tasks) == 1
-    _tid = thread_id or session_id
-    _uid = session_id if thread_id else ""
+    _sync_approval_hooks()  # submit_action runs in approval_flow; keep execute_pm_action patchable from here
     for step_idx, task in enumerate(plan.tasks, start=1):
         entities = {**task.entities, "_confidence": task.confidence}
         actions = plan_pm_actions(task.intent, entities, config)
         for action in actions:
-            guarded = apply_approval_policy(action)
-            summary = guarded.summary or action.summary or guarded.action_type
-            if guarded.requires_approval:
-                approval_payload = {**guarded.payload, "_thread_id": _tid}
-                approval = create_approval_request(
-                    session_id,
-                    config.data_dir,
-                    action_type=guarded.action_type,
-                    payload=approval_payload,
-                    summary=summary,
-                    risk_level=guarded.risk_level,
-                )
-                record_audit_event(
-                    _tid,
-                    config.data_dir,
-                    user_id=_uid,
-                    event_type="approval_created",
-                    intent=task.intent.value,
-                    action_type=guarded.action_type,
-                    payload_summary=summary,
-                    approval_id=approval.id,
-                )
-                results.append((summary, _format_approval_prompt(approval)))
-                continue
-
-            result = execute_pm_action(guarded, config)
-            record_audit_event(
-                _tid,
-                config.data_dir,
-                user_id=_uid,
-                event_type="action_executed" if result["ok"] else "action_failed",
-                intent=task.intent.value,
-                action_type=guarded.action_type,
-                payload_summary=summary or guarded.payload,
-                result_summary=result["message"],
-            )
+            summary, result = submit_action(action, config, session_id, thread_id=thread_id, intent=task.intent.value)
             results.append((summary, result["message"]))
+            if result.get("pending"):
+                continue
             if not result["ok"]:
                 if single_action_plan and len(results) == 1:
                     return result["message"]
