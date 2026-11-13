@@ -74,8 +74,42 @@ def dates_the_wording_allows(say: str, now: datetime) -> Optional[set[date]]:
 _CLOCK = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?!\w)", re.I)
 
 
+_HALF = r"(a\.?m\.?|p\.?m\.?)"
+_RANGE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*" + _HALF + r"?\s*(?:-|–|—|to|until|till)\s*(\d{1,2})(?::(\d{2}))?\s*"
+                    + _HALF + r"(?!\w)", re.I)
+
+
+def _minutes(hour: str, minute: str, afternoon: bool) -> int:
+    return (int(hour) % 12 + (12 if afternoon else 0)) * 60 + int(minute or 0)
+
+
+def _clock(minutes: int) -> str:
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def range_the_wording_gives(say: str) -> Optional[tuple[str, str]]:
+    """The (start, end) of a time range the message states, as HH:MM: "2-3pm", "7pm to 7:30am".
+
+    A start with no am or pm takes the half of the day that puts it before the end ("11-1pm"
+    starts at 11:00). None if the message states no range.
+    """
+    for hour, minute, half, end_hour, end_minute, end_half in _RANGE.findall(say):
+        if not 1 <= int(hour) <= 12 or not 1 <= int(end_hour) <= 12:
+            continue
+        afternoon = end_half.lower().startswith("p")
+        end = _minutes(end_hour, end_minute, afternoon)
+        if half:
+            start = _minutes(hour, minute, half.lower().startswith("p"))
+        else:
+            start = _minutes(hour, minute, afternoon)
+            if start > end:
+                start = _minutes(hour, minute, not afternoon)
+        return _clock(start), _clock(end)
+    return None
+
+
 def times_the_wording_gives(say: str) -> set[str]:
-    """Clock times the message states outright, as HH:MM: "4pm", "11:30 am", "noon", "midnight".
+    """Clock times the message states outright, as HH:MM: "4pm", "11:30 am", "2-3pm", "noon", "midnight".
 
     A bare hour ("at 7") is not included: it does not say which half of the day.
     """
@@ -83,6 +117,9 @@ def times_the_wording_gives(say: str) -> set[str]:
     for hour, minute, half in _CLOCK.findall(say):
         hour = int(hour) % 12 + (12 if half.lower().startswith("p") else 0)
         times.add(f"{hour:02d}:{minute or '00'}")
+    stated = range_the_wording_gives(say)
+    if stated:
+        times.add(stated[0])
     text = say.lower()
     if re.search(r"\bnoon\b", text):
         times.add("12:00")
@@ -111,6 +148,41 @@ def asks_for_a_repeat(say: str) -> bool:
     return bool(_REPEATS.search(say))
 
 
+_DAY_CODES = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+_NAMED_DAYS = re.compile(r"\b(" + "|".join(_WEEKDAY_WORDS) + r")s?\b")
+_EVERY_DAY = re.compile(r"\b(every|each)\s+(day|morning|afternoon|evening|night)\b|\b(daily|nightly)\b")
+
+
+def repeat_problem(say: str, recurrence: Optional[dict]) -> Optional[str]:
+    """Why a proposed repeat ({"freq", "interval", "by_day"}, or None) disagrees with the message, if it does.
+
+    Only what the wording clearly says is checked: that it repeats at all, which weekdays it names,
+    "every day" and "every other". A message with no repeat wording is not checked.
+    """
+    if not asks_for_a_repeat(say):
+        return None
+    if not recurrence:
+        return "the message asks for something that repeats, but no repeat was set"
+    text = say.lower()
+    freq, days = recurrence.get("freq"), set(recurrence.get("by_day") or [])
+    named = {_DAY_CODES[_WEEKDAY_WORDS[word]] for word in _NAMED_DAYS.findall(text)}
+    if re.search(r"\bweekdays?\b", text):
+        named |= set(_DAY_CODES[:5])
+    if named and (freq != "weekly" or days != named):
+        return (f"the repeat is {freq} on {sorted(days) or 'no days'}, but the message names "
+                f"{sorted(named)}; use weekly with exactly those days")
+    if not named and _EVERY_DAY.search(text) and not (freq == "daily" or days == set(_DAY_CODES)):
+        return f"the message asks for every day, but the repeat is {freq} on {sorted(days)}"
+    if re.search(r"\bevery other\b", text) and (recurrence.get("interval") or 1) != 2:
+        return "the message says every other, so the interval must be 2"
+    return None
+
+
+def say_dates(days: set[date]) -> str:
+    """Dates with their weekdays, for telling a model which one was meant: '2026-11-13 (Fri)'."""
+    return " or ".join(f"{day.isoformat()} ({day:%a})" for day in sorted(days))
+
+
 def date_word_problem(say: str, proposed: Optional[str], now: datetime, *, must_have_date: bool = True) -> Optional[str]:
     """Why a proposed date (YYYY-MM-DD, or None) disagrees with the message's own date word, if it does.
 
@@ -120,7 +192,7 @@ def date_word_problem(say: str, proposed: Optional[str], now: datetime, *, must_
     allowed = dates_the_wording_allows(say, now)
     if allowed is None:
         return None
-    wanted = " or ".join(sorted(day.isoformat() for day in allowed))
+    wanted = say_dates(allowed)
     if not proposed:
         return f"no date was set, but the message points to {wanted}" if must_have_date else None
     if date.fromisoformat(proposed[:10]) not in allowed:

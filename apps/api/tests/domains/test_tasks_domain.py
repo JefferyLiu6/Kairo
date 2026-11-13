@@ -35,6 +35,13 @@ def item(title, due_date=None, due_time=None):
     return {"title": title, "due_date": due_date, "due_time": due_time}
 
 
+def test_the_coordinator_is_shown_the_open_tasks_so_it_knows_what_is_on_the_list(tmp_path):
+    tasks = DOMAINS.domain("tasks")
+    assert tasks.context(ctx(tmp_path)) == "The to-do list is empty."
+    seed(tmp_path, "email advisor", "buy cat food", "renew passport", done=("renew passport",))
+    assert tasks.context(ctx(tmp_path)).splitlines() == ["Open tasks on the to-do list:", "- email advisor", "- buy cat food"]
+
+
 # ── add_todos ─────────────────────────────────────────────────────────────────
 
 def test_a_list_becomes_one_command_per_task(tmp_path):

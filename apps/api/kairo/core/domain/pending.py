@@ -97,10 +97,27 @@ class TodoSelectionPending(_Pending):
     candidates: list[dict[str, Any]] = Field(min_length=1)
 
 
+class GraphQuestion(_Pending):
+    """A question the agent graph asked.
+
+    It is offered to the user's next message. If that message is about something else, the
+    question is parked: kept for one more message as a reminder, no longer something the user
+    owes an answer to. After that it is dropped. It can never capture a message.
+    """
+
+    type: Literal["graph_question"] = "graph_question"
+    domain: str               # who asked, and who is handed the answer
+    prompt: str               # what the user was asked
+    request: str = ""         # the message the question was about
+    topic: str = ""           # what it is about, to tell one question from another
+    round: int = 1            # how many questions in a row this request has needed
+    parked: bool = False
+
+
 Pending = Annotated[
     Union[
         FreeformPending, PlanPending, FieldChoicesPending, DisambiguationPending,
-        ConfirmationPending, TodoListPending, TodoSelectionPending,
+        ConfirmationPending, TodoListPending, TodoSelectionPending, GraphQuestion,
     ],
     Field(discriminator="type"),
 ]
@@ -115,6 +132,7 @@ PENDING_MODES: dict[str, tuple[str, str]] = {
     "confirmation": ("awaiting_confirmation", "yes_no_or_correction"),
     "todo_list": ("awaiting_disambiguation", "task_id_title_or_number"),
     "todo_selection": ("awaiting_disambiguation", "task_id_title_or_number"),
+    "graph_question": ("awaiting_freeform", "freeform_answer"),
 }
 
 
@@ -127,5 +145,5 @@ def parse_pending(payload: dict[str, Any]) -> Pending:
 
 
 def is_question(pending: Pending) -> bool:
-    """Whether the user owes an answer; a shown task list is only reference context."""
-    return not isinstance(pending, TodoListPending)
+    """Whether the user owes an answer; a shown task list or a parked question is only context."""
+    return not isinstance(pending, TodoListPending) and not getattr(pending, "parked", False)
