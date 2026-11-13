@@ -13,11 +13,16 @@ from kairo.tools.executors.journal import execute_journal_action
 from kairo.tools.executors.memory import execute_memory_action
 from kairo.tools.executors.schedule import execute_schedule_action
 from kairo.tools.executors.todo import execute_todo_action
+from kairo.tools.receipts import observed
 
 
 def execute_pm_action(action: PMAction, config: Any) -> dict[str, Any]:
+    """Run one typed action. Inside a receipt collector, the stores are read back and checked afterwards."""
     sid = getattr(config, "user_id", "") or normalize_pm_session_id(config.session_id)
-    data_dir = config.data_dir
+    return observed(action, config, sid, lambda: _execute(action, config, sid, config.data_dir))
+
+
+def _execute(action: PMAction, config: Any, sid: str, data_dir: str) -> dict[str, Any]:
     try:
         validate_action_payload(action)
         if action.action_type == "explain":

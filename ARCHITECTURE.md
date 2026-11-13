@@ -85,19 +85,44 @@ flowchart TD
 
     F --> G{"Confidence < 0.70<br/>or direct intent?"}
     G -->|yes| E
-    G -->|no| H["Call PM agent with pm_prompt<br/>astream_pm"]
+    G -->|no| H["Call PM agent with pm_prompt<br/>astream_pm, inside a receipt collector"]
 
-    H --> I["Harness precheck / model judge"]
+    H --> W{"Did a write run,<br/>and was it read back?"}
+    W -->|yes| RB["Reply from the stored records<br/>no judge, no humanizer"]
+    W -->|"workflow answered a write<br/>request without writing"| PT["Workflow's own reply, unchanged"]
+    W -->|"no: a read, an unconfirmed write,<br/>or the chat fallback"| I["Harness precheck / model judge"]
     I -->|pass| J["Humanize PM output"]
     I -->|retry| K["Retry with suggested PM prompt<br/>max 2 retries"]
     K --> H
     I -->|fallback| L["Safe fallback reply<br/>read cache if available"]
 
-    J --> M["Update in-process memory<br/>and log orchestrator turn"]
+    RB --> M["Update in-process memory<br/>and log orchestrator turn"]
+    PT --> M
+    J --> M
     L --> M
     E --> M
     M --> N["SSE token/progress reply"]
 ```
+
+### Receipts
+
+Storage is the evidence for a write. While the PM agent runs, every typed
+action that writes is wrapped by `kairo/tools/receipts.py`: the user's stores
+are read before and after, the difference is checked against the command, and a
+`Receipt` (`kairo/core/domain/receipt.py`) records the result.
+
+| Receipt | Meaning | Reply |
+| --- | --- | --- |
+| `verified` | The stores changed the way the command said | One sentence per stored change, from the stored record |
+| `mismatch` | The stores changed, but not as the command said | The same, plus a note naming what differs |
+| `failed` | The executor refused or errored | Its own explanation, or "nothing was saved" for an internal error |
+| `unverified` | Success reported, nothing changed locally (already done, or written to Google Calendar) | Not used; the turn goes to the judge as before |
+
+An approved change is read back the same way; the sentence is kept with the
+approval so sending the approval again returns the same reply. A receipt shows
+what is stored, including the weekday, date and times, so a request the
+workflow parsed wrongly is visible in the reply. It does not make the parse
+right: the stores are compared with the command, not with what the user meant.
 
 Important boundaries:
 
@@ -106,8 +131,10 @@ Important boundaries:
 - Delegated turns are translated into trigger-phrase-like PM prompts before
   reaching the typed PM workflow.
 - Write turns invalidate the orchestrator PM cache.
-- Harness fallback never fabricates write success; failed writes ask the user to
-  retry or check the target data directly.
+- A write that was read back is never judged or rewritten by a model; the reply
+  is built from the stored records.
+- Harness fallback never fabricates write success; a write that could not be
+  confirmed asks the user to retry or check the target data directly.
 - Orchestrator memory is in-process and resets on backend restart. Durable PM
   state remains in Kairo's stores below.
 
