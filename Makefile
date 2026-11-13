@@ -101,10 +101,14 @@ eval-offline:
 
 # Un-coached messages scored by what ends up stored. `make eval-blind` runs the offline
 # workflow; `make eval-blind path=orchestrator` runs the web-chat path and calls the model.
-.PHONY: eval-blind
+# Add record="why" to append the run to the scores ledger; `make eval-history` prints the ledger.
+.PHONY: eval-blind eval-history
 path ?= pm
 eval-blind:
-	cd $(BACKEND_DIR) && uv run --extra dev python -m evals.blind --path $(path)
+	cd $(BACKEND_DIR) && uv run --extra dev python -m evals.blind --path $(path) $(if $(record),--record "$(record)")
+
+eval-history:
+	cd $(BACKEND_DIR) && uv run --extra dev python -m evals.blind --history
 
 # Can a model fill dates and times into typed tool arguments? Calls the model:
 # `make eval-dates` uses MODEL from the environment, `make eval-dates model=gpt-5.4-mini` another.

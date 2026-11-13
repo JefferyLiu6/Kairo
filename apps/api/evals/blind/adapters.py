@@ -18,6 +18,8 @@ from typing import Any, Callable, Iterator, Optional, Protocol
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.tracers.context import register_configure_hook
 
+from evals import prompt_versions
+from evals.blind.ledger import prompt_set
 from evals.blind.snapshot import Snapshot, read_snapshot
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.llm_env import load_default_llm_from_env
@@ -118,7 +120,8 @@ class PMWorkflowPath:
     name = "pm"
 
     def describe(self) -> dict[str, Any]:
-        return {"model": None, "note": "typed workflow only; model credentials are hidden from it"}
+        return {"model": None, "prompt_set": None, "prompts": {},
+                "note": "typed workflow only; model credentials are hidden from it"}
 
     def open(self, scenario_id: str, data_dir: str) -> Session:
         from kairo.agents.personal_manager.agent import PMConfig, run_pm
@@ -142,8 +145,10 @@ class OrchestratorPath:
 
     def describe(self) -> dict[str, Any]:
         env = load_default_llm_from_env()
+        prompts = prompt_versions.current()
         return {"provider": env.get("provider"), "model": env.get("model"),
                 "pm_model": os.environ.get("PM_MODEL", env.get("model")),
+                "prompt_set": prompt_set(prompts), "prompts": prompts,
                 "note": "mirrors kairo/api/app.py orchestrator_stream, including no memory vault"}
 
     def open(self, scenario_id: str, data_dir: str) -> Session:

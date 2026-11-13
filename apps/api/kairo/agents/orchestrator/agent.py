@@ -5,13 +5,13 @@ import logging
 import time
 import os
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Optional, Sequence
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from kairo.core.llm import ContractError, call_contract, to_payload
 from kairo.core.llm_env import build_llm
-from kairo.core.prompt import record_prompt
+from kairo.core.prompt import collecting_prompts, prompts_used, record_prompt
 from kairo.core.observability.tracing import mark_contract_error, mark_fallback, tag_turn, traced
 from kairo.agents.personal_manager.agent import PMConfig, astream_pm
 from kairo.core.domain.approval_response import has_pending_approval
@@ -26,6 +26,7 @@ from kairo.agents.orchestrator.prompts import HARNESS_SYSTEM as HARNESS_SYSTEM, 
 from kairo.agents.orchestrator.router import is_likely_pm_needed
 from kairo.agents.orchestrator.translator import StructuredAction, build_retry_prompt, is_safe_read_retry, unparsed_action
 from kairo.agents.orchestrator.harness import HarnessVerdict, build_fallback_reply, describe_error, evaluate_harness, enforce_retry_policy, log_fallback
+from kairo.core.domain.receipt import Receipt
 from kairo.tools.receipts import Collected, collecting, read_back_reply
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,10 @@ def _invoke(llm: Any, system: str, user: str) -> str:
     record_prompt(system)
     response = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
     usage = getattr(response, "usage_metadata", None) or {}
-    emit("llm_usage", input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"))
+    # Name the prompt version and model with the token counts, so cost and quality can be grouped by them.
+    named = {key: value for key, value in (("prompt", getattr(system, "id", None)),
+                                           ("model", getattr(llm, "model_name", None))) if isinstance(value, str)}
+    emit("llm_usage", input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"), **named)
     return str(response.content).strip()
 
 
@@ -263,6 +267,7 @@ def _log_turn(
     reply: str,
     started_at: float,
     retry_count: int = 0,
+    receipts: Sequence[Receipt] = (),
 ) -> None:
     emit("turn_result", outcome="fallback" if verdict and verdict.verdict != "pass" else "completed", retry_count=retry_count)
     try:
@@ -287,6 +292,11 @@ def _log_turn(
             retry_count=retry_count,
             reply=reply,
             duration_ms=int((time.monotonic() - started_at) * 1000),
+            versions={
+                "prompts": prompts_used(),
+                "models": {"orchestrator": config.model, "pm": config.pm_model},
+                "receipts": [receipt.status for receipt in receipts],
+            },
         )
     except Exception:
         pass
@@ -327,6 +337,7 @@ async def _astream_orchestrator(
         # to reinterpret that result (including failures and pending choices).
         verb = approval_verb(message)
         action = StructuredAction("approval", None, [], 1.0, message.strip().lower(), True)
+        made = Collected()
         try:
             handler = approve_from_chat if verb == "approve" else reject_from_chat
             with collecting() as made:
@@ -339,7 +350,8 @@ async def _astream_orchestrator(
         wm.invalidate_pm_cache()
         wm.add_turn("user", message)
         wm.add_turn("assistant", reply)
-        _log_turn(config, message, "APPROVAL", "Approval service result", action, None, reply, _turn_start)
+        _log_turn(config, message, "APPROVAL", "Approval service result", action, None, reply, _turn_start,
+                  receipts=made.receipts)
         yield ("token", reply)
         yield ("done", reply)
         return
@@ -518,6 +530,7 @@ async def _astream_orchestrator(
         reply,
         _turn_start,
         retry_count,
+        receipts=made.receipts,
     )
     yield ("token", reply)
     yield ("done", reply)
@@ -531,7 +544,8 @@ async def _traced_turn(message: str, config: OrchestratorConfig):
 
 
 async def astream_orchestrator(message: str, config: OrchestratorConfig):
-    with span("turn"):
+    # The prompt collector lasts the whole turn, so the decision log can say which prompts produced it.
+    with span("turn"), collecting_prompts():
         async for event in _traced_turn(message, config):
             yield event
 

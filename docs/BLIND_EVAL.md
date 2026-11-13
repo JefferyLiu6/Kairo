@@ -179,6 +179,49 @@ What changed and what did not:
 
 Report: `artifacts/blind/orchestrator-20261112T235639Z.json`.
 
+## The scores ledger
+
+A prompt's version says that it changed, not whether it got better. The ledger,
+`apps/api/evals/scores.jsonl`, ties each recorded run to the prompt versions,
+model, eval set and commit that produced it. It is committed with the code and
+only ever appended to.
+
+```bash
+make eval-blind path=orchestrator record="what changed and why"   # run and record
+make eval-history                                                  # print the ledger
+```
+
+- **A note is required**, so the history reads as a list of reasons.
+- **Only whole-set runs can be recorded.** A run of selected scenarios cannot
+  be compared with the others.
+- **The prompt set** is one short hash over every prompt's version. Two runs
+  with the same prompt set, model and eval set differ only by code and chance.
+- **A prompt edit is not finished until it is scored.**
+  `tests/evals/test_blind_ledger.py` fails when the current prompt set has no
+  recorded web-chat run, and says which command to run.
+
+The three runs from 2026-11-12 were added from their saved reports. A fourth,
+recorded after a change that did not alter behaviour, shows how far two runs of
+the same system differ:
+
+| Same system, two runs | Run A | Run B |
+|---|---|---|
+| Right, of scoreable turns | 39% | 38% |
+| Holdout right | 33% | 26% |
+| Wrong but reported done | 16% | 16% |
+| Trapped turns | 3 | 5 |
+| Model calls per turn | 2.04 | 2.15 |
+| Reply time, median | 3.2 s | 3.6 s |
+
+Read a difference of that size as noise. The holdout split is three personas,
+so it swings the most.
+
+Each web-chat turn also records what produced it. The decision log row for an
+orchestrator turn has a `versions` field with the prompts sent (name and
+version), the models, and the receipt statuses, and the `llm_usage` telemetry
+event names the prompt and model of each call. Fallback and mismatch rates in
+real use can therefore be grouped by prompt version or model.
+
 ## Writing expectations
 
 Each turn has what the user says and an `expect`: one expectation, or a list of

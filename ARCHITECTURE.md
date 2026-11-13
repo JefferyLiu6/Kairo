@@ -118,6 +118,10 @@ are read before and after, the difference is checked against the command, and a
 | `failed` | The executor refused or errored | Its own explanation, or "nothing was saved" for an internal error |
 | `unverified` | Success reported, nothing changed locally (already done, or written to Google Calendar) | Not used; the turn goes to the judge as before |
 
+The decision log row for each orchestrator turn records what produced it in a
+`versions` field: the prompts sent (name and version), the models, and the
+receipt statuses.
+
 An approved change is read back the same way; the sentence is kept with the
 approval so sending the approval again returns the same reply. A receipt shows
 what is stored, including the weekday, date and times, so a request the

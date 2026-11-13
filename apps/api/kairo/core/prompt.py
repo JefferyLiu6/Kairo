@@ -17,8 +17,10 @@ appears as a one-line diff in review.
 from __future__ import annotations
 
 import hashlib
+from contextlib import contextmanager
+from contextvars import ContextVar
 from string import Template
-from typing import Any
+from typing import Any, Iterator, Optional
 
 from kairo.core.observability.tracing import tag_prompt
 
@@ -91,7 +93,29 @@ def prompt_versions() -> dict[str, str]:
     return {name: item.version for name, item in sorted(_REGISTRY.items())}
 
 
+_used: ContextVar[Optional[dict[str, str]]] = ContextVar("kairo_prompts_used", default=None)
+
+
+@contextmanager
+def collecting_prompts() -> Iterator[dict[str, str]]:
+    """Note every versioned prompt sent inside the block, as name -> version."""
+    used: dict[str, str] = {}
+    token = _used.set(used)
+    try:
+        yield used
+    finally:
+        _used.reset(token)
+
+
+def prompts_used() -> dict[str, str]:
+    """The prompts sent so far in the current collector; empty outside one."""
+    return dict(_used.get() or {})
+
+
 def record_prompt(text: Any) -> None:
-    """Attach the prompt's version to the current trace, if `text` is a versioned prompt."""
+    """Attach the prompt's version to the current trace and turn, if `text` is a versioned prompt."""
     if isinstance(text, Prompt):
         tag_prompt(text.name, text.version)
+        used = _used.get()
+        if used is not None:
+            used[text.name] = text.version
