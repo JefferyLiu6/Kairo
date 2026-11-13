@@ -105,7 +105,7 @@ def test_something_the_task_list_does_not_have_is_sent_back_because_it_may_live_
     reply = chat("I did my morning run")
 
     assert reply == "(old assistant) I did my morning run" and len(chat.asked) == 2
-    assert "morning run" in chat.asked[1]["turns"][-1][1] and "hand it off" in chat.asked[1]["turns"][-1][1]
+    assert "morning run" in chat.asked[1]["turns"][-1][1] and "a habit, a calendar event" in chat.asked[1]["turns"][-1][1]
     assert todos(chat) == [("buy cat food", None, False)] and chat.question() is None
 
 
@@ -187,9 +187,14 @@ def test_the_model_is_given_the_calendar_the_tools_and_the_conversation_so_far(c
 
     first, second = chat.asked
     assert "Thursday 2026-11-12 10:00" in first["system"] and "Fri 2026-11-13 (tomorrow)" in first["system"]
-    assert "- schedule: The calendar" in first["system"] and "- assistant: Habits" in first["system"]
+    assert "- schedule: The calendar" in first["system"] and "- assistant: Web search" in first["system"]
+    assert "- memory: What Kairo remembers" in first["system"]
+    assert "tasks: The to-do list" in first["system"] and "habits: Habits the user tracks" in first["system"]
+    assert "No habits are tracked yet." in first["system"]
     assert "The to-do list is empty." in first["system"] and "- buy milk" in second["system"]
-    assert first["tools"] == ["add_todos", "complete_todo", "remove_todo", "list_todos", "hand_off", "ask_user"]
+    assert first["tools"] == ["add_todos", "complete_todo", "remove_todo", "list_todos",
+                              "add_habit", "log_habit", "remove_habit", "show_habits",
+                              "write_journal", "show_journal", "hand_off", "ask_user"]
     assert first["turns"] == [("user", "add todo buy milk")]
     assert second["turns"] == [("user", "add todo buy milk"), ("assistant", "Added task: buy milk — no due date."),
                                ("user", "what's on my list")]
@@ -222,7 +227,9 @@ def test_a_graph_turn_is_logged_with_the_bundle_that_produced_it(chat):
     versions = row["versions"]
     assert versions["receipts"] == ["verified"] and versions["models"]["orchestrator"] == "small-model"
     assert len(versions["bundles"]["coordinator"]) == 8
-    assert versions["prompts"] == {}    # the scripted model bypasses the real call that records the prompt
+    # Each area's guidance is a versioned prompt of its own. (The scripted model bypasses the real
+    # call that records the coordinator's own prompt.)
+    assert set(versions["prompts"]) == {"tasks_guidance", "habits_guidance", "journal_guidance"}
     assert COORDINATOR.version          # the coordinator prompt is a versioned prompt
 
 

@@ -8,6 +8,7 @@ Tables:
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 import uuid
 from datetime import date, timedelta
@@ -139,3 +140,17 @@ def habit_list(db_path: str) -> str:
 
 def format_habits_for_context(db_path: str) -> str:
     return habit_list(db_path)
+
+
+def habit_rows(db_path: str) -> list[dict]:
+    """Every habit, oldest first: {"id", "name", "checkins" (dates, oldest first), "streak"}."""
+    if not os.path.exists(db_path):
+        return []       # nothing has been stored for this user yet
+    _init(db_path)
+    with _conn(db_path) as conn:
+        habits = conn.execute("SELECT id, name FROM habits ORDER BY created_at, rowid").fetchall()
+        checkins: dict[str, list[str]] = {}
+        for row in conn.execute("SELECT habit_id, date FROM habit_checkins ORDER BY date"):
+            checkins.setdefault(row["habit_id"], []).append(row["date"])
+    return [{"id": h["id"], "name": h["name"], "checkins": checkins.get(h["id"], []), "streak": _streak(h["id"], db_path)}
+            for h in habits]

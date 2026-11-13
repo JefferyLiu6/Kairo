@@ -317,12 +317,17 @@ def _check_new_events(args: CreateEvents, ctx: ToolContext) -> Optional[str]:
     # With several events the message's date and time words may each belong to one of them, so only
     # a single event is compared with the wording. A date in the past is refused either way.
     alone = len(args.events) == 1
-    weekly = [(e.title.strip().casefold(), e.start) for e in args.events if e.recurrence and e.recurrence.freq == "weekly"]
-    if len(set(weekly)) < len(weekly):
-        return ("the same weekly event was given once per weekday; make it one event with every weekday in "
-                "its by_day")
+    same = {(e.title.strip().casefold(), e.start) for e in args.events}
+    if not alone and len(same) == 1 and any(asks_for_a_repeat(text) for text in ctx.wordings()):
+        return ("the message asks for one thing that repeats, but it was given as several events; make it one "
+                "event with every weekday in its by_day")
+    asked_to_repeat = _first(ctx, lambda text: text if asks_for_a_repeat(text) else "") or ""
     for event in args.events:
         repeat = event.recurrence.model_dump() if event.recurrence else None
+        if repeat and not asked_to_repeat:      # a repeat nobody asked for, however many events there are
+            invented = repeat_problem(ctx.message, repeat)
+            if invented:
+                return f"event '{event.title}': {invented}"
         # A daily or weekly repeat starts when code says it does (_series_start), so its date is not judged.
         starts_itself = bool(repeat) and repeat["freq"] != "monthly"
         problem = None if starts_itself else past_problem(event.date, ctx.now, start=None if repeat else event.start)
@@ -334,7 +339,7 @@ def _check_new_events(args: CreateEvents, ctx: ToolContext) -> Optional[str]:
                 problem = (f"{event.start}–{event.end or '?'} does not match the message, which says "
                            f"{stated[0]}–{stated[1]}")
             problem = problem or (None if stated else _start_problem(ctx, event.start))
-            problem = problem or repeat_problem(_first(ctx, lambda t: t if asks_for_a_repeat(t) else "") or "", repeat)
+            problem = problem or (repeat_problem(asked_to_repeat, repeat) if asked_to_repeat else None)
         if problem:
             return f"event '{event.title}': {problem}"
     return None
@@ -560,7 +565,8 @@ For each message, call exactly one tool. You never change anything yourself: a t
 proposal that is checked before it is stored, and the user is shown exactly what was stored.
 
 Which tool:
-- create_events for anything new. Put every event of the message in one call.
+- create_events for anything new. Put every event of the message in one call. One thing that
+  repeats on several weekdays is one event with those weekdays in by_day, not one event per day.
 - update_event, remove_event, skip_occurrence, change_occurrence and end_series act on an event that
   is already on the calendar. Give its id from the calendar above. "Move", "push" and "change" one
   event are update_event; "cancel" and "delete" are remove_event. For an event that repeats, use
@@ -572,7 +578,8 @@ Which tool:
   room, how many hours. Use only the calendar above. An answer never says that something was added,
   changed or removed, and never promises to do it; to change the calendar, call the tool that does.
 - ask_user when a new event has no day at all or no time at all, or when you cannot tell which event
-  is meant. Never invent a day or a time. Ask for one thing.
+  is meant. Never invent a day or a time. Ask for one thing. Never ask how long an event is or what
+  to call it: with no end time given, leave end null, and the title is the user's own words for it.
 - hand_back when the message is not about the calendar.
 
 Dates and times:
@@ -592,6 +599,7 @@ SCHEDULE = DomainSpec(
             "reminder that repeats, like a pill every morning), moving, cancelling or skipping an event, and "
             "questions about the schedule or what is coming up.",
     mode="agent",
+    restate="Could you give me the exact day and time for “{message}”?",
     prompt=SCHEDULE_AGENT,
     context=calendar_view,
     tools=(

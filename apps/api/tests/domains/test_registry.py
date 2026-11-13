@@ -8,7 +8,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from kairo.core.domain.types import PMAction
-from kairo.core.prompt import PromptTemplate
+from kairo.core.prompt import Prompt, PromptTemplate
 from kairo.domains.catalog import DOMAINS
 from kairo.domains.registry import DomainSpec, NotThisDomain, Proposed, Registry, ToolContext, ToolSpec
 
@@ -41,7 +41,8 @@ def read_tool(**overrides) -> ToolSpec:
 
 
 def garden(*tools, **overrides) -> DomainSpec:
-    return DomainSpec(**{"name": "garden", "summary": "Plants and watering.", "tools": tools, **overrides})
+    return DomainSpec(**{"name": "garden", "summary": "Plants and watering.", "tools": tools,
+                         "guidance": Prompt("test_garden_guidance", "- Water what is dry."), **overrides})
 
 
 GARDENER = PromptTemplate("test_gardener", "You look after the garden.\n$context")
@@ -85,6 +86,7 @@ def test_registered_tools_are_found_by_name_and_grouped_by_how_the_domain_runs()
     (garden(), "no tools"),                                          # an inline domain with nothing to call
     (garden_agent(), "no tools"),                                    # an agent with nothing to call
     (garden_agent(propose_tool(), prompt=None), "prompt"),           # an agent that is told nothing
+    (garden(propose_tool(), guidance=None), "guidance"),             # inline tools the coordinator is told nothing about
     (garden(propose_tool(), mode="legacy"), "legacy"),               # a legacy domain owns no tools here
 ])
 def test_an_incomplete_domain_cannot_be_registered(domain, clue):
@@ -96,7 +98,7 @@ def test_a_tool_name_must_be_unique_across_domains():
     registry = Registry()
     registry.register(garden(propose_tool()))
     with pytest.raises(ValueError, match="water_plant"):
-        registry.register(DomainSpec(name="greenhouse", summary="More plants.", tools=(propose_tool(),)))
+        registry.register(garden(propose_tool(), name="greenhouse", summary="More plants."))
     with pytest.raises(ValueError, match="garden"):
         registry.register(garden(read_tool()))
 
@@ -145,10 +147,10 @@ def test_a_proposal_can_carry_notes_and_a_verdict_can_name_where_a_request_belon
 
 
 def test_the_app_catalog_has_tasks_inline_the_calendar_as_an_agent_and_the_old_assistant_as_the_fallback():
-    assert {tool.name for tool in DOMAINS.inline_tools()} == {"add_todos", "complete_todo", "remove_todo", "list_todos"}
-    assert [domain.name for domain in DOMAINS.agent_domains()] == ["schedule"]
+    assert {tool.name for tool in DOMAINS.domain("tasks").tools} == {"add_todos", "complete_todo", "remove_todo", "list_todos"}
+    assert "schedule" in [domain.name for domain in DOMAINS.agent_domains()]
     assert DOMAINS.fallback().name == "assistant"
-    assert all(tool.examples for domain in (DOMAINS.domain("tasks"), DOMAINS.domain("schedule"))
+    assert all(tool.examples for domain in (*DOMAINS.inline_domains(), *DOMAINS.agent_domains())
                for tool in domain.tools if tool.kind == "propose")
     assert all(tool.examples for tool in DOMAINS.inline_tools() if tool.kind == "propose")
     assert CTX.message == "water the plants"

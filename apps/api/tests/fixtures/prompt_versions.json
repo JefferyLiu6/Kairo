@@ -1,8 +1,11 @@
 {
-  "coordinator": "71e6c86e",
+  "coordinator": "7ef0294d",
   "direct_reply": "694dd565",
+  "habits_guidance": "9edb2cc4",
   "humanize": "886c1e42",
+  "journal_guidance": "90c90ad5",
   "judge": "c8742e9d",
+  "memory_agent": "38c9aab6",
   "memory_interpret": "160e58ec",
   "passive_fact": "b14287bf",
   "plan_extraction": "ba635e8f",
@@ -10,6 +13,7 @@
   "reconcile_profile": "64a59fd6",
   "request_extraction": "34468eb2",
   "route": "ff6b3b60",
-  "schedule_agent": "7823df93",
+  "schedule_agent": "203cf253",
+  "tasks_guidance": "fdda330e",
   "translate": "1a478512"
 }

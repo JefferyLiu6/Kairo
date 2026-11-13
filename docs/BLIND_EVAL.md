@@ -290,6 +290,64 @@ Reports: `artifacts/blind/graph-20261113T031459Z.json`,
 `artifacts/blind/graph-20261113T032430Z.json` and the two
 `orchestrator-20261113T03…` runs beside them.
 
+### After step 8: habits, the journal and memory on the agent graph
+
+Habits and the journal are now tools the coordinator calls itself; memory has
+its own agent ([ARCHITECTURE.md](../ARCHITECTURE.md#memory)). Only web search,
+planning a day and conversation still go to the orchestrator. The last two
+recorded runs, on the code and prompts as committed (2026-11-13, `gpt-4o-mini`):
+
+| Whole set, 85 turns | Web chat (orchestrator) | Agent graph, run 9 | Agent graph, run 10 |
+|---|---|---|---|
+| Right, of scoreable turns | 42% (27 of 64) | 95% (71 of 75) | 96% (71 of 74) |
+| Wrong but reported done | 15% (11 + 2) | 1.2% (1 + 0) | 0% |
+| Trapped turns | 5 | 0 | 0 |
+| Model calls per turn | 2.11 | 1.52 | 1.55 |
+| Reply time, median | 3.9 s | 1.6 s | 1.8 s |
+| Bar | fail | **pass** | **pass** |
+
+Ten graph runs were recorded during this step, while the code changed between
+them. Read the spread, not the best run:
+
+| Ten graph runs, in order | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Right | 86% | 95% | 92% | 93% | 92% | 92% | 93% | 92% | 95% | 96% |
+| Wrong saves + false claims | 7 | 1 | 3 | 2 | 3 | 2 | 1 | 4 | 1 | 0 |
+| Trapped | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Passes the bar | | yes | | | | | yes | | yes | yes |
+
+What changed and what did not:
+
+- **Habit and memory turns work.** All 6 habit turns and all 5 memory turns of
+  the set were right in the last four runs. On web chat they fail outright:
+  adding a habit is not understood, and "remember …" has no vault to write to.
+- **Reply time is under the 2 s target** (1.5 to 1.9 s median across the ten
+  runs): in the last run 78 of 85 turns took at most two model calls.
+- **No turn was trapped in any of the ten runs.**
+- **The wrong-save bar is one turn in 85, and a run still lands on either side
+  of it.** The last two runs pass; four of ten passed overall. Two defects
+  accounted for most of the misses in runs 1 to 6 and were fixed in code:
+  a repeat nobody asked for ("on call sat sun 9am-5pm" stored as every Sat/Sun),
+  and a routine the user asked to be remembered stored as a habit to track.
+- **The holdout is no longer a clean test.** Both of those defects first showed
+  on holdout turns. Each was reproduced with messages outside the set before it
+  was fixed, and the checks are general, but the holdout scores above (100% and
+  96% in the last two runs) have been looked at too often to estimate anything.
+  New holdout personas, written without looking at these, are needed before
+  the numbers are used for a launch decision.
+- **Still seen in the last runs:** the schedule agent sometimes asks what to
+  call an event or which Thursday is meant when today is Thursday; "what do I
+  have coming up?" is sometimes answered from the task list; "send Contoso the
+  pricing deck after tomorrow's call" is still refused twice and asked about;
+  a Chinese title lost a person's name in 2 of 10 runs.
+- **Not built:** forgetting a remembered fact, changing a task's due date, and
+  removing every task at once (the user is told tasks are removed one at a
+  time).
+
+Reports: `artifacts/blind/graph-20261113T043135Z.json`,
+`artifacts/blind/graph-20261113T043400Z.json`, and the eight earlier
+`graph-20261113T03…`/`04…` runs listed in the ledger.
+
 ## The scores ledger
 
 A prompt's version says that it changed, not whether it got better. The ledger,
