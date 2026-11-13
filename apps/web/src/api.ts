@@ -280,6 +280,22 @@ export async function fetchPmTasks(): Promise<PmTask[]> {
   return data.tasks ?? [];
 }
 
+export type PmMemory = {
+  /** Every fact in the user's profile, in stored order. */
+  facts: string[];
+  /** How many sensitive facts are kept as private notes. Their text is never sent. */
+  privateNotes: number;
+  /** What the user asked Kairo to remember, newest first, and whether it is still stored word for word. */
+  asked: Array<{ text: string; at: string; kept: boolean }>;
+};
+
+/** What Kairo remembers about the user. Throws on failure so callers can tell "nothing" from "couldn't load". */
+export async function fetchPmMemory(): Promise<PmMemory> {
+  const res = await apiFetch("/personal-manager/memory");
+  if (!res.ok) throw new Error(`${res.status}`);
+  return (await res.json()) as PmMemory;
+}
+
 /** Delete a PM session (thread) by ID. */
 export async function deleteSession(sessionId: string): Promise<boolean> {
   const res = await apiFetch(`/personal-manager/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
