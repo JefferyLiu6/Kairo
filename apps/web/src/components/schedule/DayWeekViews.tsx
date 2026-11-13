@@ -10,7 +10,7 @@ import {
   shortWeekdayLabel,
   dayNum,
 } from "../../lib/scheduleCalendar";
-import { EventPill, TimeGridColumn, type DragPassProps } from "./TimeGrid";
+import { EventPill, TimeGridColumn, hourLabel, type DragPassProps } from "./TimeGrid";
 
 export function DayCalendarView({
   day, entries, onSlotClick, onEventClick, onAddUndated,
@@ -46,7 +46,7 @@ export function DayCalendarView({
         <div className="sch-time-gutter">
           {hours.map((h) => (
             <div key={h} className="sch-time-label" style={{ height: PX_PER_HOUR }}>
-              {h === 12 ? "12 PM" : h < 12 ? `${h} AM` : `${h - 12} PM`}
+              {hourLabel(h)}
             </div>
           ))}
         </div>
@@ -102,7 +102,7 @@ export function WeekCalendarView({
         <div className="sch-time-gutter">
           {hours.map((h) => (
             <div key={h} className="sch-time-label" style={{ height: PX_PER_HOUR }}>
-              {h === 12 ? "12" : h < 13 ? `${h}` : `${h - 12}`}
+              {hourLabel(h)}
             </div>
           ))}
         </div>

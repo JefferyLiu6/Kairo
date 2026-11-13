@@ -1718,134 +1718,169 @@ body {
   background: var(--bg);
 }
 
+/* One calendar, two sizes. It is a size container, so the narrow calendar beside the chat and
+   the full-screen one share every rule and differ only where the width leaves no room
+   (see "Narrow calendar" below). */
 .sch-cal-main {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  background: var(--surface-solid);
+  container: cal / inline-size;
 }
 
-.sch-month-title {
+.sch-title {
   font-size: 17px;
   font-weight: 700;
+  line-height: 1.3;
   letter-spacing: -0.02em;
   color: var(--text);
 }
 
-.sch-fullscreen-add-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: var(--teal);
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 8px oklch(0.50 0.14 168 / 0.3);
-}
-
+.sch-add-btn,
 .sch-back-chat-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+}
+
+.sch-save-state {
+  font-size: 12px;
+  color: var(--text2);
 }
 
 /* ── Task Sidebar ── */
 .sch-task-sidebar {
-  width: 222px;
+  --task-amber-text: oklch(0.44 0.10 75);
+  --task-amber-bg: oklch(0.95 0.05 85);
+  width: 272px;
   flex-shrink: 0;
   border-right: 1px solid var(--border);
-  background: var(--bg2);
+  background: var(--bg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
 .sch-task-sidebar-top {
-  padding: 14px 14px 6px;
+  padding: 16px 16px 4px;
   flex-shrink: 0;
 }
 
 .sch-task-sidebar-heading {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 8px;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 15px;
   letter-spacing: -0.01em;
   color: var(--text);
-  margin-bottom: 10px;
 }
 
 .sch-task-count {
-  font-size: 9.5px;
-  color: var(--text3);
-  background: var(--bg4);
-  padding: 0 5px;
-  border-radius: 99px;
-  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text2);
 }
 
-/* Drag hint box */
-.sch-drag-hint {
-  margin: 0 0 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: oklch(0.93 0.03 168);
-  border: 1px dashed oklch(0.72 0.10 168);
-}
-
-.sch-drag-hint-title {
-  font-size: 11px;
+.sch-task-summary {
+  margin-top: 2px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--teal);
-  margin-bottom: 2px;
+  color: var(--text2);
 }
 
-.sch-drag-hint-sub {
-  font-size: 10px;
-  color: oklch(0.50 0.08 168);
-  line-height: 1.4;
-}
+.sch-task-summary-overdue { color: var(--red); }
+.sch-task-summary-today { color: var(--task-amber-text); }
 
-/* Task cards */
-.sch-task-cards {
+/* The scrolling list of groups */
+.sch-task-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0 10px 10px;
+  padding: 4px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
+}
+
+.sch-task-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+
+.sch-task-group-title.sch-task-overdue { color: var(--red); }
+.sch-task-group-title.sch-task-today { color: var(--task-amber-text); }
+
+.sch-task-group-count {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text2);
+}
+
+.sch-task-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   list-style: none;
 }
 
 .sch-task-card {
-  padding: 9px 10px;
-  border-radius: 9px;
-  background: var(--bg3);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 10px 10px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-solid);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--teal);
   cursor: grab;
   user-select: none;
-  transition: all 0.12s;
-  position: relative;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
 
 .sch-task-card:hover {
-  background: var(--bg2);
-  box-shadow: 0 2px 12px oklch(0 0 0 / 0.06);
+  border-color: var(--border2);
+  box-shadow: 0 2px 10px oklch(0 0 0 / 0.06);
 }
 
 .sch-task-card:active { cursor: grabbing; }
 
+/* Urgent tasks carry a coloured edge as well as their label. */
+.sch-task-card.sch-task-overdue { box-shadow: inset 3px 0 0 var(--red); }
+.sch-task-card.sch-task-today { box-shadow: inset 3px 0 0 var(--amber); }
+.sch-task-card.sch-task-overdue:hover { box-shadow: inset 3px 0 0 var(--red), 0 2px 10px oklch(0 0 0 / 0.06); }
+.sch-task-card.sch-task-today:hover { box-shadow: inset 3px 0 0 var(--amber), 0 2px 10px oklch(0 0 0 / 0.06); }
+
+.sch-task-grip {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--border2);
+  transition: color 0.12s;
+}
+
+.sch-task-card:hover .sch-task-grip { color: var(--text3); }
+
+.sch-task-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
 .sch-task-card-title {
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 500;
   color: var(--text);
-  line-height: 1.3;
-  margin-bottom: 5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .sch-task-card-meta {
@@ -1853,73 +1888,92 @@ body {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+  margin-top: 6px;
+  min-height: 24px;
 }
 
-.sch-task-card-dur.overdue {
+.sch-task-due,
+.sch-task-oncal {
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  padding: 1px 7px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.sch-task-due {
+  color: var(--text2);
+  background: var(--bg3);
+}
+
+.sch-task-overdue .sch-task-due {
   color: var(--red);
   background: var(--red-bg);
+  font-weight: 600;
+}
+
+.sch-task-today .sch-task-due {
+  color: var(--task-amber-text);
+  background: var(--task-amber-bg);
+  font-weight: 600;
+}
+
+.sch-task-oncal {
+  color: var(--teal-dim);
+  background: var(--teal-bg);
 }
 
 .sch-task-card-schedule {
   margin-left: auto;
-  padding: 2px 8px;
+  padding: 2px 9px;
   border: 1px solid var(--border2);
   border-radius: 6px;
-  background: var(--bg2);
+  background: transparent;
   color: var(--text2);
   font-family: var(--font);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 500;
+  line-height: 1.5;
   cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
 
 .sch-task-card-schedule:hover {
   border-color: var(--teal);
-  color: var(--teal);
+  color: var(--teal-dim);
+  background: var(--teal-bg);
 }
 
 .sch-task-skeleton {
-  height: 54px;
-  border-radius: 9px;
+  height: 62px;
+  margin-top: 6px;
+  border-radius: var(--radius-sm);
   background: var(--bg3);
   animation: pm-pulse 1.5s ease-in-out infinite;
-}
-
-.sch-task-empty-title {
-  font-weight: 600;
-  color: var(--text2);
-  margin-bottom: 4px;
-}
-
-.sch-task-sidebar-note {
-  flex-shrink: 0;
-  padding: 10px 14px;
-  border-top: 1px solid var(--border);
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text3);
-}
-
-.sch-task-card-dur {
-  font-size: 10px;
-  color: var(--text3);
-  font-family: var(--font-mono);
-  background: var(--bg4);
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-
-.sch-task-card-list {
-  font-size: 10px;
-  color: var(--text3);
 }
 
 .sch-task-empty {
   flex: 1;
   text-align: center;
-  padding: 32px 14px;
-  font-size: 12px;
-  color: var(--text3);
+  padding: 32px 16px;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.sch-task-empty-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.sch-task-sidebar-note {
+  flex-shrink: 0;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text2);
 }
 
 /* Drop target highlighting */
@@ -1965,23 +2019,10 @@ body {
 
 .sch-cal-header-main {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px 16px;
   flex-wrap: wrap;
-}
-
-.sch-cal-header-main .ws-header-left {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-}
-
-.sch-subtitle {
-  display: block;
-  font-size: 13px;
-  font-weight: 450;
-  color: var(--text-muted);
 }
 
 /* View tabs — flat underline style, not pill */
@@ -1992,7 +2033,6 @@ body {
   padding: 0;
   border-radius: 0;
   border-bottom: 2px solid var(--border);
-  align-self: flex-start;
 }
 
 .sch-view-tab {
@@ -2035,8 +2075,12 @@ body {
 }
 
 .sch-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 30px;
   height: 30px;
+  flex-shrink: 0;
   border: 1px solid var(--border);
   border-radius: 5px;
   background: transparent;
@@ -2111,13 +2155,6 @@ body {
   margin-right: auto;
 }
 
-.sch-btn-close {
-  padding: 6px 10px;
-  font-size: 14px;
-  line-height: 1;
-  background: transparent;
-}
-
 .sch-error {
   display: flex;
   align-items: center;
@@ -2171,9 +2208,10 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 14px;
-  background: linear-gradient(90deg, oklch(0.93 0.04 168) 0%, oklch(0.95 0.02 200) 100%);
-  border-bottom: 1px solid oklch(0.85 0.04 168);
+  padding: 7px 12px;
+  background: oklch(0.95 0.03 168);
+  border: 1px solid oklch(0.87 0.04 168);
+  border-radius: 8px;
   flex-shrink: 0;
   min-width: 0;
   overflow: hidden;
@@ -2364,15 +2402,16 @@ body {
   border-radius: 4px;
   font-size: 12px;
   font-weight: 600;
-  background: oklch(94% .035 calc(var(--sch-h, 200) * 1deg));
-  color: oklch(34% .14 calc(var(--sch-h, 200) * 1deg));
-  border: 1px solid oklch(78% .08 calc(var(--sch-h, 200) * 1deg));
+  /* The same colours as the event it names (.sch-event-pill, .sch-timed-block). */
+  background: hsl(var(--sch-h, 260), 55%, 94%);
+  border-left: 3px solid hsl(var(--sch-h, 260), 65%, 50%);
+  color: var(--text);
 }
 
 .sch-agenda-time {
   font-size: 11px;
-  font-weight: 700;
-  opacity: .82;
+  font-weight: 500;
+  color: var(--text2);
 }
 
 .sch-body {
@@ -2568,7 +2607,10 @@ body {
   cursor: pointer;
   overflow: hidden;
   pointer-events: auto;
-  margin: 0 2px;
+  /* The gap to the next lane is a transparent edge inside the block's own width, so the last
+     column's blocks stay inside the grid. */
+  border-right: 2px solid transparent;
+  background-clip: padding-box;
   box-shadow: none;
 }
 
@@ -2651,6 +2693,11 @@ body {
   height: 8px;
   border-radius: 50%;
   background: #f59e0b;
+}
+
+/* In the week view the badge would sit on top of the day before. The line and its dot are enough there. */
+.sch-week-cols .sch-now-badge {
+  display: none;
 }
 
 .sch-now-badge {
@@ -2800,9 +2847,18 @@ body {
   background: var(--teal-glow);
 }
 
+/* Days outside the month: a tinted cell and quieter text. (Fading the whole cell let the grid's
+   border colour show through and turned these days into dark slabs.) */
 .sch-month-cell.other-month {
-  background: rgba(0, 0, 0, 0.02);
-  opacity: 0.72;
+  background: var(--bg);
+}
+
+.sch-month-cell.other-month .sch-month-num {
+  color: var(--text3);
+}
+
+.sch-month-cell.other-month .sch-month-event-line {
+  opacity: 0.6;
 }
 
 /* Today in month view — violet square badge */
@@ -2875,6 +2931,117 @@ body {
   font-size: 10px;
   color: var(--text-muted);
   padding-left: 2px;
+}
+
+/* ── Narrow calendar ──
+   The calendar beside the chat is about 400px wide. Same parts as the full-screen calendar,
+   packed tighter: the tip gives way to the Google row, a week's events show their title only,
+   and a month's events become dots. */
+@container cal (max-width: 560px) {
+  .sch-cal-header {
+    padding: 14px 16px 12px;
+  }
+
+  .sch-title {
+    font-size: 15px;
+  }
+
+  .sch-view-tab {
+    padding: 6px 10px;
+  }
+
+  .sch-insight-left {
+    display: none;
+  }
+
+  .sch-insight-gcal {
+    flex: 1;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .sch-gcal-status {
+    display: none;
+  }
+
+  .sch-agenda-strip {
+    padding: 8px 16px 10px;
+  }
+
+  .sch-month-cell {
+    min-height: 58px;
+    padding: 4px;
+  }
+
+  .sch-month-events {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 3px;
+    padding: 0 3px;
+  }
+
+  /* A dot per event. The name is still read out and the cell still opens the day. */
+  .sch-month-event-line,
+  .sch-month-event-line.sch-event-google {
+    flex: 0 0 6px;
+    width: 6px;
+    height: 6px;
+    padding: 0;
+    border-left: none;
+    border-radius: 99px;
+    font-size: 0;
+    background: hsl(var(--sch-h, 260), 60%, 45%);
+  }
+
+  .sch-month-event-line.sch-event-google {
+    background: #1a73e8;
+  }
+
+  .sch-month-more {
+    font-size: 9.5px;
+    line-height: 6px;
+    padding-left: 0;
+  }
+}
+
+/* A week in the narrow calendar: seven columns of about 46px, so an event shows its title only.
+   Not on phones, where the week scrolls sideways and its columns stay wide. */
+@media (min-width: 761px) {
+  @container cal (max-width: 560px) {
+    .sch-week-dow {
+      font-size: 10px;
+    }
+
+    .sch-week-dom {
+      width: 24px;
+      height: 24px;
+      font-size: 12.5px;
+    }
+
+    .sch-week-allday-row {
+      min-height: 28px;
+    }
+
+    .sch-week-cols .sch-timed-block {
+      padding: 3px 2px 3px 4px;
+      border-left-width: 2px;
+      border-right-width: 1px;
+    }
+
+    .sch-week-cols .sch-timed-title {
+      font-size: 10.5px;
+      letter-spacing: -0.01em;
+      padding-right: 0;
+    }
+
+    .sch-week-cols .sch-timed-sub,
+    .sch-week-cols .sch-timed-recur {
+      display: none;
+    }
+  }
 }
 
 .sch-modal-overlay {
@@ -3883,22 +4050,6 @@ body {
     display: none;
   }
 
-  .sch-task-sidebar-top {
-    display: none;
-  }
-
-  .sch-task-cards {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 8px 10px;
-  }
-
-  .sch-task-card {
-    min-width: 180px;
-    max-width: 220px;
-  }
-
   .sch-cal-header {
     padding: 12px 12px 10px;
     gap: 9px;
@@ -3909,12 +4060,8 @@ body {
     gap: 8px;
   }
 
-  .sch-cal-header-main .ws-header-left {
+  .sch-title {
     min-width: 0;
-  }
-
-  .sch-month-title,
-  .sch-subtitle {
     letter-spacing: 0;
   }
 
@@ -3943,10 +4090,6 @@ body {
 
   .sch-btn {
     padding: 6px 10px;
-  }
-
-  .sch-btn-primary {
-    min-width: 62px;
   }
 
   .sch-insight-banner {
@@ -4043,12 +4186,7 @@ body {
   }
 
   .sch-month-wrap {
-    min-width: 650px;
     padding: 8px 8px 12px;
-  }
-
-  .sch-month-cell {
-    min-height: 84px;
   }
 
   .sch-modal {
@@ -4084,7 +4222,7 @@ body {
     gap: 8px;
   }
 
-  .cal-full .sch-month-title {
+  .cal-full .sch-title {
     display: block;
     max-width: 100%;
     overflow: hidden;
@@ -4112,12 +4250,12 @@ body {
     justify-content: flex-start;
   }
 
-  .cal-full .sch-icon-btn,
-  .cal-full .sch-fullscreen-add-btn {
+  .cal-full .sch-icon-btn {
     width: 28px;
     height: 28px;
   }
 
+  .cal-full .sch-add-btn,
   .cal-full .sch-back-chat-btn {
     height: 28px;
     padding: 5px 8px;
@@ -4203,19 +4341,6 @@ body {
 
   .message.user {
     max-width: 94%;
-  }
-
-  .sch-cal-toolbar {
-    grid-template-columns: 1fr;
-  }
-
-  .sch-nav-cluster,
-  .sch-header-actions {
-    justify-content: space-between;
-  }
-
-  .sch-header-actions {
-    width: 100%;
   }
 
   .sch-field-row,
