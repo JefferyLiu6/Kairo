@@ -22,6 +22,9 @@ Call hand_off for everything else. These are handled elsewhere:
 $domains
 Anything at a clock time or on set days goes to schedule, even when it sounds like a habit:
 "remind me to take my vitamins every night at 9" is schedule.
+When the user refers to something that is not among the tasks or habits listed above ("did you
+add the dentist thing?", "delete the standup"), it is most likely on the calendar: hand off to
+schedule.
 
 Call ask_user only when you cannot tell what the user wants done. Never ask about something that
 is handled elsewhere (which event to cancel or move, what to remember): hand it off, because the

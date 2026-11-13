@@ -34,24 +34,37 @@ same way the API does. Eval turns are never sent to LangSmith.
 
 ## What is in the set
 
-`apps/api/tests/fixtures/blind_eval_set.json`: ten personas, 85 turns.
+`apps/api/tests/fixtures/blind_eval_set.json`: thirteen personas, 117 turns.
+Until 2026-11-13 it was the first ten (85 turns); results before that date are
+on the smaller set and are not comparable with later ones.
 
 | Scenario | Split | Habit |
 |---|---|---|
 | `01_freelancer` | dev | Fast lowercase shorthand, deadlines |
 | `02_adhd_student` | dev | Brain dumps, "what next?" |
 | `03_sales_manager` | dev | Full sentences, follow-ups |
-| `04_night_nurse` | holdout | 24-hour time, overnight shifts |
+| `04_night_nurse` | dev (first holdout) | 24-hour time, overnight shifts |
 | `05_retiree` | dev | Polite full sentences |
 | `06_founder` | dev | Commitments and weekly review |
-| `07_bilingual` | holdout | Mandarin and English mixed |
+| `07_bilingual` | dev (first holdout) | Mandarin and English mixed |
 | `08_privacy_engineer` | dev | Sensitive data, approvals, injection |
 | `09_fitness` | dev | Habits and recurring events |
-| `10_coparent` | holdout | Recurring family logistics |
+| `10_coparent` | dev (first holdout) | Recurring family logistics |
+| `11_music_teacher` | holdout | Students' weekly lessons, a parent's preference |
+| `12_caregiver` | holdout | A parent's appointments and medication, typos |
+| `13_oncall_developer` | holdout | Terse shorthand, tasks, a 1:1 |
 
 Three personas are **held out**. Tune prompts and tools against the dev split
 only, and read the holdout number to see whether an improvement generalises.
 The report gives both.
+
+A holdout wears out. The first one was read in every run while the graph was
+built, and two checks were prompted by its turns, so on 2026-11-13 it became
+dev and three new personas took its place. They were committed before any path
+was run on them. Their first-look scores are under
+[A fresh holdout](#a-fresh-holdout); the fixes that followed used those turns,
+so this holdout is already partly spent. The durable answer is messages from
+real users, not more simulated personas.
 
 The clock is pinned to **Thursday 2026-11-12, 10:00 Toronto**, the morning the
 messages were written. "Tomorrow" is always the 13th, so expectations are plain
@@ -347,6 +360,58 @@ What changed and what did not:
 Reports: `artifacts/blind/graph-20261113T043135Z.json`,
 `artifacts/blind/graph-20261113T043400Z.json`, and the eight earlier
 `graph-20261113T03…`/`04…` runs listed in the ledger.
+
+### A fresh holdout
+
+Three new personas (32 turns), written after step 8 and committed before any
+run. First look, with the step 8 code unchanged, two runs each:
+
+| First look, 2026-11-13 | Web chat | Agent graph, run 1 | Agent graph, run 2 |
+|---|---|---|---|
+| Fresh holdout right | 27% | 90% | 90% |
+| Whole 117-turn set right | 36% | 92% | 94% |
+| Whole set, wrong saves + false claims | 15 | 3 | 2 |
+| Whole set, trapped | 12 | 0 | 0 |
+| Bar | fail | fail (3 of 117 is 2.6%) | pass |
+
+So the graph generalised: 90% right on messages it had never been run on,
+against 27% for web chat. Both graph runs failed the same three holdout turns,
+which makes them defects rather than noise:
+
+- "and Leo has guitar on Thursdays 5:30 to 6:15pm" also re-added the previous
+  message's lesson, so it was on the calendar twice.
+- "standup daily 9:30" was answered with "What day should I start?", and the
+  later "delete the standup" then had nothing to delete.
+- "did i add the cardiology thing" was answered from the task list.
+
+They were then fixed as classes, each checked with messages outside the set: an
+event already on the calendar is dropped by code instead of stored twice, the
+schedule agent no longer asks when a repeat starts, and the coordinator sends a
+reference to something not among the tasks or habits to the calendar. Probing
+those turned up a fourth: after the agent asked a question, the next unrelated
+calendar request was checked against the old request's wording and refused. A
+message that names what it is about is now a request of its own.
+
+After those fixes (not a first look for the holdout any more):
+
+| After the fixes | Web chat | Agent graph, run 3 | Agent graph, run 4 |
+|---|---|---|---|
+| Whole 117-turn set right | 28% | 95% | 96% |
+| Wrong saves + false claims | 20 | 0 | 1 |
+| Trapped | 13 | 0 | 0 |
+| Reply time, median | 3.7 s | 1.9 s | 1.7 s |
+| Bar | fail | **pass** | **pass** |
+
+What still fails in those two runs: "send Contoso the pricing deck after
+tomorrow's call" (refused twice, asked about), the schedule agent asking for an
+end time for the recital, a Chinese title that lost the person's name once, and
+"remember that i sleep until 2pm after night shifts" once reworded by the model
+and refused. One "miss" is the scorer's: "Yes, you have a cardiology appointment
+for your dad on Tuesday, November 24" is correct but does not repeat the stored
+title word for word.
+
+Reports: `artifacts/blind/graph-20261113T044759Z.json` and `…T045107Z.json`
+(first look), `…T050718Z.json` and `…T051045Z.json` (after the fixes).
 
 ## The scores ledger
 

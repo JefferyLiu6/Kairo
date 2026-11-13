@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from kairo.domains.catalog import DOMAINS
-from kairo.domains.registry import Proposed, ToolContext
+from kairo.domains.registry import Answer, Proposed, ToolContext
 from kairo.storage.store import RecurrenceRule, ScheduleData, ScheduleEntry, save_schedule
 
 NOW = datetime(2026, 11, 12, 10, 0, tzinfo=ZoneInfo("America/Toronto"))   # a Thursday
@@ -115,6 +115,31 @@ def test_an_event_that_agrees_with_the_message_passes(tmp_path, message, propose
     assert tool.check(args, ctx) is None
 
 
+def test_an_event_already_on_the_calendar_is_not_added_again(tmp_path):
+    """A model sometimes repeats the previous message's event alongside the new one."""
+    save_schedule(ScheduleData(entries=[
+        ScheduleEntry(id="viol0001", title="violin", date="2026-11-16", start="17:00", end="18:00",
+                      recurrence=RecurrenceRule(freq="weekly", by_day=["MO"])),
+        ScheduleEntry(id="dent0001", title="dentist checkup", date="2026-12-03", start="14:00", end="15:00"),
+    ]), USER, str(tmp_path))
+    said = "and ben has drums on wednesdays 6 to 6:45pm"
+    again = event("sofia has violin", "2026-11-16", "17:00", recurrence=weekly("MO"))     # retitled, same thing
+    drums = event("ben has drums", "2026-11-18", "18:00", "18:45", recurrence=weekly("WE"))
+    tool, args, ctx = call("create_events", tmp_path, said, events=[again, drums])
+    assert tool.check(args, ctx) is None
+    assert [e["title"] for e in only(tool.propose(args, ctx)).payload["entries"]] == ["ben has drums"]
+
+    # Nothing new at all is said, not stored.
+    tool, args, ctx = call("create_events", tmp_path, "dentist checkup dec 3 at 2pm",
+                           events=[event("dentist checkup", "2026-12-03", "14:00")])
+    answer = tool.propose(args, ctx)
+    assert isinstance(answer, Answer) and answer.text == "That's already on your calendar: dentist checkup."
+    # The same thing at another time is a new event.
+    tool, args, ctx = call("create_events", tmp_path, "dentist checkup dec 3 at 4pm",
+                           events=[event("dentist checkup", "2026-12-03", "16:00")])
+    assert only(tool.propose(args, ctx)).payload["entries"][0]["start"] == "16:00"
+
+
 def test_days_named_without_a_repeat_are_separate_events_not_a_series(tmp_path):
     said = "dinner service fri and sat 5pm to 11pm"
     invented = [event("dinner service", "2026-11-13", "17:00", "23:00", recurrence=weekly("FR", "SA")),
@@ -163,6 +188,21 @@ def test_an_answer_to_a_question_is_checked_against_the_request_it_completes(tmp
     tool, args, ctx = call("create_events", tmp_path, "actually sunday at 3pm", asked_about,
                            events=[event("dentist appointment", "2026-11-15", "15:00")])
     assert tool.check(args, ctx) is None
+
+
+def test_a_new_request_is_not_held_to_the_words_of_a_question_it_did_not_answer(tmp_path):
+    """The agent asked about Ben's drums; the user moved on to something else instead of answering."""
+    asked_about = "and ben has drums on wednesdays 6 to 6:45pm"
+    tool, args, ctx = call("create_events", tmp_path, "team sync daily 10:15", asked_about,
+                           events=[event("team sync", "2026-11-12", "10:15", recurrence=DAILY)])
+    assert tool.check(args, ctx) is None
+    tool, args, ctx = call("create_events", tmp_path, "dentist checkup dec 3 at 2pm", asked_about,
+                           events=[event("dentist checkup", "2026-12-03", "14:00")])
+    assert tool.check(args, ctx) is None
+    # An answer that does not name the event is still completing the earlier request.
+    tool, args, ctx = call("create_events", tmp_path, "this wednesday", asked_about,
+                           events=[event("drums", "2026-11-18", "19:00", "19:45")])
+    assert "18:00" in tool.check(args, ctx)
 
 
 def test_a_clash_with_something_already_on_the_calendar_is_noted_not_hidden(tmp_path):
