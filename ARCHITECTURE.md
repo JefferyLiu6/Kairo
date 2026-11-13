@@ -29,7 +29,7 @@ api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 | --- | --- | --- |
 | `kairo/api/` | HTTP only: FastAPI app, auth, rate limits | `app.py`, `auth.py` |
 | `kairo/agents/` | Anything that decides what to do with a message | `graph/` (2.0 agent graph), `orchestrator/`, `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
-| `kairo/domains/` | What Kairo can do, declared as typed tools grouped by area | `registry.py`, `tasks.py`, `checks.py`, `catalog.py` |
+| `kairo/domains/` | What Kairo can do, declared as typed tools grouped by area | `registry.py`, `tasks.py`, `schedule.py`, `checks.py`, `catalog.py` |
 | `kairo/tools/` | Actions the agents can take | `executors/`, `calendar/`, `resolvers/`, `memory/`, `web_search.py` |
 | `kairo/storage/` | All SQLite and file persistence | `control_store.py`, `working_memory.py`, `store.py` |
 | `kairo/core/` | Shared foundations, no HTTP and no SQL | `llm.py` (contract gateway), `domain/`, `observability/` |
@@ -148,20 +148,26 @@ Important boundaries:
 With `KAIRO_AGENT=graph`, `/orchestrator/stream` runs
 [`kairo/agents/graph`](apps/api/kairo/agents/graph) instead of the
 orchestrator. Without it, nothing below is used. The graph takes domains over
-one at a time: tasks so far. Everything else is handed, whole, to the
-orchestrator described above.
+one at a time: tasks and the calendar so far. Habits, journal, memory and
+conversation are handed, whole, to the orchestrator described above.
 
 ```mermaid
 flowchart TD
-    A["User message"] --> ING["ingest<br/>injection check, open question,<br/>recent turns"]
+    A["User message"] --> ING["ingest<br/>injection check, what is waiting on the user,<br/>recent turns"]
     ING -->|"approve / reject"| APP["approval<br/>no model"]
     ING --> CO["coordinate<br/>one model call, one tool call"]
-    CO -->|"a tasks tool"| G["gate<br/>schema, date checks"]
-    CO -->|"hand_off, or nothing usable"| OLD["assistant<br/>the orchestrator answers and logs the turn"]
+    CO -->|"a tasks tool"| G["gate<br/>schema, date, time and repeat checks"]
+    CO -->|"hand_off to schedule"| AG["agent<br/>the schedule agent: its own prompt,<br/>tools and view of the calendar"]
+    CO -->|"yes or no to the approval just asked"| APP
+    CO -->|"hand_off to assistant,<br/>or nothing usable"| OLD["assistant<br/>the orchestrator answers and logs the turn"]
     CO -->|"ask_user"| R
-    G -->|"rejected, first time"| CO
+    AG -->|"a calendar tool"| G
+    AG -->|"answer or ask_user"| R
+    AG -->|"hand_back"| OLD
+    G -->|"rejected, first time:<br/>back to whoever proposed"| CO
+    G -->|"rejected, first time"| AG
     G -->|"proposed commands"| ACT["act<br/>approval policy, executors,<br/>read-back"]
-    G -->|"a read, an answer, or a question"| R["respond<br/>reply from receipts"]
+    G -->|"a read, an answer, or a question"| R["respond<br/>reply from receipts;<br/>parks an unanswered question"]
     APP --> R
     ACT --> R
     R --> P["persist<br/>turn memory, decision log with versions"]
@@ -169,39 +175,100 @@ flowchart TD
 
 How it differs from the orchestrated turn:
 
-- **The model proposes; code decides.** `coordinate` is the only node that
-  calls a model. It picks one tool and fills in typed arguments. It has no tool
-  that writes.
+- **A model proposes; code decides.** `coordinate` and `agent` are the only
+  nodes that call a model. Each call picks one tool and fills in typed
+  arguments. No model has a tool that writes.
 - **One parse.** The arguments are the command. Nothing re-reads text
   afterwards, so there is no trigger phrase and no regex extraction on this
   path.
-- **The gate can send a proposal back.** A due date that contradicts the
-  message's own date word ("by friday" proposed as next week's Friday), a date
-  in the past, or arguments that break the schema go back to the model once
-  with the reason. If the second attempt fails too, nothing is stored and the
-  user is asked.
+- **The gate can send a proposal back.** A date or time that contradicts the
+  message's own wording ("by friday" proposed as next week's Friday, "2-3pm"
+  proposed as 3 to 4), a repeat that does not match ("every Monday, Wednesday
+  and Friday" proposed without Friday), a date in the past, an event id that is
+  not on the calendar, or arguments that break the schema go back once, with
+  the reason, to the model that proposed them. If the second attempt fails too,
+  nothing is stored and the user is asked.
 - **Same execution path as before.** `act` uses `submit_action`
-  (`application/approval_flow.py`), the function the typed workflow now uses
-  too: approval policy, approval queue, executors, audit events, receipts.
+  (`application/approval_flow.py`), the function the typed workflow uses too:
+  approval policy, approval queue, executors, audit events, receipts.
 - **A domain says when a request is not its own.** A check can answer "this
-  belongs elsewhere" (a repeating reminder is not a task), and a lookup that
-  finds nothing in the domain's own store hands the turn on, because the thing
-  may be a calendar event or a habit.
-- **One model call per turn** for a tasks request; none for approve or reject.
-- **A question is asked once.** A question the graph asks is kept until the
-  user's next message, shown to the coordinator then, and taken off the table.
-  It cannot capture later messages.
+  belongs to the calendar" (a repeating reminder is not a task) and the graph
+  routes it there. A lookup that finds nothing in the domain's own store is
+  sent back once, and then handed on, because the thing may live elsewhere.
+- **Model calls per turn:** one for a tasks request, two for a calendar
+  request (coordinator, then the schedule agent), none for approve or reject.
+- **An approval can be answered in plain words**, but only right after it was
+  asked: while the approval prompt is the last thing Kairo said and it is the
+  thread's only pending approval, the coordinator may record a yes or no to it.
+  At any other time the user types `approve` or `reject`.
+
+### The schedule agent
+
+The coordinator hands a calendar message to the schedule agent
+([`kairo/domains/schedule.py`](apps/api/kairo/domains/schedule.py)). The agent
+is shown the calendar: the next 14 days day by day, later events, and each
+repeating event's rule, every one with its id. It refers to an event by id, so
+code never has to find an event from a description.
+
+| Tool | Proposes |
+|---|---|
+| `create_events` | `schedule_add`; several events of one message in one call |
+| `update_event` | `schedule_update`; keeps the event's length when only the start moves |
+| `remove_event` | `schedule_remove` |
+| `skip_occurrence` | `schedule_add_exception` for one day of a repeating event |
+| `change_occurrence` | `schedule_add_override` for one day of a repeating event |
+| `end_series` | `schedule_cancel_series_from` |
+| `show_events` | nothing: lists a day or a range, read from the calendar |
+| `answer`, `ask_user`, `hand_back` | nothing: every agent has these three |
+
+Two things are decided by code, not the model: the first day of a daily or
+weekly repeat (the next day it falls on), and whether a new event overlaps
+something already there (said in the reply as a note). An `answer` may describe
+the calendar but may not say that something was added, changed or removed; only
+a receipt can say that.
+
+### Questions
+
+A question the graph asks is stored as a typed `GraphQuestion` (who asked, what
+was asked, which request it was about).
+
+```mermaid
+stateDiagram-v2
+    [*] --> open : an agent, the coordinator or the gate asks
+    open --> answered : the next message goes to whoever asked
+    open --> parked : the next message is about something else
+    parked --> answered : the message after that goes to whoever asked
+    parked --> dropped : it does not
+    answered --> [*]
+    dropped --> [*]
+```
+
+- The question is offered to the next message, with the request it was about,
+  and the completed request is still checked against the wording of both
+  messages ("on saturday", then "3pm").
+- If that message is about something else, it is handled as a new request and
+  the reply ends with `Still open: …`. A parked question is not something the
+  user owes an answer to; it is kept for one more message and then dropped.
+- A request gets at most two questions in a row.
+- A question the orchestrator left open is closed as soon as the graph handles
+  a later message itself.
+
+### The registry
 
 Tools come from a registry (`kairo/domains`). A domain declares its tools as
 `ToolSpec`s: a name, strict typed arguments whose docstring is the description
 shown to the model, an optional `check`, and either `propose` (arguments to
 typed commands) or `read`. `Registry.register` refuses a domain with a missing
-part. A domain runs `inline` (its tools go to the coordinator) or as an `agent`
-(the coordinator hands off); the orchestrator is registered as the `assistant`
-agent domain for everything not yet moved.
+part. A domain runs one of three ways:
 
-The coordinator's prompt and every tool definition it is shown are hashed into
-one bundle version, recorded with each turn in the decision log.
+| Mode | How it runs | Now |
+|---|---|---|
+| `inline` | its tools are given to the coordinator | tasks |
+| `agent` | the coordinator hands off to the domain's own agent: its own prompt, tools and view of its store | schedule |
+| `legacy` | the coordinator hands off to the orchestrator; the one fallback | everything else |
+
+Each model's prompt and every tool definition it is shown are hashed into a
+bundle version, recorded with each turn in the decision log.
 
 ## PM Turn Flow
 
