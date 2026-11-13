@@ -10,7 +10,7 @@
 ![React](https://img.shields.io/badge/React-UI-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-1359%20passing-2ea44f)
-![Blind eval](https://img.shields.io/badge/blind%20eval-97%25%20right-2ea44f)
+![Blind eval](https://img.shields.io/badge/blind%20eval-96%25%20right-2ea44f)
 ![Offline evals](https://img.shields.io/badge/offline%20evals-252%2F252-2ea44f)
 
 Try it out: https://kairo-mu-two.vercel.app
@@ -34,7 +34,7 @@ Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 > The public frontend starts in temporary demo mode by default because the free
 > deployment does not provide durable SQLite storage.
 
-![Kairo demo: natural-language calendar update, approval gate, decision trace, and mobile calendar](docs/demo/kairo-demo.gif)
+![Kairo demo: a calendar change behind an approval, the decision trace, the task list, About me, and the mobile calendar](docs/demo/kairo-demo.gif)
 
 ## Two-Minute Skim
 
@@ -43,7 +43,7 @@ Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 | What is it? | A full-stack Kairo agent for calendar, todos, habits, journal, memory, and Google Calendar sync. |
 | What makes it hard? | Natural-language requests can mutate private personal state, so the system must separate understanding from permission, execution, and auditability. |
 | What did I build? | A React UI, FastAPI backend, an agent graph (coordinator, domain agents, a tool registry, a gate that checks every proposal), approval policy, receipts read back from storage, SQLite persistence, two eval harnesses, security doc, deployment path, and decision-trace panel. |
-| Proof it works | 1359 pytest tests; a blind eval of 117 un-coached messages scored by what ends up stored (97% right, 0–1 wrong saves, 0 trapped turns in the last two runs, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
+| Proof it works | 1359 pytest tests; a blind eval of 117 un-coached messages scored by what ends up stored (96% right, 1 wrong save, 0 trapped turns in the latest run, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
 
 ## Highlights
 
@@ -244,14 +244,15 @@ graph in the UI.
 
 ## Screenshots
 
-These screenshots show the three UI states that matter most for review: normal
-use, safety gating, and inspectability.
+These screenshots show the UI states that matter most for review: safety
+gating, inspectability, the task list beside the calendar, and what is
+remembered.
 
 **Approval Gate**
 
-A destructive calendar request is paused behind an explicit approval prompt.
+A change to the calendar is paused behind an explicit approval card.
 
-![Approval gate for a destructive action](docs/screenshots/approval-gate.png)
+![Approval card for a calendar change](docs/screenshots/approval-gate.png)
 
 **Decision Trace**
 
@@ -260,12 +261,27 @@ are visible from the trace panel.
 
 ![Decision trace observability panel](docs/screenshots/decision-trace.png)
 
+**Tasks and calendar**
+
+Open tasks are grouped by urgency beside the full-screen calendar, and can be
+dragged onto it.
+
+![Task list grouped by urgency beside the calendar](docs/screenshots/calendar-tasks.png)
+
+**About me**
+
+What Kairo remembers about the user, checked against what they asked it to
+remember.
+
+![About me panel listing remembered facts](docs/screenshots/about-me.png)
+
 ## Architecture
 
 Web chat runs on an agent graph
-([`apps/api/kairo/agents/graph`](apps/api/kairo/agents/graph)). Two nodes call a
-model, and a model can only propose: it picks one tool and fills in typed
-arguments. Code does the rest.
+([`apps/api/kairo/agents/graph`](apps/api/kairo/agents/graph)). Two nodes ask a
+model what to do, and a model can only propose: it picks one tool and fills in
+typed arguments. Code does the rest. A third model call, at the end, only
+rewords the reply.
 
 ```mermaid
 flowchart TD
@@ -282,7 +298,8 @@ flowchart TD
     G -->|"read result or question"| R["respond<br/>reply built from receipts"]
     APP --> R
     ACT --> R
-    R --> P["persist<br/>history, decision trace, audit log"]
+    R --> V["voice<br/>small model rewords the reply;<br/>kept only if the facts survive"]
+    V --> P["persist<br/>history, decision trace, audit log"]
     P -. read/write .-> DB["SQLite stores:<br/>app state, open question,<br/>approvals, audit events, traces"]
 ```
 
@@ -294,6 +311,11 @@ flowchart TD
 - **Replies come from storage.** After a write the stores are read back and the
   reply is built from the stored record, so it cannot describe something that
   is not there.
+- **A model words the reply, and cannot change it.** A small model rewords the
+  reply so it sounds like an assistant. The rewording is compared with the
+  original and dropped if a number, time, day, name, quoted text or list item
+  changed, or if it claims a change nothing backs. Approval prompts and failed
+  writes are never reworded, and the other models keep reading the original.
 - **A question is asked once.** It is offered to the next message, parked once
   with a reminder if the user moves on, and then dropped.
 - **Domains are data.** Tasks, habits, journal, calendar, memory and the
@@ -316,16 +338,20 @@ up stored, not by what the reply says.
 117 un-coached messages from 13 simulated personas, written the way people
 type. A turn is right only if the stores afterwards hold what was asked. The
 bar: at least 70% right, at most 2% wrong-but-reported-done, zero trapped
-turns. Last two recorded runs on `gpt-4o-mini`:
+turns. Recorded runs on `gpt-4o-mini`: the path it replaced, the graph before
+the voice pass (two runs), and the graph as it runs now:
 
-| | Previous path | Agent graph, run 1 | Agent graph, run 2 |
+| | Previous path | Agent graph, before the voice pass | Agent graph, now |
 | --- | --- | --- | --- |
-| Right, of scoreable turns | 30% | **97%** | **97%** |
-| Wrong but reported done | 21 turns | 0 | 1 |
+| Right, of scoreable turns | 30% | 97% and 97% | **96%** |
+| Wrong but reported done | 21 turns | 0 and 1 | 1 |
 | Trapped by an old question | 9 turns | 0 | 0 |
-| Model calls per turn | 2.05 | 1.52 | 1.51 |
-| Median reply time | 3.7 s | 1.7 s | 1.7 s |
-| Passes the bar | no | **yes** | **yes** |
+| Model calls per turn | 2.05 | 1.52 and 1.51 | 2.38 |
+| Median reply time | 3.7 s | 1.7 s | 2.6 s |
+| Passes the bar | no | yes | **yes** |
+
+The voice pass rewords each reply with one more model call, which is where the
+extra call and the extra second come from. "Now" is a single run.
 
 What these numbers are not:
 
@@ -334,7 +360,7 @@ What these numbers are not:
   the bar while it was being built.
 - Three personas are held out, and the graph scored 90% on them the first time
   it saw them. Fixes made after that look used those turns, so the holdout
-  share of the 97% is no longer a first look.
+  share of these figures is no longer a first look.
 - The wording checks read English. Messages in other languages rest on the
   model alone.
 

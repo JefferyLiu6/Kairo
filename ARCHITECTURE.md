@@ -173,14 +173,23 @@ flowchart TD
     G -->|"a read, an answer, or a question"| R["respond<br/>reply from receipts;<br/>parks an unanswered question"]
     APP --> R
     ACT --> R
-    R --> P["persist<br/>turn memory, decision log with versions"]
+    R --> V["voice<br/>small model rewords the reply;<br/>kept only if it says the same thing"]
+    V --> P["persist<br/>turn memory keeps the draft,<br/>decision log with versions"]
 ```
 
 How it differs from the orchestrated turn:
 
 - **A model proposes; code decides.** `coordinate` and `agent` are the only
-  nodes that call a model. Each call picks one tool and fills in typed
-  arguments. No model has a tool that writes.
+  nodes whose model decides anything. Each call picks one tool and fills in
+  typed arguments. No model has a tool that writes.
+- **The reply is reworded last, and checked.** `respond` builds the reply from
+  receipts. `voice` (`graph/voice.py`) has the small model (`PM_MODEL`) reword
+  it, and sends the rewording only if `changed_the_facts` finds the same
+  numbers, times, days, months, quoted text, list items and stored names, the
+  same question or none, and no claim of a change that no receipt backs.
+  Approval prompts, unconfirmed writes and refused messages are sent as
+  written. The user reads the rewording; turn memory keeps the draft, so
+  wording cannot change a later decision. `KAIRO_VOICE=off` turns it off.
 - **One parse.** The arguments are the command. Nothing re-reads text
   afterwards, so there is no trigger phrase and no regex extraction on this
   path.
