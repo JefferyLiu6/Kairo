@@ -11,6 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from kairo.core.llm import ContractError, call_contract, to_payload
 from kairo.core.llm_env import build_llm
+from kairo.core.prompt import record_prompt
 from kairo.core.observability.tracing import mark_contract_error, mark_fallback, tag_turn, traced
 from kairo.agents.personal_manager.agent import PMConfig, astream_pm
 from kairo.core.domain.approval_response import has_pending_approval
@@ -69,6 +70,7 @@ def _llm(config: OrchestratorConfig, *, fast: bool = False):
 # Not traced as its own run: LangChain already records the model call under its stage.
 @observed("llm_invoke", trace=False)
 def _invoke(llm: Any, system: str, user: str) -> str:
+    record_prompt(system)
     response = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
     usage = getattr(response, "usage_metadata", None) or {}
     emit("llm_usage", input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"))
@@ -244,6 +246,7 @@ def _humanize(
 @observed("direct_reply")
 def _direct_reply(message: str, memory_ctx: str, config: OrchestratorConfig) -> str:
     llm = _llm(config)
+    record_prompt(ORCHESTRATOR_SYSTEM)  # the version of the fixed part; context is appended per turn
     system = f"{ORCHESTRATOR_SYSTEM}\n\n## Current context\n{memory_ctx}"
     return _invoke(llm, system, message)
 

@@ -12,6 +12,7 @@ import threading
 from typing import Any
 
 from kairo.core.llm_env import build_llm, has_api_key
+from kairo.core.prompt import prompt_template, record_prompt
 
 from kairo.storage.profile import mark_reconciled, read_profile, write_profile_atomic
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 _recon_lock = threading.Lock()
 
-_RECONCILE_PROMPT = """\
+_RECONCILE_PROMPT = prompt_template("reconcile_profile", """\
 You are a personal profile editor. The profile below may contain contradictions, \
 duplicates, or inconsistently formatted facts about the same person.
 
@@ -36,7 +37,7 @@ keep only the LATER one — it is the more recent and accurate belief.
 7. Return ONLY the cleaned profile — no commentary, no explanation, no diff markers.
 
 Current profile:
-{profile_text}"""
+$profile_text""")
 
 
 def reconcile_profile(
@@ -77,7 +78,9 @@ def _do_reconcile(
             getattr(config, "api_key", None),
             getattr(config, "base_url", None),
         )
-        result = llm.invoke(_RECONCILE_PROMPT.format(profile_text=profile_text))
+        rendered = _RECONCILE_PROMPT.render(profile_text=profile_text)
+        record_prompt(rendered)
+        result = llm.invoke(rendered)
         cleaned = str(getattr(result, "content", result)).strip()
     except Exception as exc:
         logger.warning("Profile reconciliation LLM call failed: %s", exc)

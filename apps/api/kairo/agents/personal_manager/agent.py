@@ -55,55 +55,10 @@ from kairo.core.domain.session import normalize_pm_session_id
 from kairo.storage.control_store import append_conversation_turn, list_conversation_turns
 from kairo.storage.decision_log import TurnDecision
 from kairo.agents.personal_manager.workflow import run_typed_pm_turn
+from kairo.core.prompt import prompt, record_prompt
 
-_SYSTEM_PROMPT_VERSION = "pm-v2"
 
-_SYSTEM_PROMPT = """\
-You are a personal chief-of-staff assistant — a trusted EA and life-management partner.
-
-Your responsibilities: scheduling, personal preferences, habits, goals, active plans,
-private notes, journal, and supportive conversation.
-
-## Confidentiality (highest priority)
-- Sensitive information → store with manager_private (default when unsure)
-- Non-sensitive preferences (e.g., "prefers dark mode") → use remember (shared with default chat)
-- Working notes not sensitive → manager_note
-- Journal entries (reflections, feelings, private thoughts) → manager_journal
-- NEVER include raw private details in a web_search query. Minimise what you leak externally.
-
-## Calendar rule
-For ANY time-based request (add event, reschedule, remove event) you MUST call
-manager_schedule — never return a markdown-only reply.
-
-## Todo rule
-For ANY task/todo request (add task, mark done, remove task, show tasks) you MUST call
-manager_todo — never return a markdown-only reply.
-
-## Habit rule
-For ANY habit/routine request (add habit, check in, show streak, list habits) you MUST call
-manager_habit — never return a markdown-only reply.
-
-## Journal rule
-For ANY journal request (write entry, log reflection, read journal) you MUST call
-manager_journal — never return a markdown-only reply.
-
-## State classification
-| Sensitive (manager_private) | Non-sensitive (remember)  | Journal (manager_journal)  |
-|-----------------------------|---------------------------|---------------------------|
-| Medical, financial, legal   | Tool/app preferences      | Daily reflections          |
-| Relationship details        | Communication style prefs | Mood / feelings            |
-| Private goals/fears         | Public interests/hobbies  | Private thoughts           |
-| Daily routines              | Language/format prefs     | End-of-day reviews         |
-
-## Emotional support
-You are a supportive coach and EA — not a therapist. Validate feelings and offer
-concrete next steps. For crisis situations, refer to professional resources.
-
-## Response style
-Concise and action-oriented. When you update state, confirm what changed.
-"""
-
-_FALLBACK_SYSTEM_PROMPT = """\
+_FALLBACK_SYSTEM_PROMPT = prompt("pm_fallback", """\
 You are a personal chief-of-staff assistant in conversation-only mode.
 
 You can help the user think through priorities, emotions, tradeoffs, routines,
@@ -126,7 +81,7 @@ a concrete example. For schedule creation the required fields are event name + d
 
 Use the provided context only to support the answer. Do not dump raw private
 context unless the user specifically asks for it. Keep replies concise.
-"""
+""")
 
 
 @dataclasses.dataclass
@@ -319,6 +274,7 @@ def _run_pm_react(message: str, config: PMConfig) -> str:
         tools: list[Any] = []
         llm = build_llm(config.provider, config.model, config.api_key, config.base_url)
 
+        record_prompt(_FALLBACK_SYSTEM_PROMPT)
         system = SystemMessage(content=f"{_FALLBACK_SYSTEM_PROMPT}\n\n{_build_context_block(config)}")
         agent = create_react_agent(llm, tools, prompt=system, checkpointer=checkpointer)
 
@@ -373,7 +329,7 @@ def _run_pm_react(message: str, config: PMConfig) -> str:
         d.persist(config.data_dir)
 
 
-_PASSIVE_EXTRACTION_PROMPT = """\
+_PASSIVE_EXTRACTION_PROMPT = prompt("passive_fact", """\
 Analyze this message and decide whether it contains a personal fact worth saving to long-term memory.
 
 A fact worth saving: a genuine preference, dislike, interest, hobby, or biographical detail the speaker
@@ -392,7 +348,7 @@ Respond with a single JSON object and no other text:
 }
 
 Storage rules — use "private" for: health, medical, finance, daily routines, relationships.
-Use "profile" for: hobbies, interests, food, sports, general likes/dislikes."""
+Use "profile" for: hobbies, interests, food, sports, general likes/dislikes.""")
 
 _MIN_PASSIVE_CONFIDENCE = 0.72
 
@@ -463,6 +419,7 @@ async def astream_pm(
     tools: list[Any] = []
     llm = build_llm(config.provider, config.model, config.api_key, config.base_url)
 
+    record_prompt(_FALLBACK_SYSTEM_PROMPT)
     system = SystemMessage(content=f"{_FALLBACK_SYSTEM_PROMPT}\n\n{_build_context_block(config)}")
     agent = create_react_agent(llm, tools, prompt=system, checkpointer=checkpointer)
 
