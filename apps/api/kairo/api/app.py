@@ -30,7 +30,7 @@ from kairo.tools.calendar.service import CalendarService, CalendarWriteUnavailab
 from kairo.storage.calendar_store import disconnect_calendar_account, list_calendar_accounts, upsert_calendar_account
 from kairo.storage.control_store import get_approval_request, list_approval_requests, list_audit_events, list_all_audit_events
 from kairo.storage.decision_log import list_turn_decisions, list_all_turn_decisions
-from kairo.storage.store import ScheduleData, get_upcoming_events, load_schedule as _load_schedule, save_schedule as _save_schedule
+from kairo.storage.store import ScheduleData, get_upcoming_events, load_schedule as _load_schedule, load_todos as _load_todos, save_schedule as _save_schedule
 from kairo.agents.personal_manager.workflow import approve_pm_request, normalize_pm_session_id, reject_pm_request
 from kairo.storage.user_store import User, consume_user_credit, init_users_db
 from kairo.api.auth import is_valid_csrf_token, require_user, router as auth_router
@@ -537,6 +537,19 @@ def get_pm_upcoming(request: Request, sessionId: str = "default", days: int = 1)
     user = require_user(request)
     events = get_upcoming_events(user.id, _service_data_dir(), days=max(1, min(days, 30)))
     return {"events": events}
+
+
+@app.get("/personal-manager/tasks")
+def get_pm_tasks(request: Request):
+    """The user's open tasks, for the calendar's task list. Read-only: tasks are
+    added, completed and removed through the agent, which asks before it deletes."""
+    user = require_user(request)
+    try:
+        todos = _load_todos(user.id, _service_data_dir())
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"tasks": [{"id": item.id, "title": item.title, "due": item.due}
+                      for item in todos.items if not item.done]}
 
 
 class PetStateRequest(BaseModel):

@@ -40,12 +40,13 @@ export function ApprovalCard({ id, summary, risk, onAction, disabled }: Props) {
       <p className="approval-summary">{summary}</p>
 
       {chosen ? (
-        <div className={`approval-result approval-result-${chosen}`}>
+        <div className={`approval-result approval-result-${chosen}`} role="status">
           {chosen === "approve" ? "✓ Approved" : "✗ Rejected"}
         </div>
       ) : (
         <div className="approval-actions">
           <button
+            type="button"
             className="approval-btn approval-btn-approve"
             onClick={() => handle("approve")}
             disabled={disabled}
@@ -53,6 +54,7 @@ export function ApprovalCard({ id, summary, risk, onAction, disabled }: Props) {
             ✓ Approve
           </button>
           <button
+            type="button"
             className="approval-btn approval-btn-reject"
             onClick={() => handle("reject")}
             disabled={disabled}

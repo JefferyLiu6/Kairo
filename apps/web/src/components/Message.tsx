@@ -12,7 +12,7 @@ type Props = {
 function PmIcon() {
   return (
     <div className="message-label-icon">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
           d="M12 2L13.5 8.5L20 10L13.5 11.5L12 18L10.5 11.5L4 10L10.5 8.5Z"
           stroke="var(--teal)"
@@ -44,16 +44,17 @@ export function Message({ message, onAction, onSpeak }: Props) {
       )}
       <div className={approval ? "message-bubble message-bubble-approval" : "message-bubble"}>
         {isUser ? (
-          <span style={{ whiteSpace: "pre-wrap" }}>
+          <span className="message-user-text">
             {message.content.replace(/^(approve|reject)\s+[a-f0-9]{6,12}$/i, (_match, action) =>
               action.charAt(0).toUpperCase() + action.slice(1)
             )}
           </span>
         ) : message.streaming && message.content === "" ? (
           <div className="thinking">
-            <div className="thinking-dots">
+            <div className="thinking-dots" aria-hidden="true">
               <span /><span /><span />
             </div>
+            <span className="sr-only">Kairo is thinking</span>
           </div>
         ) : approval ? (
           <ApprovalCard
@@ -77,7 +78,7 @@ export function Message({ message, onAction, onSpeak }: Props) {
                 aria-label="Read aloud"
                 title="Read aloud"
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M11 5L6 9H2v6h4l5 4V5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
                   <path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
                 </svg>

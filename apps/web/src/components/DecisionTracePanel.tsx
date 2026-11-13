@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   fetchPmDecisions,
   fetchPmAuditEvents,
   type TurnDecision,
   type AuditEvent,
 } from "../api";
+import { useModalDialog } from "../hooks/useModalDialog";
 
 type Props = {
   sessionId: string;
@@ -48,6 +49,7 @@ function confidenceBand(c: number): string {
 
 function DecisionCard({ d }: { d: TurnDecision }) {
   const [open, setOpen] = useState(false);
+  const bodyId = useId();
   const primary = d.intentTrace.tasks[0];
   const intentLabel = primary ? primary.intent : "—";
 
@@ -58,6 +60,7 @@ function DecisionCard({ d }: { d: TurnDecision }) {
         className="trace-card-header"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
       >
         <div className="trace-card-header-main">
           <div className="trace-card-preview">{d.messagePreview || "(empty turn)"}</div>
@@ -78,11 +81,11 @@ function DecisionCard({ d }: { d: TurnDecision }) {
             </span>
           </div>
         </div>
-        <span className="trace-caret" aria-hidden>{open ? "▾" : "▸"}</span>
+        <span className="trace-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
       </button>
 
       {open && (
-        <div className="trace-card-body">
+        <div className="trace-card-body" id={bodyId}>
           <Section title="Extraction">
             <div className="trace-kv">
               <span className="trace-k">source</span>
@@ -243,10 +246,14 @@ export function DecisionTracePanel({ sessionId, onClose, refreshNonce }: Props) 
   const [decisions, setDecisions] = useState<TurnDecision[]>([]);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const panelRef = useModalDialog<HTMLDivElement>(onClose);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(false);
     Promise.all([
       fetchPmDecisions(sessionId, 50),
       fetchPmAuditEvents(sessionId, 100),
@@ -256,70 +263,113 @@ export function DecisionTracePanel({ sessionId, onClose, refreshNonce }: Props) 
         setDecisions(d);
         setAudit(a);
       })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [sessionId, refreshNonce]);
+  }, [sessionId, refreshNonce, retryNonce]);
 
-  const counts = useMemo(
-    () => ({ decisions: decisions.length, audit: audit.length }),
-    [decisions, audit],
-  );
+  // Arrow keys move between tabs, per the WAI-ARIA tabs pattern.
+  function handleTabKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const next: Tab = tab === "decisions" ? "audit" : "decisions";
+    setTab(next);
+    document.getElementById(`trace-tab-${next}`)?.focus();
+  }
 
   return (
     <div className="history-overlay" onClick={onClose}>
-      <div className="history-panel trace-panel" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={panelRef}
+        className="history-panel trace-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="trace-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="history-header">
-          <span className="history-title">Decision Trace</span>
+          <h2 className="history-title" id="trace-title">Decision trace</h2>
           <div className="history-header-actions">
-            <div className="trace-tabs" role="tablist">
+            <div className="trace-tabs" role="tablist" aria-label="Trace view" onKeyDown={handleTabKeyDown}>
               <button
+                type="button"
                 role="tab"
+                id="trace-tab-decisions"
                 aria-selected={tab === "decisions"}
+                aria-controls="trace-tabpanel"
+                tabIndex={tab === "decisions" ? 0 : -1}
                 className={`trace-tab ${tab === "decisions" ? "active" : ""}`}
                 onClick={() => setTab("decisions")}
               >
-                Turns <span className="trace-tab-count">{counts.decisions}</span>
+                Turns <span className="trace-tab-count">{decisions.length}</span>
               </button>
               <button
+                type="button"
                 role="tab"
+                id="trace-tab-audit"
                 aria-selected={tab === "audit"}
+                aria-controls="trace-tabpanel"
+                tabIndex={tab === "audit" ? 0 : -1}
                 className={`trace-tab ${tab === "audit" ? "active" : ""}`}
                 onClick={() => setTab("audit")}
               >
-                Audit <span className="trace-tab-count">{counts.audit}</span>
+                Audit <span className="trace-tab-count">{audit.length}</span>
               </button>
             </div>
-            <button className="history-close" onClick={onClose} aria-label="Close">✕</button>
+            <button type="button" className="history-close" onClick={onClose} aria-label="Close decision trace">
+              <span aria-hidden="true">✕</span>
+            </button>
           </div>
         </div>
 
-        {loading ? (
-          <div className="history-empty">Loading…</div>
-        ) : tab === "decisions" ? (
-          decisions.length === 0 ? (
-            <div className="history-empty">
-              No turns recorded yet. Send a Kairo message to generate a trace.
+        <div
+          className="trace-tabpanel"
+          role="tabpanel"
+          id="trace-tabpanel"
+          aria-labelledby={`trace-tab-${tab}`}
+        >
+          {loading ? (
+            <div className="history-empty" role="status">Loading trace…</div>
+          ) : loadError ? (
+            <div className="history-empty" role="alert">
+              <p>Couldn't load the decision trace.</p>
+              <button
+                type="button"
+                className="history-retry-btn"
+                onClick={() => setRetryNonce((n) => n + 1)}
+              >
+                Try again
+              </button>
             </div>
+          ) : tab === "decisions" ? (
+            decisions.length === 0 ? (
+              <div className="history-empty">
+                No turns recorded yet. Send Kairo a message to generate a trace.
+              </div>
+            ) : (
+              <div className="trace-list">
+                {decisions.map((d) => (
+                  <DecisionCard key={d.id} d={d} />
+                ))}
+              </div>
+            )
+          ) : audit.length === 0 ? (
+            <div className="history-empty">No audit events for this session.</div>
           ) : (
-            <div className="trace-list">
-              {decisions.map((d) => (
-                <DecisionCard key={d.id} d={d} />
+            <div className="trace-audit-list">
+              {audit.map((e) => (
+                <AuditRow key={e.id} e={e} />
               ))}
             </div>
-          )
-        ) : audit.length === 0 ? (
-          <div className="history-empty">No audit events for this session.</div>
-        ) : (
-          <div className="trace-audit-list">
-            {audit.map((e) => (
-              <AuditRow key={e.id} e={e} />
-            ))}
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
