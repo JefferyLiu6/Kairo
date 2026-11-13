@@ -7,7 +7,7 @@ from kairo.storage.control_store import list_approval_requests
 from kairo.storage.decision_log import list_turn_decisions
 from kairo.storage.store import RecurrenceRule, ScheduleData, ScheduleEntry, load_schedule, save_schedule
 
-from tests.graph.conftest import THREAD, USER, call, item, todos
+from tests.graph.conftest import THREAD, USER, call, item, say, todos
 
 TO_SCHEDULE = call("hand_off", domain="schedule")
 
@@ -202,13 +202,14 @@ def test_no_right_after_the_approval_prompt_rejects_it(chat):
 
 def test_approving_in_plain_words_is_only_offered_right_after_the_prompt(chat):
     move_discovery_call(chat)
-    chat.model.extend([call("add_todos", items=[item("buy milk")]), call("decide_approval", decision="approve")])
+    chat.model.extend([call("add_todos", items=[item("buy milk")]), call("decide_approval", decision="approve"),
+                       say("Yes to what? Say 'approve' to go ahead with the pending change.")])
     chat("add todo buy milk")
 
     reply = chat("Yes please")
 
     assert "decide_approval" not in chat.asked[3]["tools"]          # the prompt is no longer the last thing said
-    assert reply.startswith("(old assistant)")                      # a call the graph did not offer is not obeyed
+    assert reply.startswith("Yes to what?")                         # a call the graph did not offer is not obeyed
     assert len(list_approval_requests(USER, chat.data_dir, status="pending")) == 1
 
 
@@ -296,25 +297,12 @@ def test_an_answer_that_keeps_claiming_a_change_is_replaced_with_the_truth(chat)
 
 
 def test_the_agent_can_hand_back_what_is_not_about_the_calendar(chat):
-    chat.model.extend([TO_SCHEDULE, call("hand_back")])
-    assert chat("I did my morning run") == "(old assistant) I did my morning run"
+    chat.model.extend([TO_SCHEDULE, call("hand_back"), say("That isn't on your calendar.")])
+    assert chat("I did my morning run") == "That isn't on your calendar."
+    assert [asked["prompt"] for asked in chat.asked] == ["coordinator", "schedule_agent", "assistant_agent"]
 
 
-# ── Living alongside the previous assistant ───────────────────────────────────
-
-def test_a_question_the_old_assistant_left_open_is_closed_once_the_graph_handles_a_later_message(chat):
-    from kairo.agents.personal_manager.application import clarification
-    from kairo.agents.personal_manager.application.pending_reply import load_open_question
-    from kairo.core.domain.types import PMIntent
-
-    clarification._save_pending(THREAD, chat.data_dir, PMIntent.CREATE_SCHEDULE_EVENT, {"title": "gym"},
-                                ["start"], user_id=USER)
-    chat.model.extend([TO_SCHEDULE, call("show_events", from_date="2026-11-13", to_date="2026-11-13")])
-
-    chat("what's on tomorrow")
-
-    assert load_open_question(THREAD, chat.data_dir, user_id=USER) is None      # it cannot capture a later message
-
+# ── What is recorded ──────────────────────────────────────────────────────────
 
 def test_a_calendar_turn_is_logged_with_the_agent_that_handled_it(chat):
     chat.model.extend([TO_SCHEDULE, create(event("board prep session", "2026-11-17", "15:00"))])

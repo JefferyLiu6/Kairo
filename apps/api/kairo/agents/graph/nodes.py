@@ -26,10 +26,10 @@ from pydantic import ValidationError
 
 from kairo.agents.graph.prompts import COORDINATOR
 from kairo.agents.graph.state import GraphState
-from kairo.agents.orchestrator.agent import OrchestratorConfig, astream_orchestrator
+from kairo.agents.orchestrator.agent import OrchestratorConfig
 from kairo.agents.orchestrator.memory import get_working_memory
 from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat, stored_read_back, submit_action
-from kairo.agents.personal_manager.application.pending_reply import approval_verb, load_open_question, route_message
+from kairo.agents.personal_manager.application.pending_reply import approval_verb, route_message
 from kairo.agents.personal_manager.extractors.intent import _looks_like_injection
 from kairo.core.domain.pending import GraphQuestion
 from kairo.core.domain.session import normalize_pm_session_id
@@ -39,7 +39,7 @@ from kairo.core.prompt import Prompt, prompts_used, record_prompt
 from kairo.domains.catalog import DOMAINS
 from kairo.domains.checks import calendar_hint
 from kairo.domains.registry import Answer, DomainSpec, NotThisDomain, Proposed, ToolContext
-from kairo.storage.control_store import list_approval_requests
+from kairo.storage.control_store import append_conversation_turn, list_approval_requests
 from kairo.storage.decision_log import log_orchestrator_turn
 from kairo.storage.working_memory import clear_active_working_memory, load_active_working_memory, save_working_memory
 from kairo.tools.receipts import collecting, read_back_reply
@@ -48,12 +48,14 @@ from kairo.utils.clock import local_now
 logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 2          # each model gets one retry after its call is sent back
+MAX_AGENT_CALLS = 3       # an agent that looks something up may be called this often in one turn
 MAX_ROUNDS = 2            # questions in a row about one request before the user is left to restate it
 HISTORY_TURNS = 6
 COORDINATOR_NAME = "coordinator"
 _GRAPH_QUESTION = "graph"  # working-memory source for a question this graph asked
 _REFUSAL = "I can't take instructions embedded inside a user message. Please rephrase in your own words."
 _NOTHING_CHANGED = "I haven't changed anything. Could you say what you'd like me to do, with the day and time?"
+_LOST = "I couldn't finish that. Could you say it another way?"
 _RETRY = ("(Your last tool call was not accepted: {reason}. Call a tool again with that fixed, {other}"
           "or call ask_user if the message does not say.)")
 
@@ -79,12 +81,9 @@ _ASK_USER = _function("ask_user", "Ask the user one question when you cannot tel
 _DECIDE_APPROVAL = _function(
     "decide_approval", "Record the user's yes or no to the approval they were just asked for.",
     {"decision": {"type": "string", "enum": ["approve", "reject"]}})
-_AGENT_TOOLS = [
-    _function("answer", "Answer a question in words, from what you were shown. Never say that something was "
-                        "added, changed or removed.", {"text": {"type": "string"}}),
-    _ASK_USER,
-    _function("hand_back", "Give the message back when it is not about your domain.", {}),
-]
+_ANSWER = _function("answer", "Answer in words, from what you were shown. Never say that something was added, "
+                              "changed or removed.", {"text": {"type": "string"}})
+_HAND_BACK = _function("hand_back", "Give the message back when it is not about your domain.", {})
 
 
 def coordinator_tools(*, approval_offered: bool = False) -> list[dict[str, Any]]:
@@ -99,8 +98,9 @@ def coordinator_tools(*, approval_offered: bool = False) -> list[dict[str, Any]]
 
 
 def agent_tools(domain: DomainSpec) -> list[dict[str, Any]]:
-    """A domain agent's own tools, then the three every agent has: answer, ask_user and hand_back."""
-    return [tool.schema() for tool in domain.tools] + _AGENT_TOOLS
+    """A domain agent's own tools, then the ones every agent has: answer, ask_user and hand_back.
+    The catch-all agent has nobody to hand back to."""
+    return [tool.schema() for tool in domain.tools] + [_ANSWER, _ASK_USER] + ([] if domain.catch_all else [_HAND_BACK])
 
 
 def _hash(*shown: Any) -> str:
@@ -112,7 +112,7 @@ def bundle_versions() -> dict[str, str]:
     versions = {COORDINATOR_NAME: _hash(COORDINATOR.version, [d.guidance.version for d in DOMAINS.inline_domains()],
                                         coordinator_tools(approval_offered=True))}
     for domain in DOMAINS.agent_domains():
-        versions[domain.name] = _hash(domain.bundle(), _AGENT_TOOLS)
+        versions[domain.name] = _hash(domain.bundle(), agent_tools(domain)[len(domain.tools):])
     return versions
 
 
@@ -163,6 +163,7 @@ def _clock(state: GraphState) -> str:
 
 def _turns(state: GraphState, *, other: str = "") -> list[tuple[str, str]]:
     turns = [*state.get("history", []), ("user", state["message"])]
+    turns += [("user", finding) for finding in state.get("findings", [])]
     if state.get("rejection"):
         turns.append(("user", _RETRY.format(reason=state["rejection"], other=other)))
     return turns
@@ -233,9 +234,6 @@ def _coordinator_notes(state: GraphState) -> str:
     elif question:
         notes.append(f"You {'asked the user earlier' if question['parked'] else 'just asked the user'}: "
                      f"\"{question['prompt']}\" Their message may be the answer.")
-    if state.get("legacy_question"):
-        notes.append("The assistant is waiting for an answer to a question it asked (see the last assistant "
-                     "message). If this message answers it, call hand_off with domain assistant.")
     if state.get("offer"):
         notes.append(f"The user was just asked to approve this: \"{state['offer']['summary']}\". If this message "
                      "says yes or no to that, call decide_approval. Anything else is a new request.")
@@ -263,21 +261,20 @@ async def ingest(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     user, thread = _ids(cfg)
     message = state["message"]
     update: dict[str, Any] = {"now": local_now(), "attempts": 0, "agent_attempts": 0, "rejection": None,
-                              "question": None, "legacy_question": False, "offer": None, "history": []}
+                              "question": None, "offer": None, "history": []}
 
     # A question this graph asked is taken off the table now and decided on at the end of the turn.
-    # A question the previous assistant asked is left for it; the coordinator is told one is open.
+    # One left open by the assistant that ran before the graph is closed: nobody here can resume it,
+    # and it must not capture a later message.
     record = load_active_working_memory(thread, cfg.data_dir, user_id=user)
-    theirs = None
-    if record is not None and record.source == _GRAPH_QUESTION:
-        clear_active_working_memory(thread, cfg.data_dir, user_id=user, status="resolved")
-        try:
-            update["question"] = GraphQuestion.model_validate(record.payload).model_dump(mode="json")
-        except ValidationError:
-            logger.warning("dropped an unreadable graph question in thread %s", thread)
-    else:
-        theirs = load_open_question(thread, cfg.data_dir, user_id=user)
-        update["legacy_question"] = theirs is not None
+    if record is not None:
+        mine = record.source == _GRAPH_QUESTION
+        clear_active_working_memory(thread, cfg.data_dir, user_id=user, status="resolved" if mine else "replaced")
+        if mine:
+            try:
+                update["question"] = GraphQuestion.model_validate(record.payload).model_dump(mode="json")
+            except ValidationError:
+                logger.warning("dropped an unreadable graph question in thread %s", thread)
 
     if _looks_like_injection(message):
         return {**update, "notes": [_REFUSAL], "route": "respond"}
@@ -285,7 +282,7 @@ async def ingest(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     update["history"] = [(turn["role"], turn["content"]) for turn in turns]
     update["offer"] = _approval_on_offer(cfg, update["history"])
     update["route"] = "coordinate"
-    if route_message(message, theirs) == "approval_command":
+    if route_message(message, None) == "approval_command":
         update["route"] = "approval"
         if update["offer"] and " " not in message.strip():
             # A bare approve or reject right after a prompt answers that prompt.
@@ -337,9 +334,8 @@ async def coordinate(state: GraphState, config: RunnableConfig) -> dict[str, Any
     target = DOMAINS.domain(str(args.get("domain", ""))) if name == "hand_off" else None
     if target is not None and target.mode == "agent":
         return {**update, "domain": target.name, "route": "agent"}
-    # A hand-off to the assistant, no call, or a call the graph did not offer: the assistant that
-    # was there before takes the message.
-    return {**update, "route": "assistant"}
+    # No call, or a call the graph did not offer: the catch-all agent takes the message.
+    return {**update, **_to_catch_all()}
 
 
 async def agent(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
@@ -367,15 +363,18 @@ async def agent(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
         text = str(args["text"]).strip()
         if not _CLAIMS_A_CHANGE.search(text):
             return {**update, "notes": [text], "route": "respond"}
-        if attempts < MAX_ATTEMPTS:
+        if attempts < MAX_ATTEMPTS + (1 if state.get("findings") else 0):
             return {**update, "route": "agent",
                     "rejection": "an answer cannot say that something was or will be added, changed or removed; "
                                  "to change anything, call the tool that proposes it"}
         return {**update, "notes": [_NOTHING_CHANGED], "route": "respond"}
     if name in {tool.name for tool in spec.tools}:
         return {**update, "route": "gate"}
-    # hand_back, no call, or a call this agent was not offered.
-    return {**update, "handler": None, "route": "assistant"}
+    # hand_back, no call, or a call this agent was not offered: the catch-all agent takes the message,
+    # unless this is the catch-all, in which case there is nothing left but to say so.
+    if spec.catch_all:
+        return {**update, "notes": [_LOST], "route": "respond"}
+    return {**update, **_to_catch_all()}
 
 
 async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
@@ -385,6 +384,7 @@ async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     call = state["call"]
     by_agent = state.get("proposer", COORDINATOR_NAME) != COORDINATOR_NAME
     attempts = state.get("agent_attempts" if by_agent else "attempts", 0)
+    limit = MAX_ATTEMPTS + (1 if state.get("findings") else 0)   # an agent that looked something up gets one more call
     back = "agent" if by_agent else "coordinate"
     spec, owner = DOMAINS.tool(call["name"]), DOMAINS.domain_of(call["name"])
     ctx = _context(state, cfg, owner.name)
@@ -397,7 +397,7 @@ async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     else:
         problem = spec.check(args, ctx) if spec.check else None
     if problem:
-        if attempts < MAX_ATTEMPTS:
+        if attempts < limit:
             return {"rejection": str(problem), "route": back}
         if isinstance(problem, NotThisDomain):
             return _send_elsewhere(problem.to, owner.name)   # the model kept it; the check says where it belongs
@@ -409,12 +409,17 @@ async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
 
     if spec.kind == "read":
         return {"notes": [spec.read(args, ctx)], "route": "respond"}
+    if spec.kind == "lookup":
+        # The result goes back to the agent that asked, which then answers. It cannot look things up forever.
+        if not by_agent or attempts >= MAX_AGENT_CALLS:
+            return {"notes": [_LOST], "route": "respond"}
+        return {"findings": [f"(Result of {spec.name}: {spec.read(args, ctx)})"], "route": "agent"}
     proposal = spec.propose(args, ctx)
     if isinstance(proposal, Answer):
         if proposal.elsewhere:
             # Not in this domain's store. It may live in another one, so the model is told once;
             # if it insists, the assistant with the whole picture answers.
-            if attempts < MAX_ATTEMPTS:
+            if attempts < limit:
                 return {"rejection": f"{proposal.text} If it is something else (a habit, a calendar event), use "
                                      "the tool or hand-off for that instead", "route": back}
             return _send_elsewhere("", owner.name)
@@ -426,11 +431,19 @@ async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
 
 
 def _send_elsewhere(to: str, sender: str) -> dict[str, Any]:
-    """Route a request its domain turned away: to the named domain's agent if there is one, else the assistant."""
+    """Route a request its domain turned away: to the named domain's agent if there is one, else the catch-all."""
     target = DOMAINS.domain(to)
     if target is not None and target.mode == "agent" and target.name != sender:
         return {"domain": target.name, "agent_attempts": 0, "rejection": None, "route": "agent"}
-    return {"handler": None, "route": "assistant"}
+    return _to_catch_all()
+
+
+def _to_catch_all() -> dict[str, Any]:
+    """Send the message to the agent that takes whatever nobody else can place."""
+    catch_all = DOMAINS.fallback()
+    if catch_all is None:
+        return {"notes": [_LOST], "route": "respond"}
+    return {"domain": catch_all.name, "agent_attempts": 0, "rejection": None, "route": "agent"}
 
 
 async def act(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
@@ -444,22 +457,6 @@ async def act(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
             _, result = submit_action(action, cfg.pm_config(), user, thread_id=thread, intent=state["call"]["name"])
             (approvals if result.get("pending") else results).append(str(result["message"]))
     return {"receipts": made.receipts, "approvals": approvals, "results": results}
-
-
-async def assistant(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
-    """Hand the whole turn to the assistant that existed before the graph. It answers, remembers and logs it."""
-    cfg = _config(config)
-    user, thread = _ids(cfg)
-    reply = ""
-    async for kind, value in astream_orchestrator(state["message"], cfg):
-        if kind == "done":
-            reply = value
-    # A graph question that was open is parked, unless the assistant has just asked something itself.
-    if load_active_working_memory(thread, cfg.data_dir, user_id=user) is None:
-        reminder = _park(state, cfg)
-        if reminder:
-            reply = f"{reply}\n\n{reminder}"
-    return {"reply": reply, "handled_by_assistant": True}
 
 
 async def respond(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
@@ -478,19 +475,13 @@ async def respond(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
 async def persist(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     cfg = _config(config)
     user, thread = _ids(cfg)
-    # The graph answered this turn itself, so a question the previous assistant left open is over:
-    # the user has moved on, and it must not capture a later message.
-    if state.get("legacy_question"):
-        record = load_active_working_memory(thread, cfg.data_dir, user_id=user)
-        if record is not None and record.source != _GRAPH_QUESTION:
-            clear_active_working_memory(thread, cfg.data_dir, user_id=user, status="replaced")
-
     memory = get_working_memory(user, thread, cfg.data_dir)
     receipts = state.get("receipts", [])
     if receipts:
         memory.invalidate_pm_cache()
     memory.add_turn("user", state["message"])
     memory.add_turn("assistant", state["reply"])
+    append_conversation_turn(user, thread, cfg.data_dir, state["message"], state["reply"])   # the history the web app shows
     call = state.get("call") or {}
     by = state.get("handler") or COORDINATOR_NAME
     tool = "approval" if by == "approval" else (call.get("name") or "none")

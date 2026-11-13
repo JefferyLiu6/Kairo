@@ -46,11 +46,17 @@ def garden(*tools, **overrides) -> DomainSpec:
 
 
 GARDENER = PromptTemplate("test_gardener", "You look after the garden.\n$context")
-EVERYTHING_ELSE = DomainSpec(name="assistant", summary="Everything else.", mode="legacy")
 
 
 def garden_agent(*tools, **overrides) -> DomainSpec:
     return garden(*tools, **{"mode": "agent", "prompt": GARDENER, "context": lambda ctx: "fern, cactus", **overrides})
+
+
+def lookup_tool() -> ToolSpec:
+    return ToolSpec(name="look_up", kind="lookup", args=ListPlants, read=lambda args, ctx: "found it")
+
+
+EVERYTHING_ELSE = garden_agent(lookup_tool(), name="assistant", summary="Everything else.", catch_all=True)
 
 
 def test_a_tool_becomes_a_strict_function_definition_named_for_the_model():
@@ -68,8 +74,8 @@ def test_registered_tools_are_found_by_name_and_grouped_by_how_the_domain_runs()
 
     assert registry.tool("water_plant").kind == "propose"
     assert [tool.name for tool in registry.inline_tools()] == ["water_plant", "list_plants"]
-    assert [domain.name for domain in registry.agent_domains()] == ["orchard"]
-    assert [domain.name for domain in registry.hand_off_domains()] == ["orchard", "assistant"]
+    assert [domain.name for domain in registry.agent_domains()] == ["orchard", "assistant"]
+    assert [domain.name for domain in registry.hand_off_domains()] == ["orchard", "assistant"]   # the catch-all last
     assert registry.fallback().name == "assistant"
     assert registry.domain("orchard").mode == "agent" and registry.domain("nowhere") is None
     assert registry.domain_of("prune_plant").name == "orchard" and registry.domain_of("list_plants").name == "garden"
@@ -87,7 +93,7 @@ def test_registered_tools_are_found_by_name_and_grouped_by_how_the_domain_runs()
     (garden_agent(), "no tools"),                                    # an agent with nothing to call
     (garden_agent(propose_tool(), prompt=None), "prompt"),           # an agent that is told nothing
     (garden(propose_tool(), guidance=None), "guidance"),             # inline tools the coordinator is told nothing about
-    (garden(propose_tool(), mode="legacy"), "legacy"),               # a legacy domain owns no tools here
+    (garden(propose_tool(), catch_all=True), "catch-all"),           # the catch-all has to be an agent
 ])
 def test_an_incomplete_domain_cannot_be_registered(domain, clue):
     with pytest.raises(ValueError, match=clue):
@@ -122,11 +128,11 @@ def test_the_routing_lines_describe_each_domain_once():
     assert registry.routing_lines() == "- orchard: Fruit trees.\n- assistant: Everything else."
 
 
-def test_there_is_at_most_one_legacy_domain():
+def test_there_is_at_most_one_catch_all_domain():
     registry = Registry()
     registry.register(EVERYTHING_ELSE)
-    with pytest.raises(ValueError, match="legacy"):
-        registry.register(DomainSpec(name="other", summary="More.", mode="legacy"))
+    with pytest.raises(ValueError, match="catch-all"):
+        registry.register(garden_agent(propose_tool(), name="other", summary="More.", catch_all=True))
 
 
 def test_an_agents_bundle_version_covers_its_prompt_and_its_tools():
@@ -146,10 +152,11 @@ def test_a_proposal_can_carry_notes_and_a_verdict_can_name_where_a_request_belon
     assert verdict.to == "orchard" and "tree" in verdict and NotThisDomain("no").to == ""
 
 
-def test_the_app_catalog_has_tasks_inline_the_calendar_as_an_agent_and_the_old_assistant_as_the_fallback():
+def test_the_app_catalog_has_tasks_inline_the_calendar_as_an_agent_and_the_assistant_as_the_catch_all():
     assert {tool.name for tool in DOMAINS.domain("tasks").tools} == {"add_todos", "complete_todo", "remove_todo", "list_todos"}
     assert "schedule" in [domain.name for domain in DOMAINS.agent_domains()]
     assert DOMAINS.fallback().name == "assistant"
+    assert DOMAINS.fallback().mode == "agent" and DOMAINS.hand_off_domains()[-1].name == "assistant"
     assert all(tool.examples for domain in (*DOMAINS.inline_domains(), *DOMAINS.agent_domains())
                for tool in domain.tools if tool.kind == "propose")
     assert all(tool.examples for tool in DOMAINS.inline_tools() if tool.kind == "propose")

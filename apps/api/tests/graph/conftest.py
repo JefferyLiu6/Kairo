@@ -1,4 +1,4 @@
-"""Shared by the graph tests: real graph and stores, with the model and the old assistant scripted."""
+"""Shared by the graph tests: real graph and stores, with the model scripted."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -25,6 +25,11 @@ def call(tool, /, **args):
     return {"name": tool, "args": args}
 
 
+def say(text):
+    """The assistant agent answering in words."""
+    return call("answer", text=text)
+
+
 @pytest.fixture(autouse=True)
 def fresh_turn_memory():
     orch_memory._sessions.clear()
@@ -34,7 +39,7 @@ def fresh_turn_memory():
 
 @pytest.fixture
 def chat(tmp_path, monkeypatch):
-    """Send messages through the real graph and stores. The model and the old assistant are scripted.
+    """Send messages through the real graph and stores. The model is scripted.
 
     `chat.model` is a list of answers the coordinator's model gives, in order: each is one
     tool call, or a list of them. `chat.asked` records what the model was shown each time.
@@ -43,7 +48,6 @@ def chat(tmp_path, monkeypatch):
                                 model="small-model", pm_provider="test", pm_model="unused")
     script: list = []
     asked: list[dict] = []
-    handed_off: list[str] = []
 
     def ask_model(_config, system, turns, tools):
         asked.append({"prompt": getattr(system, "name", ""), "system": str(system), "turns": list(turns),
@@ -52,12 +56,7 @@ def chat(tmp_path, monkeypatch):
         answer = script.pop(0)
         return answer if isinstance(answer, list) else [answer]
 
-    async def old_assistant(message, _config):
-        handed_off.append(message)
-        yield ("done", f"(old assistant) {message}")
-
     monkeypatch.setattr(nodes, "ask_model", ask_model)
-    monkeypatch.setattr(nodes, "astream_orchestrator", old_assistant)
 
     def send(message: str) -> str:
         with time_machine.travel(THURSDAY, tick=True):
@@ -68,7 +67,7 @@ def chat(tmp_path, monkeypatch):
         with time_machine.travel(THURSDAY, tick=True):
             return load_active_working_memory(THREAD, str(tmp_path), user_id=USER)
 
-    send.model, send.asked, send.handed_off, send.question = script, asked, handed_off, question
+    send.model, send.asked, send.question = script, asked, question
     send.data_dir, send.config = str(tmp_path), config
     return send
 

@@ -4,17 +4,18 @@ The tool registry: one `ToolSpec` per tool, grouped into domains.
 Everything a model is shown about a tool comes from its spec: the name, the
 description (the argument model's docstring) and the strict argument schema.
 A tool never writes. A `propose` tool turns its arguments into typed commands
-(`PMAction`) that the gate checks and executes; a `read` tool returns text.
+(`PMAction`) that the gate checks and executes; a `read` tool returns text for
+the user; a `lookup` tool returns text for the agent that called it, which then
+answers.
 
-A domain runs one of three ways:
+A domain runs one of two ways:
 
     inline   its tools are given to the coordinator, which calls them itself
     agent    the coordinator hands the message to the domain's own agent, which has
              its own prompt, its own tools and its own view of the domain's store
-    legacy   the coordinator hands the message to the assistant that existed before
-             the graph; there is at most one, and it is the fallback
 
-Moving a domain between inline and agent is a change to its spec, not to the graph.
+Moving a domain between the two is a change to its spec, not to the graph. One
+agent domain is the catch-all: a message no other domain can place goes to it.
 
 `Registry.register` refuses an incomplete domain, so a tool cannot exist
 without the parts that make it safe to call.
@@ -90,12 +91,12 @@ Proposal = Union[list[PMAction], Proposed, Answer]
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
-    kind: Literal["read", "propose"]
+    kind: Literal["read", "lookup", "propose"]
     args: type[BaseModel]                                   # the model-facing arguments; its docstring is the description
     examples: tuple[str, ...] = ()                          # messages this tool should be called for
     check: Optional[Callable[[Any, ToolContext], Optional[str]]] = None   # why the arguments must be redone, if so
     propose: Optional[Callable[[Any, ToolContext], Proposal]] = None      # arguments -> typed commands, or an answer
-    read: Optional[Callable[[Any, ToolContext], str]] = None              # arguments -> text for the user
+    read: Optional[Callable[[Any, ToolContext], str]] = None              # arguments -> text (read: for the user; lookup: for the agent)
 
     @property
     def description(self) -> str:
@@ -114,7 +115,8 @@ class DomainSpec:
     name: str
     summary: str                                            # one line, shown to the coordinator for routing
     tools: tuple[ToolSpec, ...] = ()
-    mode: Literal["inline", "agent", "legacy"] = "inline"
+    mode: Literal["inline", "agent"] = "inline"
+    catch_all: bool = False                                 # agent only: takes whatever no other domain can place
     prompt: Optional[PromptTemplate] = None                 # agent only: what its model is told ($clock, $context, $open_question)
     context: Optional[Callable[[ToolContext], str]] = None  # the domain's store, as whoever calls its tools is shown it
     guidance: Optional[Prompt] = None                       # inline only: when and how the coordinator uses its tools
@@ -141,8 +143,8 @@ class Registry:
             raise ValueError(f"inline domain {domain.name!r} needs guidance for the coordinator")
         if domain.mode == "agent" and domain.prompt is None:
             raise ValueError(f"agent domain {domain.name!r} needs a prompt")
-        if domain.mode == "legacy" and (domain.tools or self.fallback() is not None):
-            raise ValueError(f"legacy domain {domain.name!r}: there is one legacy domain, and it has no tools here")
+        if domain.catch_all and (domain.mode != "agent" or self.fallback() is not None):
+            raise ValueError(f"domain {domain.name!r}: there is one catch-all domain, and it is an agent")
         seen: set[str] = set()
         for tool in domain.tools:
             if not _TOOL_NAME.fullmatch(tool.name):
@@ -156,7 +158,7 @@ class Registry:
                 raise ValueError(f"tool {tool.name!r} must say what it proposes (propose=...)")
             if tool.kind == "propose" and not tool.examples:
                 raise ValueError(f"tool {tool.name!r} needs at least one example message")
-            if tool.kind == "read" and tool.read is None:
+            if tool.kind in ("read", "lookup") and tool.read is None:
                 raise ValueError(f"tool {tool.name!r} must say what it reads (read=...)")
             tool.schema()  # fails here, not in front of a user, if the arguments cannot be made strict
         self._domains[domain.name] = domain
@@ -178,11 +180,12 @@ class Registry:
         return [domain for domain in self._domains.values() if domain.mode == "agent"]
 
     def hand_off_domains(self) -> list[DomainSpec]:
-        """Every domain the coordinator can hand a message to: the agents, then the legacy fallback."""
-        return [domain for mode in ("agent", "legacy") for domain in self._domains.values() if domain.mode == mode]
+        """Every domain the coordinator can hand a message to: the agents, the catch-all last."""
+        return sorted(self.agent_domains(), key=lambda domain: domain.catch_all)
 
     def fallback(self) -> Optional[DomainSpec]:
-        return next((domain for domain in self._domains.values() if domain.mode == "legacy"), None)
+        """The catch-all domain, if one is registered."""
+        return next((domain for domain in self._domains.values() if domain.catch_all), None)
 
     def domain(self, name: str) -> Optional[DomainSpec]:
         return self._domains.get(name)
