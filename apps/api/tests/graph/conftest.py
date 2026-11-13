@@ -67,6 +67,8 @@ def chat(tmp_path, monkeypatch):
     voiced: list[dict] = []
     monkeypatch.setattr(nodes, "ask_model", ask_model)
     monkeypatch.setattr(nodes, "reword", reword)
+    # The sweep's model finds nothing left undone unless a test sets `chat.leftover` to a function of the message.
+    monkeypatch.setattr(nodes, "leftover", lambda _config, _system, shown: send.leftover(json.loads(shown)))
     monkeypatch.delenv("KAIRO_VOICE", raising=False)
 
     def send(message: str) -> str:
@@ -80,6 +82,7 @@ def chat(tmp_path, monkeypatch):
 
     send.model, send.asked, send.question = script, asked, question
     send.voice, send.voiced = (lambda draft: draft), voiced
+    send.leftover = lambda shown: "none"
     send.data_dir, send.config = str(tmp_path), config
     return send
 

@@ -1,6 +1,12 @@
 """
 The tasks domain: the to-do list.
 
+Whoever calls these tools is shown the open tasks with their ids and refers to a
+task by id, the way the calendar agent refers to an event. So "the advisor one",
+"it" or "the second one" is settled by the model from the list and the
+conversation, and code never has to find a task from a description. The user is
+only asked which task when the model cannot tell.
+
 Tool wording follows what docs/MODEL_DATE_TEST.md measured: a task is one thing
 to get done, never a repeat and never a block of time, and a due date is set
 only when the user gave one.
@@ -13,11 +19,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from kairo.core.domain.commands import TodoAddCommand, TodoCompleteCommand, TodoRemoveCommand, action_from_command
 from kairo.core.prompt import prompt
-from kairo.domains.checks import asks_for_a_repeat, date_word_problem, dates_the_wording_allows, past_problem, time_word_problem
+from kairo.domains.checks import asks_for_a_repeat, date_word_problem, dates_the_wording_allows, not_what_was_said, past_problem, time_word_problem
 from kairo.domains.registry import Answer, DomainSpec, NotThisDomain, Proposal, ToolContext, ToolSpec
 from kairo.storage.store import load_todos
 from kairo.tools.receipts import due_phrase
-from kairo.tools.resolvers.todo import resolve_todo_id
 
 _DATE = r"^\d{4}-\d{2}-\d{2}$"
 _TIME = r"^([01]\d|2[0-3]):[0-5]\d$"
@@ -45,15 +50,14 @@ class AddTodos(_Args):
 class CompleteTodo(_Args):
     """Propose marking one task as done."""
 
-    query: str = Field(description="Words from the task's title, enough to tell it from the others.")
+    task_id: str = Field(description="The id of the task, from the to-do list shown.")
 
 
 class RemoveTodos(_Args):
     """Propose deleting one or more tasks from the list. The user is asked once to approve, and is
     shown every task that would go."""
 
-    queries: list[str] = Field(min_length=1, description="One entry per task to delete: words from its title, enough "
-                                                         "to tell it from the others.")
+    task_ids: list[str] = Field(min_length=1, description="The id of each task to delete, from the to-do list shown.")
 
 
 class ListTodos(_Args):
@@ -97,34 +101,46 @@ def _propose_new_todos(args: AddTodos, ctx: ToolContext) -> Proposal:
     return actions or Answer("That's already on your list: " + ", ".join(already) + ".")
 
 
-def _find(query: str, ctx: ToolContext) -> tuple[Optional[str], Optional[str], Optional[Answer]]:
-    """(task id, task title, None) for exactly one match; otherwise (None, None, what to tell the user)."""
-    found = resolve_todo_id(ctx.user_id, ctx.data_dir, {"query": query})
-    if not found["ok"]:
-        ambiguous = bool(found.get("candidates"))
-        return None, None, Answer(found["message"], asks=ambiguous, topic=query, elsewhere=not ambiguous)
-    title = next(item.title for item in load_todos(ctx.user_id, ctx.data_dir).items if item.id == found["id"])
-    return found["id"], title, None
+def _open(ctx: ToolContext) -> dict[str, str]:
+    """The open tasks: id -> title."""
+    return {item.id: item.title for item in load_todos(ctx.user_id, ctx.data_dir).items if not item.done}
+
+
+def _unknown(task_ids: list[str], ctx: ToolContext) -> Optional[NotThisDomain]:
+    """Why these ids cannot be acted on, if one of them is not an open task. What the user means may
+    not be a task at all, so after one retry the message goes to whoever can see everything."""
+    missing = next((task_id for task_id in task_ids if task_id not in _open(ctx)), None)
+    if missing is None:
+        return None
+    return NotThisDomain(f"no open task has id {missing}; use an id from the to-do list above, or call ask_user if "
+                         "you cannot tell which task is meant. If it is something else (a habit, a calendar "
+                         "event), use the tool or hand-off for that instead")
+
+
+def _not_what_was_said(task_ids: list[str], ctx: ToolContext) -> Optional[str]:
+    """The model picks a task by id, so its choice is held to the user's words (checks.not_what_was_said)."""
+    return not_what_was_said(task_ids, _open(ctx), ctx.wordings())
+
+
+def _check_complete(args: CompleteTodo, ctx: ToolContext) -> Optional[str]:
+    return _unknown([args.task_id], ctx) or _not_what_was_said([args.task_id], ctx)
+
+
+def _check_remove(args: RemoveTodos, ctx: ToolContext) -> Optional[str]:
+    return _unknown(args.task_ids, ctx) or _not_what_was_said(args.task_ids, ctx)
 
 
 def _propose_complete(args: CompleteTodo, ctx: ToolContext) -> Proposal:
-    task_id, title, answer = _find(args.query, ctx)
-    if answer:
-        return answer
-    return [action_from_command("todo_complete", TodoCompleteCommand(id=task_id, query=title),
+    title = _open(ctx)[args.task_id]
+    return [action_from_command("todo_complete", TodoCompleteCommand(id=args.task_id, query=title),
                                 summary=f"Mark todo complete: {title}")]
 
 
 def _propose_remove(args: RemoveTodos, ctx: ToolContext) -> Proposal:
-    found: dict[str, str] = {}                       # id -> title, so a task named twice is removed once
-    for query in args.queries:
-        task_id, title, answer = _find(query, ctx)
-        if answer:
-            return answer                            # one that cannot be found or told apart stops the lot
-        found[task_id] = title
-    return [action_from_command("todo_remove", TodoRemoveCommand(id=task_id, query=title),
-                                risk_level="medium", requires_approval=True, summary=f"Remove todo: {title}")
-            for task_id, title in found.items()]
+    titles = _open(ctx)
+    return [action_from_command("todo_remove", TodoRemoveCommand(id=task_id, query=titles[task_id]),
+                                risk_level="medium", requires_approval=True, summary=f"Remove todo: {titles[task_id]}")
+            for task_id in dict.fromkeys(args.task_ids)]            # a task named twice is removed once
 
 
 def _read_open_todos(_args: ListTodos, ctx: ToolContext) -> str:
@@ -144,11 +160,13 @@ MAX_SHOWN = 30
 
 def _open_tasks(ctx: ToolContext) -> str:
     """The open tasks, as whoever calls these tools is shown them."""
-    titles = [item.title for item in load_todos(ctx.user_id, ctx.data_dir).items if not item.done]
-    if not titles:
+    items = [item.model_dump(mode="json") for item in load_todos(ctx.user_id, ctx.data_dir).items if not item.done]
+    if not items:
         return "The to-do list is empty."
-    more = [f"(and {len(titles) - MAX_SHOWN} more)"] if len(titles) > MAX_SHOWN else []
-    return "\n".join(["Open tasks on the to-do list:", *(f"- {title}" for title in titles[:MAX_SHOWN]), *more])
+    more = [f"(and {len(items) - MAX_SHOWN} more)"] if len(items) > MAX_SHOWN else []
+    listed = [f"- [{item['id']}] {item['title']}" + (f" — {due_phrase(item)}" if item.get("due") else "")
+              for item in items[:MAX_SHOWN]]
+    return "\n".join(["Open tasks on the to-do list (the id of each task is in brackets):", *listed, *more])
 
 
 TASKS_GUIDANCE = prompt("tasks_guidance", """\
@@ -163,15 +181,19 @@ TASKS_GUIDANCE = prompt("tasks_guidance", """\
   date or time only when the user gave one, and always when they did.
 - A title is the user's own words for the thing, in their language, without the date, the time, or
   words like "todo" and "remind me".
-- To finish or remove a task, give words from its title. Use the conversation to work out what
-  "it" or "the second one" refers to. Finish a task only if it is on the list; never add a task
-  for something the user says they have already done.
+- To finish or remove a task, give its id from the to-do list above. Work out which task the user
+  means from the list and the conversation: "the advisor one", "it", "the second one". When one
+  task fits better than the others (its title is what the user said, or it is the one just talked
+  about), take it. Call ask_user only when two tasks fit equally well. Finish a task only if it is
+  on the list; never add a task for something the user says they have already done.
+- Blocking time on the calendar for tasks ("block time tomorrow for my open tasks") changes no
+  task: hand it off to assistant.
 - A question about tasks ("what should I do first?", "what's due today?") is answered with
   list_todos. Never finish or remove a task because of a question.
 - "Add" always means add_todos, even when something like it is already on the list. Call
   remove_todos only when the user asks to delete or remove tasks.
-- remove_todos removes tasks from the to-do list above: one entry per task, with words from its
-  title. For every task at once ("delete all my todos"), give every task on the list. The user is
+- remove_todos removes tasks from the to-do list above, by id. For every task at once ("delete all
+  my todos"), give every id on the list. The user is
   asked once to approve and is shown each one. Cancelling anything that is not on the to-do list is
   not yours.""")
 
@@ -186,9 +208,9 @@ TASKS = DomainSpec(
         ToolSpec("add_todos", "propose", AddTodos, check=_check_new_todos, propose=_propose_new_todos,
                  examples=("add todo fix figure 3 due friday", "brain dump: email advisor, buy cat food",
                            "remind me at 4pm to leave for the dentist")),
-        ToolSpec("complete_todo", "propose", CompleteTodo, propose=_propose_complete,
+        ToolSpec("complete_todo", "propose", CompleteTodo, check=_check_complete, propose=_propose_complete,
                  examples=("done email advisor", "mark the field trip form todo as done")),
-        ToolSpec("remove_todos", "propose", RemoveTodos, propose=_propose_remove,
+        ToolSpec("remove_todos", "propose", RemoveTodos, check=_check_remove, propose=_propose_remove,
                  examples=("delete todo expense report", "Delete all my todos")),
         ToolSpec("list_todos", "read", ListTodos, read=_read_open_todos,
                  examples=("show my todos", "what follow-ups do I owe people?")),
