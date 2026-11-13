@@ -31,7 +31,7 @@ from kairo.agents.graph.state import GraphState
 from kairo.agents.graph.voice import VOICE_TIMEOUT, changed_the_facts, sent_as_written, voice_enabled, voice_input
 from kairo.agents.orchestrator.agent import OrchestratorConfig
 from kairo.agents.orchestrator.memory import get_working_memory
-from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat, stored_read_back, submit_action
+from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat, stored_read_back, submit_actions
 from kairo.agents.personal_manager.application.pending_reply import approval_verb, route_message
 from kairo.agents.personal_manager.extractors.intent import _looks_like_injection
 from kairo.core.domain.pending import GraphQuestion
@@ -51,7 +51,6 @@ from kairo.utils.clock import local_now
 logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 2          # each model gets one retry after its call is sent back
-MAX_AGENT_CALLS = 3       # an agent that looks something up may be called this often in one turn
 MAX_ROUNDS = 2            # questions in a row about one request before the user is left to restate it
 HISTORY_TURNS = 6
 COORDINATOR_NAME = "coordinator"
@@ -407,9 +406,12 @@ async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     call = state["call"]
     by_agent = state.get("proposer", COORDINATOR_NAME) != COORDINATOR_NAME
     attempts = state.get("agent_attempts" if by_agent else "attempts", 0)
-    limit = MAX_ATTEMPTS + (1 if state.get("findings") else 0)   # an agent that looked something up gets one more call
+    # A lookup is not an attempt at the answer, so each one an agent made earns it one more call.
+    # The domain's own budget still caps the turn.
     back = "agent" if by_agent else "coordinate"
     spec, owner = DOMAINS.tool(call["name"]), DOMAINS.domain_of(call["name"])
+    budget = owner.max_calls if by_agent else MAX_ATTEMPTS
+    limit = min(MAX_ATTEMPTS + len(state.get("findings", [])), budget)
     ctx = _context(state, cfg, owner.name)
     problem, user_facing = None, True
     try:
@@ -433,8 +435,9 @@ async def gate(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     if spec.kind == "read":
         return {"notes": [spec.read(args, ctx)], "route": "respond"}
     if spec.kind == "lookup":
-        # The result goes back to the agent that asked, which then answers. It cannot look things up forever.
-        if not by_agent or attempts >= MAX_AGENT_CALLS:
+        # The result goes back to the agent that asked, which then acts on it. Its last call of the
+        # turn cannot be another lookup: there would be nothing left to act with.
+        if not by_agent or attempts >= budget:
             return {"notes": [_LOST], "route": "respond"}
         return {"findings": [f"(Result of {spec.name}: {spec.read(args, ctx)})"], "route": "agent"}
     proposal = spec.propose(args, ctx)
@@ -470,14 +473,15 @@ def _to_catch_all() -> dict[str, Any]:
 
 
 async def act(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
-    """Run each proposed command through the approval policy; read the stores back for whatever ran."""
+    """Run the proposed commands through the approval policy; read the stores back for whatever ran.
+    Several that each need approval are asked for once, as one batch."""
     cfg = _config(config)
     user, thread = _ids(cfg)
     approvals: list[str] = []
     results: list[str] = []
     with collecting() as made:
-        for action in state.get("actions", []):
-            _, result = submit_action(action, cfg.pm_config(), user, thread_id=thread, intent=state["call"]["name"])
+        for result in submit_actions(state.get("actions", []), cfg.pm_config(), user, thread_id=thread,
+                                     intent=state["call"]["name"]):
             (approvals if result.get("pending") else results).append(str(result["message"]))
     return {"receipts": made.receipts, "approvals": approvals, "results": results}
 

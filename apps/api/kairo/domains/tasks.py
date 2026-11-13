@@ -48,10 +48,12 @@ class CompleteTodo(_Args):
     query: str = Field(description="Words from the task's title, enough to tell it from the others.")
 
 
-class RemoveTodo(_Args):
-    """Propose deleting one task from the list. The user is asked to approve before it is removed."""
+class RemoveTodos(_Args):
+    """Propose deleting one or more tasks from the list. The user is asked once to approve, and is
+    shown every task that would go."""
 
-    query: str = Field(description="Words from the task's title, enough to tell it from the others.")
+    queries: list[str] = Field(min_length=1, description="One entry per task to delete: words from its title, enough "
+                                                         "to tell it from the others.")
 
 
 class ListTodos(_Args):
@@ -113,12 +115,16 @@ def _propose_complete(args: CompleteTodo, ctx: ToolContext) -> Proposal:
                                 summary=f"Mark todo complete: {title}")]
 
 
-def _propose_remove(args: RemoveTodo, ctx: ToolContext) -> Proposal:
-    task_id, title, answer = _find(args.query, ctx)
-    if answer:
-        return answer
+def _propose_remove(args: RemoveTodos, ctx: ToolContext) -> Proposal:
+    found: dict[str, str] = {}                       # id -> title, so a task named twice is removed once
+    for query in args.queries:
+        task_id, title, answer = _find(query, ctx)
+        if answer:
+            return answer                            # one that cannot be found or told apart stops the lot
+        found[task_id] = title
     return [action_from_command("todo_remove", TodoRemoveCommand(id=task_id, query=title),
-                                risk_level="medium", requires_approval=True, summary=f"Remove todo: {title}")]
+                                risk_level="medium", requires_approval=True, summary=f"Remove todo: {title}")
+            for task_id, title in found.items()]
 
 
 def _read_open_todos(_args: ListTodos, ctx: ToolContext) -> str:
@@ -163,10 +169,11 @@ TASKS_GUIDANCE = prompt("tasks_guidance", """\
 - A question about tasks ("what should I do first?", "what's due today?") is answered with
   list_todos. Never finish or remove a task because of a question.
 - "Add" always means add_todos, even when something like it is already on the list. Call
-  remove_todo only when the user asks to delete or remove a task.
-- remove_todo removes one task from the to-do list above. Only when the user asks to delete every
-  task at once ("delete all my todos"), call ask_user: say that tasks are removed one at a time and
-  ask which to start with. Cancelling anything that is not on the to-do list is not yours.""")
+  remove_todos only when the user asks to delete or remove tasks.
+- remove_todos removes tasks from the to-do list above: one entry per task, with words from its
+  title. For every task at once ("delete all my todos"), give every task on the list. The user is
+  asked once to approve and is shown each one. Cancelling anything that is not on the to-do list is
+  not yours.""")
 
 
 TASKS = DomainSpec(
@@ -181,8 +188,8 @@ TASKS = DomainSpec(
                            "remind me at 4pm to leave for the dentist")),
         ToolSpec("complete_todo", "propose", CompleteTodo, propose=_propose_complete,
                  examples=("done email advisor", "mark the field trip form todo as done")),
-        ToolSpec("remove_todo", "propose", RemoveTodo, propose=_propose_remove,
-                 examples=("delete todo expense report",)),
+        ToolSpec("remove_todos", "propose", RemoveTodos, propose=_propose_remove,
+                 examples=("delete todo expense report", "Delete all my todos")),
         ToolSpec("list_todos", "read", ListTodos, read=_read_open_todos,
                  examples=("show my todos", "what follow-ups do I owe people?")),
     ),

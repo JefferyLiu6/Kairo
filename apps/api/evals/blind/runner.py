@@ -21,7 +21,7 @@ from typing import Any, Callable, Iterator, Optional, Sequence
 import time_machine
 
 from evals.blind.adapters import Path
-from evals.blind.scoring import GATE, Outcome, gate, score_turn, summarize
+from evals.blind.scoring import GATE, Outcome, gate, score_turn, summarize, new_question
 from evals.blind.spec import BlindSet, Scenario, fingerprint
 from evals.paths import API_ROOT
 
@@ -70,6 +70,9 @@ def _run_scenario(scenario: Scenario, path: Path, on_turn: Optional[Callable]) -
                 outcome, reason = Outcome.MISS, f"the path raised {error}"
             record = {
                 "turn": index, "say": turn.say, "reply": reply, "outcome": outcome.value, "reason": reason,
+                # What the turn handed back to the user to deal with: a question, or an approval to give.
+                "asked": new_question(before, after),
+                "approval_asked": any(key not in before.approvals for key in after.approvals),
                 "seconds": seconds, "model_calls": usage[0], "input_tokens": usage[1], "output_tokens": usage[2],
             }
             if error:
@@ -90,6 +93,8 @@ def _metrics(records: Sequence[dict[str, Any]], usd_per_mtok: Optional[tuple[flo
         "latency_median_s": round(statistics.median(seconds), 3) if seconds else None,
         "latency_p95_s": seconds[max(0, -(-len(seconds) * 95 // 100) - 1)] if seconds else None,
         "model_calls_per_turn": round(sum(r["model_calls"] for r in records) / len(records), 2) if records else None,
+        "questions": sum(bool(r.get("asked")) for r in records),
+        "approval_prompts": sum(bool(r.get("approval_asked")) for r in records),
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "cost_usd": None if usd_per_mtok is None else round(
@@ -178,6 +183,8 @@ def render_summary(report: dict[str, Any]) -> str:
         f"  {'Missed':28}{overall['miss']:>10}",
         f"  {'Blocked by an earlier turn':28}{overall['blocked']:>10}",
         f"  {'Open-ended, not scored':28}{overall['unscored']:>10}",
+        f"  {'Questions put to the user':28}{overall['questions']:>10}",
+        f"  {'Approvals asked for':28}{overall['approval_prompts']:>10}",
         "",
         f"  Dev {_percent(report['metrics']['dev']['right_rate'])} right · "
         f"holdout {_percent(report['metrics']['holdout']['right_rate'])} right",

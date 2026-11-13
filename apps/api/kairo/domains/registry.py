@@ -6,7 +6,8 @@ description (the argument model's docstring) and the strict argument schema.
 A tool never writes. A `propose` tool turns its arguments into typed commands
 (`PMAction`) that the gate checks and executes; a `read` tool returns text for
 the user; a `lookup` tool returns text for the agent that called it, which then
-answers.
+calls another tool with what it learned (look, then act). An agent may make
+`max_calls` model calls in a turn, so it cannot look things up forever.
 
 A domain runs one of two ways:
 
@@ -121,6 +122,7 @@ class DomainSpec:
     context: Optional[Callable[[ToolContext], str]] = None  # the domain's store, as whoever calls its tools is shown it
     guidance: Optional[Prompt] = None                       # inline only: when and how the coordinator uses its tools
     restate: str = "Could you say “{message}” another way?"  # what to ask when a proposal could not be made right
+    max_calls: int = 3                                      # agent only: model calls in one turn, lookups included
 
     def bundle(self) -> str:
         """One version for everything this domain's agent is told: its prompt and its tool definitions."""
