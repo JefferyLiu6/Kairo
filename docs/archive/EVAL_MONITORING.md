@@ -268,7 +268,7 @@ Rubric v3 and metrics v2 now supersede the prompt descriptions above. See [Judge
 
 ## Local development entry point
 
-Run `make eval-offline` to collect backend regression and judge-contract results in one report. See [local development](LOCAL_DEVELOPMENT.md). No live-model step is included.
+Run `make eval-offline` to collect backend regression and judge-contract results in one report. See [local development](../LOCAL_DEVELOPMENT.md). No live-model step is included.
 
 
 ## Local visual dashboard
