@@ -9,7 +9,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-UI-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-1359%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-1455%20passing-2ea44f)
 ![Blind eval](https://img.shields.io/badge/blind%20eval-96%E2%80%9397%25%20right-2ea44f)
 ![Offline evals](https://img.shields.io/badge/offline%20evals-252%2F252-2ea44f)
 
@@ -34,7 +34,7 @@ Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 > The public frontend starts in temporary demo mode by default because the free
 > deployment does not provide durable SQLite storage.
 
-![Kairo demo: a calendar change behind an approval, the decision trace, the task list, About me, and the mobile calendar](docs/demo/kairo-demo.gif)
+![Kairo demo: a calendar change behind an approval, a suggested time and a batch approval, the decision trace, the task list, About me, and the mobile calendar](docs/demo/kairo-demo.gif)
 
 ## Two-Minute Skim
 
@@ -43,7 +43,7 @@ Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 | What is it? | A full-stack Kairo agent for calendar, todos, habits, journal, memory, and Google Calendar sync. |
 | What makes it hard? | Natural-language requests can mutate private personal state, so the system must separate understanding from permission, execution, and auditability. |
 | What did I build? | A React UI, FastAPI backend, an agent graph (coordinator, domain agents, a tool registry, a gate that checks every proposal), approval policy, receipts read back from storage, SQLite persistence, two eval harnesses, security doc, deployment path, and decision-trace panel. |
-| Proof it works | 1359 pytest tests; a blind eval of 127 un-coached messages scored by what ends up stored (96% and 97% right, 0 wrong but reported done, 0 trapped turns in the last two runs, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
+| Proof it works | 1455 pytest tests; a blind eval of 127 un-coached messages scored by what ends up stored (96% and 97% right, 0 wrong but reported done, 0 trapped turns in the last two runs, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
 
 ## Highlights
 
@@ -55,7 +55,7 @@ Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 | Safety model | Destructive and privacy-sensitive actions require approval before execution; a sensitive fact is never stored outright |
 | State model | SQLite-backed app state, pending dialogue memory, preference memory, and audit log |
 | Frontend | React 19, TypeScript strict mode, Vite, calendar UI, approval UX, decision trace panel |
-| Verification | `make verify`: 1359 pytest tests, 252/252 offline eval cases, lint, smoke, web build. `make eval-blind path=graph`: the blind eval against the live model |
+| Verification | `make verify`: 1455 pytest tests, 252/252 offline eval cases, lint, smoke, web build. `make eval-blind path=graph`: the blind eval against the live model |
 
 ## Contents
 
@@ -201,11 +201,13 @@ High-value files to inspect:
 
 | File | Why it matters |
 | ---- | -------------- |
-| [`apps/api/kairo/agents/graph/nodes.py`](apps/api/kairo/agents/graph/nodes.py) | The agent graph's nodes: ingest, coordinate, agent, gate, act, respond, voice, persist |
+| [`apps/api/kairo/agents/graph/nodes.py`](apps/api/kairo/agents/graph/nodes.py) | The agent graph's nodes: ingest, coordinate, step, agent, gate, act, sweep, respond, voice, persist |
 | [`apps/api/kairo/agents/graph/voice.py`](apps/api/kairo/agents/graph/voice.py) | The voice pass: a small model rewords each reply, and the rewording is sent only if it keeps the draft's facts |
 | [`apps/api/kairo/domains/registry.py`](apps/api/kairo/domains/registry.py) | The tool registry: one typed spec per tool, grouped into domains that run inline or as agents |
-| [`apps/api/kairo/domains/schedule.py`](apps/api/kairo/domains/schedule.py) | The calendar agent: its tools, its checks, and its view of the calendar |
-| [`apps/api/kairo/domains/checks.py`](apps/api/kairo/domains/checks.py) | Checks that compare a proposal with the message's own date, time and repeat wording |
+| [`apps/api/kairo/domains/schedule.py`](apps/api/kairo/domains/schedule.py) | The calendar agent: its tools, its checks, the free-time lookup and suggested events |
+| [`apps/api/kairo/domains/checks.py`](apps/api/kairo/domains/checks.py) | Checks that compare a proposal with the message's own date, time and repeat wording, and a task or event picked by id with the user's words |
+| [`apps/api/kairo/agents/personal_manager/application/approval_flow.py`](apps/api/kairo/agents/personal_manager/application/approval_flow.py) | Approval policy applied to proposals: run now, one approval, or one batch for several |
+| [`apps/api/kairo/domains/memory.py`](apps/api/kairo/domains/memory.py) and [`apps/web/src/components/AboutMePanel.tsx`](apps/web/src/components/AboutMePanel.tsx) | What Kairo remembers, and the panel that checks it against what the user asked |
 | [`apps/api/kairo/tools/receipts.py`](apps/api/kairo/tools/receipts.py) | Reads the stores back after a write and builds the reply from what is stored |
 | [`apps/api/tests/graph/`](apps/api/tests/graph) | Turn-level tests of the graph with a scripted model and real stores |
 | [`apps/api/evals/blind/`](apps/api/evals/blind) and [`docs/BLIND_EVAL.md`](docs/BLIND_EVAL.md) | The blind eval: un-coached messages scored by stored state, with every recorded run |
@@ -254,6 +256,13 @@ A change to the calendar is paused behind an explicit approval card.
 
 ![Approval card for a calendar change](docs/screenshots/approval-gate.png)
 
+**Suggested times and batch approvals**
+
+Given a day but no time, Kairo suggests a free one and waits for approval.
+Several removals are asked for once, in a card that lists each.
+
+![A suggested event and a batch approval that lists five removals](docs/screenshots/approvals.png)
+
 **Decision Trace**
 
 Route, confidence, working memory, memory I/O, approval status, and audit count
@@ -280,8 +289,9 @@ remember.
 Web chat runs on an agent graph
 ([`apps/api/kairo/agents/graph`](apps/api/kairo/agents/graph)). Two nodes ask a
 model what to do, and a model can only propose: it picks one tool and fills in
-typed arguments. Code does the rest. A third model call, at the end, only
-rewords the reply.
+typed arguments. Code does the rest. A small model is called at the end as
+well: on a message that joins several things, to look for a request that was
+left out, and on every turn to reword the reply.
 
 ```mermaid
 flowchart TD
@@ -414,7 +424,7 @@ written for: 30% right as web chat.
 
 | Metric | Result |
 | ------ | ------ |
-| Unit tests (whole repo) | **1359 passing**, 0 xfail |
+| Unit tests (whole repo) | **1455 passing**, 0 xfail |
 | Adversarial tests | **68 passing** |
 | Current offline eval cases | **252/252 (100%)** |
 | Current offline eval checks | **1518/1518 (100%)** |
@@ -488,7 +498,7 @@ legitimate variant. The hardening cases stay in `adversarial_hardening` after th
 
 Before the hardening pass on the earlier workflow, the offline harness exposed
 approval-safety and adversarial failures. After patching, that suite is green.
-The test count is from that time; the repo has 1359 tests now.
+The test count is from that time; the repo has 1455 tests now.
 
 | Suite | Before | After |
 | ----- | ------ | ----- |
@@ -546,14 +556,19 @@ This is still a portfolio demo, not a fully hardened production multi-tenant ser
 - Demo-account cleanup is opportunistic, not a dedicated scheduled job.
 - Google Calendar sync is limited; full two-way conflict resolution is not implemented.
 - Replies return whole; the agent graph does not stream token by token.
-- Only the first request in a message is handled ("add milk, then plan my
-  evening" adds the milk).
-- The wording checks read English date, time and repeat words. In other
+- A message with several requests is split by the model, and a request that
+  was left out is looked for afterwards, but neither is certain: in testing a
+  second request was still sometimes dropped without a word.
+- Several changes are approved or rejected together; there is no choosing
+  among the items of a batch.
+- A suggested event the user answers with another time ("make it 4pm instead")
+  leaves the original suggestion pending.
+- The wording checks read English date, time and repeat words, and the check
+  on a task or event picked by id uses a fixed list of English words. In other
   languages a proposal is not cross-checked, and a non-English event title has
   lost a name in testing.
-- Not built yet: forgetting a remembered fact, changing a task's due date,
-  removing every task at once, and ranked time-slot suggestions on the graph
-  (a new event with no time gets a question instead).
+- Not built yet: forgetting a remembered fact, changing a task's due date, and
+  completing a task from the task list in the web app.
 - The blind eval uses simulated personas. Real users' messages are the test
   that has not been run.
 - The previous orchestrator and workflow are still in the repo. They answer
