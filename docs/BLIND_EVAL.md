@@ -440,6 +440,38 @@ orchestrator. Two recorded runs of the 117-turn set, 2026-11-13, `gpt-4o-mini`:
 
 Reports: `artifacts/blind/graph-20261113T053448Z.json` and `…T053811Z.json`.
 
+### After the voice pass
+
+A small model now rewords each reply after it is built, and the rewording is
+sent only if it keeps the draft's facts (`kairo/agents/graph/voice.py`). Two
+recorded runs of the 117-turn set, 2026-11-13, `gpt-4o-mini`:
+
+| Whole set, 117 turns | Before the voice pass (two runs) | Run 1: models read the rewording | Run 2: models read the draft |
+|---|---|---|---|
+| Right, of scoreable turns | 97% and 97% | 94% (98 of 104) | 96% (100 of 104) |
+| Wrong but reported done | 0 and 1 | 2 | 1 |
+| Trapped turns | 0 | 0 | 0 |
+| Model calls per turn | 1.52 and 1.51 | 2.34 | 2.38 |
+| Reply time, median / 95th | 1.7 s / 3.7–4.1 s | 2.3 s / 4.7 s | 2.6 s / 6.3 s |
+| Bar | pass | **pass** | **pass** |
+
+- **Run 1 kept the reworded reply in the history the models read.** One turn
+  went wrong in a way that pointed at that: after a reworded reply, "add todo
+  fix figure 3 due friday" was answered by checking the task off. Run 2 keeps
+  the draft in the models' history and shows the rewording only to the user,
+  so wording cannot change a later decision. That is how it runs now.
+- **What missed in run 2 was decided before the reply was worded:** the Contoso
+  task (as before), the cardiology title (as before), and "standup daily 9:30"
+  refused over its repeat, which left two later turns without the event they
+  needed.
+- **Run 1 exposed a memory fault that is not the voice pass's.** "Maya's mum
+  prefers texts over calls" was confirmed as saved and then rewritten to
+  "User's mum prefers texts over calls" by the background profile tidy-up.
+  Replies used to return before that finished, so the scorer did not see it.
+- **One run each.** The difference between 96% and 97% is one turn.
+
+Reports: `artifacts/blind/graph-20261113T123719Z.json` and `…T124444Z.json`.
+
 ## The scores ledger
 
 A prompt's version says that it changed, not whether it got better. The ledger,
