@@ -30,8 +30,10 @@ Rules (follow strictly):
 1. If two facts contradict each other (e.g. "likes badminton" and "dislikes badminton"), \
 keep only the LATER one — it is the more recent and accurate belief.
 2. Remove exact and near-duplicate facts (same meaning, different wording).
-3. Merge closely related facts into one concise line when it reads naturally.
-4. Standardise phrasing to third-person ("User likes X", "User dislikes Y", "User plays Z").
+3. Copy every fact you keep exactly as it is written. Do not reword it, translate it, merge it \
+with another fact, or change who it is about ("Maya's mum prefers texts" stays "Maya's mum \
+prefers texts"). The user is shown these lines as what they asked to be remembered.
+4. Keep each fact on its own line, in the order it appears.
 5. Do NOT invent, infer, or add any new facts that are not already present.
 6. Preserve the "# User Profile" heading.
 7. Return ONLY the cleaned profile — no commentary, no explanation, no diff markers.

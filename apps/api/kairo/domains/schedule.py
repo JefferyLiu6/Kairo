@@ -9,9 +9,15 @@ repeat wording is sent back with the reason before anything is stored.
 Tool wording follows what docs/MODEL_DATE_TEST.md measured: an event is anything
 at a set time, time held for something, or anything that repeats; a bare hour is
 read the likelier way and shown; a date or time is never invented.
+
+When the user names a day but no time, the agent does not ask. It looks first
+(`find_free_time`, which does the arithmetic) and then proposes a time that is
+free (`suggest_event`). A time the user did not give is never stored outright:
+the suggestion waits for their approval, and says that the time was suggested.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from typing import Any, Callable, Literal, Optional
@@ -39,6 +45,7 @@ from kairo.domains.checks import (
     say_dates,
     times_the_wording_gives,
 )
+from kairo.domains.memory import remembered_facts
 from kairo.domains.registry import Answer, DomainSpec, Proposal, Proposed, ToolContext, ToolSpec
 from kairo.storage.store import ScheduleEntry, _entry_recurrence, expand_series, load_schedule
 from kairo.tools.calendar.service import CalendarService, is_google_calendar_connected
@@ -52,6 +59,11 @@ Weekday = Literal["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
 AGENDA_DAYS = 14          # how far ahead the agent is shown the calendar day by day
 MAX_LISTED = 40           # how many later one-off events it is shown beyond that
 MAX_RANGE_DAYS = 92       # the longest range show_events will list
+MAX_STARTS = 8            # how many possible start times find_free_time lists
+DAY_OPENS, DAY_CLOSES = "07:00", "21:00"     # the hours a time may be suggested in
+_USUAL = (9 * 60, 17 * 60)                   # starts in these hours are listed first (minutes of the day)
+PARTS_OF_DAY = {"any": (DAY_OPENS, DAY_CLOSES), "morning": (DAY_OPENS, "12:00"),
+                "afternoon": ("12:00", "17:00"), "evening": ("17:00", DAY_CLOSES)}
 
 
 # ── The calendar, as the domain reads it ──────────────────────────────────────
@@ -241,11 +253,12 @@ class UpdateEvent(_Args):
                                                             "length; otherwise null and the length is kept.")
 
 
-class RemoveEvent(_Args):
-    """Propose removing an event from the calendar. For an event that repeats this removes every
-    occurrence; to drop one day only, use skip_occurrence. The user is asked to approve first."""
+class RemoveEvents(_Args):
+    """Propose removing one or more events from the calendar. For an event that repeats this removes
+    every occurrence; to drop one day only, use skip_occurrence. The user is asked once to approve,
+    and is shown every event that would go."""
 
-    event_id: str = Field(description="The id of the event, from the calendar shown.")
+    event_ids: list[str] = Field(min_length=1, description="The id of each event to remove, from the calendar shown.")
 
 
 class SkipOccurrence(_Args):
@@ -272,6 +285,32 @@ class EndSeries(_Args):
 
     event_id: str = Field(description="The id of the repeating event, from the calendar shown.")
     from_date: str = Field(pattern=_DATE, description="YYYY-MM-DD: the first day it no longer happens.")
+
+
+class FindFreeTime(_Args):
+    """Look at one day and get the times that are free on it. Call it before suggest_event, whenever
+    the user names a day but no time. You are shown the result and then call another tool."""
+
+    date: str = Field(pattern=_DATE, description="YYYY-MM-DD, the day to look at.")
+    minutes: int = Field(ge=15, le=480, description="How long the event is, in minutes. 60 if the user did not say.")
+    part_of_day: Literal["any", "morning", "afternoon", "evening"] = Field(
+        description="The part of the day the user asked for, or 'any' if they did not say.")
+
+
+class SuggestEvent(_Args):
+    """Propose a new event at a time you chose, for a message that names the day but no time. The time
+    must be free according to find_free_time. The user is shown the suggestion and asked to approve it."""
+
+    title: str = Field(description="What it is, in the user's own words and language, without the date or words "
+                                   "like 'schedule' and 'add'.")
+    date: str = Field(pattern=_DATE, description="YYYY-MM-DD, the day the user named.")
+    limits: str = Field(description="Written before you choose the start: what the user asked to be remembered that "
+                                    "limits the time on this day (when they sleep, work or prefer things), and the "
+                                    "earliest and latest start that leaves. 'Nothing remembered limits it' if so.")
+    start: str = Field(pattern=_TIME, description="24-hour HH:MM, a start inside a stretch find_free_time "
+                                                  "showed as free on that day, and inside the limits you just wrote.")
+    end: Optional[str] = Field(pattern=_TIME, description="24-hour HH:MM, only if the user gave a length; "
+                                                        "otherwise null.")
 
 
 class ShowEvents(_Args):
@@ -345,6 +384,9 @@ def _check_new_events(args: CreateEvents, ctx: ToolContext) -> Optional[str]:
         # A daily or weekly repeat starts when code says it does (_series_start), so its date is not judged.
         starts_itself = bool(repeat) and repeat["freq"] != "monthly"
         problem = None if starts_itself else past_problem(event.date, ctx.now, start=None if repeat else event.start)
+        if not problem and alone and not repeat and not _first(ctx, _SAYS_WHEN.search):
+            problem = ("the message gives no time, and one is never made up here: call find_free_time for that "
+                       "day and then suggest_event, which asks the user to approve the time")
         if not problem and alone:
             stated = _first(ctx, range_the_wording_gives)
             if not repeat:
@@ -365,6 +407,13 @@ def _check_update(args: UpdateEvent, ctx: ToolContext) -> Optional[str]:
         return _unknown(args.event_id)
     if not any((args.new_title, args.new_date, args.new_start, args.new_end)):
         return "there is nothing to change: set the new title, date or time, or call ask_user"
+    same = ((not args.new_title or args.new_title.strip() == event.title)
+            and (not args.new_date or args.new_date == event.date)
+            and (not args.new_start or args.new_start == event.start)
+            and (not args.new_end or args.new_end == event.end))
+    if same:
+        return (f"'{event.title}' is already like that, so this changes nothing; if the user wants another "
+                "event, call create_events, and if it is already on the calendar, say so with answer")
     if event.repeats and args.new_date:
         return (f"'{event.title}' repeats, so it has no single day to move; to change one day use "
                 "change_occurrence, and to change its time on every day set new_start only")
@@ -373,8 +422,18 @@ def _check_update(args: UpdateEvent, ctx: ToolContext) -> Optional[str]:
     return past_problem(args.new_date, ctx.now) or _start_problem(ctx, args.new_start, required=not args.new_date)
 
 
-def _check_known(args: RemoveEvent, ctx: ToolContext) -> Optional[str]:
-    return None if _find(ctx, args.event_id) else _unknown(args.event_id)
+def _check_known(args: RemoveEvents, ctx: ToolContext) -> Optional[str]:
+    events = {event.id: event for event in load_events(ctx)}
+    unknown = next((event_id for event_id in args.event_ids if event_id not in events), None)
+    if unknown:
+        return _unknown(unknown)
+    # "Cancel everything on Friday" is about one day. Removing a repeating event would take every
+    # other day with it, so in a request for several events on named days it is left out.
+    series = next((events[i] for i in args.event_ids if events[i].repeats), None)
+    if series and len(args.event_ids) > 1 and _first(ctx, lambda text: dates_the_wording_allows(text, ctx.now)):
+        return (f"'{series.title}' repeats, and removing it removes every occurrence, not only the day the "
+                "message names; leave it out of this call (one day of it is skip_occurrence)")
+    return None
 
 
 def _occurrence_problem(event_id: str, day: str, ctx: ToolContext) -> Optional[str]:
@@ -419,10 +478,137 @@ def _check_range(args: ShowEvents, _ctx: ToolContext) -> Optional[str]:
     return None
 
 
-# ── Proposals ─────────────────────────────────────────────────────────────────
+# ── Free time ─────────────────────────────────────────────────────────────────
 
 def _minutes(clock: str) -> int:
     return int(clock[:2]) * 60 + int(clock[3:5])
+
+
+def _clock(minutes: int) -> str:
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _busy(events: list[Event], day: date) -> list[tuple[int, int, str]]:
+    """The minutes of `day` that are taken, as (from, to, title), in order. An event that runs past
+    midnight takes the evening of its own day and the morning of the next."""
+    taken = []
+    for occurrence in occurrences(events, day - timedelta(days=1), day):
+        if not occurrence.start:
+            continue                                            # no time of its own, so it holds none
+        start = _minutes(occurrence.start)
+        end = _minutes(occurrence.end) if occurrence.end else start + 60
+        overnight = end <= start
+        if occurrence.day == day:
+            taken.append((start, 24 * 60 if overnight else end, occurrence.title))
+        elif overnight and end > 0:
+            taken.append((0, end, occurrence.title))            # yesterday's event, still running this morning
+    return sorted(taken)
+
+
+def _free_windows(events: list[Event], day: date, opens: int, closes: int) -> list[tuple[int, int]]:
+    """The stretches between `opens` and `closes` on `day` that nothing is booked in."""
+    windows, cursor = [], opens
+    for start, end, _title in _busy(events, day):
+        if start > cursor:
+            windows.append((cursor, min(start, closes)))
+        cursor = max(cursor, end)
+        if cursor >= closes:
+            break
+    if cursor < closes:
+        windows.append((cursor, closes))
+    return [(a, b) for a, b in windows if b > a]
+
+
+def _clash(events: list[Event], day: date, start: str, end: str) -> Optional[str]:
+    """What is already booked during start–end on `day`, said for the model, or None if it is free."""
+    first, last = _minutes(start), _minutes(end)
+    last = last if last > first else 24 * 60
+    hit = next(((a, b, title) for a, b, title in _busy(events, day) if first < b and a < last), None)
+    return f"{hit[2]} ({_clock(hit[0])}–{_clock(hit[1] % (24 * 60))})" if hit else None
+
+
+def _check_free_time(args: FindFreeTime, ctx: ToolContext) -> Optional[str]:
+    return past_problem(args.date, ctx.now)
+
+
+def _read_free_time(args: FindFreeTime, ctx: ToolContext) -> str:
+    """The free stretches of one day and the starts an event of this length could take. Worked out
+    here, so the model never does the arithmetic."""
+    day = date.fromisoformat(args.date)
+    opens, closes = (_minutes(clock) for clock in PARTS_OF_DAY[args.part_of_day])
+    if day == ctx.now.date():
+        opens = max(opens, -(-(ctx.now.hour * 60 + ctx.now.minute + 1) // 30) * 30)     # the next half hour from now
+    events = load_events(ctx)
+    windows = [(a, b) for a, b in _free_windows(events, day, opens, closes) if b - a >= args.minutes]
+    booked = "; ".join(f"{_clock(a)}–{_clock(b % (24 * 60))} {title}" for a, b, title in _busy(events, day)) or "nothing"
+    where = f"{day:%a} {args.date}" + ("" if args.part_of_day == "any" else f" in the {args.part_of_day}")
+    if not windows:
+        return (f"No free {args.minutes} minutes on {where} between {_clock(opens)} and {_clock(closes)}. "
+                f"Booked that day: {booked}. Look at another day or part of the day, or call ask_user.")
+    starts: list[int] = []
+    for a, b in windows:
+        first = -(-a // 30) * 30                               # starts fall on the hour or the half hour
+        starts += range(first, b - args.minutes + 1, 30)
+    # A model tends to take the first start it is shown, so the usual ones come first: on the hour,
+    # in the middle of the day, before the early, late and half-hour ones.
+    usual = sorted(starts, key=lambda t: (not _USUAL[0] <= t <= _USUAL[1], t % 60 != 0, t))[:MAX_STARTS]
+    result = (f"Free on {where}: " + ", ".join(f"{_clock(a)}–{_clock(b)}" for a, b in windows)
+              + f". Any start on the hour or half hour that leaves {args.minutes} minutes inside one of those "
+              + "works. The usual ones first: " + ", ".join(_clock(t) for t in usual) + f". Booked that day: {booked}.")
+    facts = remembered_facts(ctx)
+    if facts:
+        # Said again here, next to the choice, because this is where it has to be used.
+        result += (" Before you choose, rule out any start that goes against what the user asked to be "
+                   "remembered: " + "; ".join(facts) + ".")
+    return result
+
+
+_BARE_HOUR = re.compile(r"\bat\s+\d{1,2}\b", re.I)
+_ASKS = re.compile(r"^\s*(can|could|do|does|did|is|are|am|will|would|should|when|what|which|how|where)\b", re.I)
+_ASKS_KAIRO_TO = re.compile(r"^\s*(can|could|will|would)\s+you\b", re.I)
+# Words that place something in the day without a clock time. With one of these, or any digit, the
+# message is taken to say when; with neither, a time in create_events was made up.
+_SAYS_WHEN = re.compile(r"\d|\b(morning|afternoon|evening|night|tonight|noon|midday|midnight|breakfast|lunch|dinner"
+                        r"|all day)\b", re.I)
+_PART_OF_DAY = re.compile(r"\b(morning|afternoon|evening)\b", re.I)
+_A_LENGTH = re.compile(r"\b(\d+|an?|half an?|a couple of|a few)\s*(h|hr|hrs|hours?|mins?|minutes?)\b", re.I)
+
+
+def _is_a_question(text: str) -> bool:
+    """Whether the message asks something ("can I fit a workshop on Thursday?") instead of asking for
+    something to be done. "Can you schedule ..." is a request, however it is punctuated."""
+    if _ASKS_KAIRO_TO.search(text):
+        return False
+    return text.rstrip().endswith("?") or bool(_ASKS.search(text))
+
+
+def _check_suggestion(args: SuggestEvent, ctx: ToolContext) -> Optional[str]:
+    if _is_a_question(ctx.message):
+        return ("the message asks a question, it does not ask for an event: tell the user what find_free_time "
+                "showed with answer, and propose nothing")
+    ctx = _for_this_message(ctx, args.title)
+    if _first(ctx, times_the_wording_gives) or _first(ctx, _BARE_HOUR.search):
+        return "the message gives a time, so there is nothing to suggest: call create_events with that time"
+    held = _first(ctx, _PART_OF_DAY.search)
+    if held and not _first(ctx, _A_LENGTH.search):
+        # "block Friday morning for X" holds the morning. Only a length ("an hour on Friday morning") asks for a slot in it.
+        return (f"the message holds the {held.group(1).lower()} for this and gives no length, so there is nothing "
+                f"to suggest: call create_events for the whole {held.group(1).lower()} (a morning is 09:00 to 12:00)")
+    problem = past_problem(args.date, ctx.now, start=args.start) or _date_problem(ctx, args.date)
+    if problem:
+        return problem
+    if not DAY_OPENS <= args.start < DAY_CLOSES:
+        return (f"{args.start} is outside the hours a time may be suggested in ({DAY_OPENS}–{DAY_CLOSES}); "
+                f"call find_free_time for {args.date} and use a start it lists")
+    end = args.end or _smart_end_time(args.start, args.title)
+    taken = _clash(load_events(ctx), date.fromisoformat(args.date), args.start, end)
+    if taken:
+        return (f"{args.start}–{end} is not free: {taken} is booked then; call find_free_time for {args.date} "
+                "and use a start it lists")
+    return None
+
+
+# ── Proposals ─────────────────────────────────────────────────────────────────
 
 
 def _end_keeping_length(event_start: str, event_end: str, new_start: str) -> str:
@@ -492,6 +678,20 @@ def _propose_new_events(args: CreateEvents, ctx: ToolContext) -> Proposal:
                     notes=tuple(notes))
 
 
+def _propose_suggestion(args: SuggestEvent, ctx: ToolContext) -> Proposal:
+    """A new event at a time the user did not give. It is never stored outright: it waits for approval,
+    and the approval says the time was suggested."""
+    title = args.title.strip() or "Scheduled block"
+    end = args.end or _smart_end_time(args.start, title)
+    if any(_same_event(title, args.date, args.start, None, other) for other in load_events(ctx)):
+        return Answer(f"That's already on your calendar: {title}.")
+    entry = {"title": title, "date": args.date, "start": args.start, "end": end, "recurrence": None}
+    return [action_from_command(
+        "schedule_add", ScheduleAddCommand(entries=[entry]), requires_approval=True,
+        summary=f"Add schedule event: {title} — {_day(args.date)}, {_hours(args.start, end)} "
+                "(you gave no time, so this one is suggested)")]
+
+
 def _external_refs(event: Event, ctx: ToolContext) -> dict[str, Any]:
     """The Google Calendar references a command needs to change an event that lives there."""
     if not event.external:
@@ -526,11 +726,24 @@ def _propose_update(args: UpdateEvent, ctx: ToolContext) -> Proposal:
                                 summary=f"Update schedule event: {event.title} — {change}")]
 
 
-def _propose_remove(args: RemoveEvent, ctx: ToolContext) -> Proposal:
-    event = _find(ctx, args.event_id)
-    command = ScheduleRemoveCommand.model_validate({"ids": [event.id], **_external_refs(event, ctx)})
+def _propose_remove(args: RemoveEvents, ctx: ToolContext) -> Proposal:
+    """One command for every event named, so the user is asked once and shown each title."""
+    known = {event.id: event for event in load_events(ctx)}
+    events = [known[event_id] for event_id in dict.fromkeys(args.event_ids)]
+    google = [ref for event in events for ref in _external_refs(event, ctx).get("googleEvents", [])]
+    command = ScheduleRemoveCommand.model_validate({"ids": [event.id for event in events],
+                                                    **({"googleEvents": google} if google else {})})
+    if len(events) == 1:
+        summary = _format_schedule_remove_summary([events[0].title])
+    else:
+        # Every event is named with when it is, so the user approves a list they can check.
+        def line(event: Event) -> str:
+            when = "every occurrence" if event.repeats else ", ".join(
+                part for part in (_day(event.date) if event.date else "", _hours(event.start, event.end)) if part)
+            return f"- {event.title}" + (f" — {when}" if when else "")
+        summary = "\n".join([f"Remove {len(events)} schedule events:", *(line(event) for event in events)])
     return [action_from_command("schedule_remove", command, risk_level="medium", requires_approval=True,
-                                summary=_format_schedule_remove_summary([event.title]))]
+                                summary=summary)]
 
 
 def _series_id(event: Event) -> str:
@@ -587,6 +800,16 @@ def _read_range(args: ShowEvents, ctx: ToolContext) -> str:
 
 # ── The agent ─────────────────────────────────────────────────────────────────
 
+def _agent_view(ctx: ToolContext) -> str:
+    """What the calendar agent is shown: the calendar, and what the user asked Kairo to remember,
+    so a time it suggests can fit their habits."""
+    facts = remembered_facts(ctx)
+    if not facts:
+        return calendar_view(ctx)
+    return "\n".join([calendar_view(ctx), "", "What the user asked to be remembered about them:",
+                      *(f"- {fact}" for fact in facts)])
+
+
 SCHEDULE_AGENT = prompt_template("schedule_agent", """\
 You are Kairo's calendar agent. You look after one user's calendar: events at a set time, time held
 for something, and anything that repeats.
@@ -600,9 +823,10 @@ proposal that is checked before it is stored, and the user is shown exactly what
 Which tool:
 - create_events for anything new. Put every event of the message in one call. One thing that
   repeats on several weekdays is one event with those weekdays in by_day, not one event per day.
-- update_event, remove_event, skip_occurrence, change_occurrence and end_series act on an event that
-  is already on the calendar. Give its id from the calendar above. "Move", "push" and "change" one
-  event are update_event; "cancel" and "delete" are remove_event. For an event that repeats, use
+- update_event, remove_events, skip_occurrence, change_occurrence and end_series act on events that
+  are already on the calendar. Give ids from the calendar above. "Move", "push" and "change" one
+  event are update_event; "cancel" and "delete" are remove_events, with the id of every event meant
+  ("delete everything on my calendar" is every id above). For an event that repeats, use
   skip_occurrence or change_occurrence when the user means one day, and end_series when they mean
   from some day on.
 - show_events when the user wants to see what is on the calendar for a day or a range. When they
@@ -610,9 +834,18 @@ Which tool:
 - answer for any other question about the calendar: whether something is on it, whether there is
   room, how many hours. Use only the calendar above. An answer never says that something was added,
   changed or removed, and never promises to do it; to change the calendar, call the tool that does.
-- ask_user when a new event has no day at all or no time at all, or when you cannot tell which event
-  is meant. Never invent a day or a time. Ask for one thing. Never ask how long an event is or what
-  to call it: with no end time given, leave end null, and the title is the user's own words for it.
+- find_free_time, then suggest_event, when a new event has a day but no time at all ("schedule a
+  dentist appointment on saturday", "find me an hour for the report on Friday afternoon"). A part
+  of the day with no length ("block Friday morning for the logo work") is not this: it holds that
+  part of the day, which is create_events. A question ("can I fit a workshop on Thursday
+  afternoon?", "when am I free on Friday?") is not this either: call find_free_time if it helps,
+  then answer, and propose nothing. Do not ask what time. Look at the day first, then suggest a start that find_free_time listed and that
+  fits what the user asked to be remembered about them (when they sleep, work or prefer meetings).
+  The user is asked to approve the suggestion, so they still decide.
+- ask_user when a new event has no day at all, or when you cannot tell which event is meant. Never
+  invent a day, and never put a time the user did not give into create_events. Ask for one thing.
+  Never ask how long an event is or what to call it: with no end time given, leave end null, and
+  the title is the user's own words for it.
 - hand_back when the message is not about the calendar.
 
 Dates and times:
@@ -636,15 +869,20 @@ SCHEDULE = DomainSpec(
     mode="agent",
     restate="Could you give me the exact day and time for “{message}”?",
     prompt=SCHEDULE_AGENT,
-    context=calendar_view,
+    context=_agent_view,
+    max_calls=4,              # look at a day or two, propose, and still have one call to put a proposal right
     tools=(
         ToolSpec("create_events", "propose", CreateEvents, check=_check_new_events, propose=_propose_new_events,
                  examples=("Schedule a board prep session Tuesday at 3pm", "client call with Northwind thurs 2-3pm",
                            "remind me to take my pill every morning at 8")),
+        ToolSpec("find_free_time", "lookup", FindFreeTime, check=_check_free_time, read=_read_free_time,
+                 examples=("schedule a dentist appointment on saturday",)),
+        ToolSpec("suggest_event", "propose", SuggestEvent, check=_check_suggestion, propose=_propose_suggestion,
+                 examples=("schedule a dentist appointment on saturday", "find me an hour for the report on Friday")),
         ToolSpec("update_event", "propose", UpdateEvent, check=_check_update, propose=_propose_update,
                  examples=("move the discovery call to 4pm", "Push the Contoso call to 3pm")),
-        ToolSpec("remove_event", "propose", RemoveEvent, check=_check_known, propose=_propose_remove,
-                 examples=("Cancel the board prep session",)),
+        ToolSpec("remove_events", "propose", RemoveEvents, check=_check_known, propose=_propose_remove,
+                 examples=("Cancel the board prep session", "delete everything on my calendar")),
         ToolSpec("skip_occurrence", "propose", SkipOccurrence, check=_check_skip, propose=_propose_skip,
                  examples=("Skip gym this Friday",)),
         ToolSpec("change_occurrence", "propose", ChangeOccurrence, check=_check_change, propose=_propose_change,

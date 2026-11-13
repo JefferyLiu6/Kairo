@@ -45,8 +45,9 @@ def test_an_event_is_handed_to_the_schedule_agent_and_answered_from_the_calendar
     coordinator, agent = chat.asked
     assert coordinator["prompt"] == "coordinator" and agent["prompt"] == "schedule_agent"
     assert "[disc0001] 11:00–12:00 discovery call" in agent["system"] and "Thursday 2026-11-12 10:00" in agent["system"]
-    assert agent["tools"] == ["create_events", "update_event", "remove_event", "skip_occurrence", "change_occurrence",
-                              "end_series", "show_events", "answer", "ask_user", "hand_back"]
+    assert agent["tools"] == ["create_events", "find_free_time", "suggest_event", "update_event", "remove_events",
+                              "skip_occurrence", "change_occurrence", "end_series", "show_events", "answer", "ask_user",
+                              "hand_back"]
     assert agent["turns"] == [("user", "Schedule a board prep session Tuesday at 3pm")]
 
 
@@ -251,7 +252,7 @@ def test_skipping_one_day_of_a_repeating_event(chat):
 
 def test_an_event_id_that_is_not_on_the_calendar_is_sent_back(chat):
     seed(chat)
-    chat.model.extend([TO_SCHEDULE, call("remove_event", event_id="made-up1"), call("remove_event", event_id="disc0001")])
+    chat.model.extend([TO_SCHEDULE, call("remove_events", event_ids=["made-up1"]), call("remove_events", event_ids=["disc0001"])])
 
     assert "Remove schedule event: discovery call" in chat("Cancel the discovery call")
     assert "made-up1" in chat.asked[2]["turns"][-1][1]

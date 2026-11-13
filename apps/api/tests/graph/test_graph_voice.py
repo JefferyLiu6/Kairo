@@ -112,8 +112,8 @@ LIST = "Your habits:\n- morning run — 1-day streak, last logged Thu 12 Nov"
                                                                "November 17, from 3 PM to 4 PM."),
     (LIST, "Here are your habits:\n- morning run — 1-day streak, last logged Thursday, November 12"),
     (LIST, "You've got a 1-day streak on your morning run, last logged Thursday, November 12."),
-    ("Tasks are removed one at a time. Which task would you like to start with?",
-     "I can only remove tasks one at a time. Which one would you like to start with?"),
+    ("I found several tasks that match 'report' — which one do you mean?",
+     "A few tasks match 'report'. Which one do you mean?"),
     ("You may want to leave early.", "It might be worth leaving early."),         # "may" is not read as a month
 ])
 def test_a_rewording_that_keeps_the_facts_passes(draft, reworded):

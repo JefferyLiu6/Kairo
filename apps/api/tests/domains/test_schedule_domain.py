@@ -266,11 +266,11 @@ def test_an_update_that_cannot_be_right_is_refused_with_the_reason(tmp_path, mes
 
 def test_removing_an_event_names_it_and_waits_for_approval(tmp_path):
     seed(tmp_path)
-    tool, args, ctx = call("remove_event", tmp_path, "Cancel the discovery call", event_id="disc0001")
+    tool, args, ctx = call("remove_events", tmp_path, "Cancel the discovery call", event_ids=["disc0001"])
     action = only(tool.propose(args, ctx))
     assert action.action_type == "schedule_remove" and action.payload["ids"] == ["disc0001"]
     assert action.requires_approval and action.summary == "Remove schedule event: discovery call"
-    tool, args, ctx = call("remove_event", tmp_path, event_id="nope0000")
+    tool, args, ctx = call("remove_events", tmp_path, event_ids=["nope0000"])
     assert "nope0000" in tool.check(args, ctx)
 
 

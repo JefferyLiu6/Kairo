@@ -866,10 +866,26 @@
         },
         {
           "say": "schedule a dentist appointment on saturday",
-          "note": "No time given, so the right move is to ask (offering slots counts).",
-          "expect": {
-            "kind": "ask"
-          }
+          "note": "No time given. Right is to suggest a free time on Saturday for approval, or to ask. Storing a time nobody gave is not.",
+          "expect": [
+            {
+              "kind": "approval",
+              "approval": {
+                "action": "schedule_add",
+                "payload": {
+                  "entries.0.date": "2026-11-14",
+                  "entries.0.title": {
+                    "has": [
+                      "dentist"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "kind": "ask"
+            }
+          ]
         },
         {
           "say": "what shifts do i have this week",
@@ -1670,7 +1686,10 @@
                 }
               ],
               "approval": {
-                "action": "todo_remove"
+                "action": [
+                  "todo_remove",
+                  "batch"
+                ]
               }
             },
             {
@@ -1701,7 +1720,8 @@
                   "approval": {
                     "action": [
                       "private_export",
-                      "todo_remove"
+                      "todo_remove",
+                      "batch"
                     ]
                   }
                 }
@@ -1715,7 +1735,8 @@
                   "approval": {
                     "action": [
                       "private_export",
-                      "todo_remove"
+                      "todo_remove",
+                      "batch"
                     ]
                   }
                 }

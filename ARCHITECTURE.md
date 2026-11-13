@@ -230,17 +230,43 @@ code never has to find an event from a description.
 | Tool | Proposes |
 |---|---|
 | `create_events` | `schedule_add`; several events of one message in one call |
+| `find_free_time` | nothing: a lookup. The free stretches of one day and the starts that fit, for the agent |
+| `suggest_event` | `schedule_add` that waits for approval: a time the agent chose because the user gave none |
 | `update_event` | `schedule_update`; keeps the event's length when only the start moves |
-| `remove_event` | `schedule_remove` |
+| `remove_events` | `schedule_remove` for one event or several; the approval names every one |
 | `skip_occurrence` | `schedule_add_exception` for one day of a repeating event |
 | `change_occurrence` | `schedule_add_override` for one day of a repeating event |
 | `end_series` | `schedule_cancel_series_from` |
 | `show_events` | nothing: lists a day or a range, read from the calendar |
 | `answer`, `ask_user`, `hand_back` | nothing: every agent has these (the catch-all agent has no `hand_back`) |
 
-Two things are decided by code, not the model: the first day of a daily or
-weekly repeat (the next day it falls on), and whether a new event overlaps
-something already there (said in the reply as a note). An `answer` may describe
+**Look, then act.** A message that names a day but no time ("schedule a dentist
+appointment on saturday") used to be answered with a question. Now the agent
+calls `find_free_time`, is shown the result, and calls `suggest_event`: a short
+loop of at most four model calls (`max_calls` on the domain). The agent is also
+shown what the user asked to be remembered, and has to write what that limits
+before it gives a start. The suggestion is checked like any proposal: it has to
+be on the day the user named, between 07:00 and 21:00, and free, where an event
+that runs past midnight takes the next morning too. A time the user did not
+give is never stored outright; the approval says it was suggested. A message
+that gives a time, or holds a part of the day ("block Friday morning"), is not
+a suggestion and goes to `create_events`.
+
+Three things are decided by code, not the model: the first day of a daily or
+weekly repeat (the next day it falls on), which times of a day are free, and
+whether a new event overlaps something already there (said in the reply as a
+note). An update that would change nothing is sent back before anyone is asked
+to approve it, and so is a time in `create_events` that the message never gave.
+
+**Several changes, one approval.** `act` hands a proposal's commands to
+`submit_actions` (`application/approval_flow.py`). Those that need no approval
+run. One that does is queued as before. Several that do become one approval of
+type `batch`, whose summary lists each change; approving it runs each command
+in turn through `execute_pm_action`, with a receipt each, and a failure in one
+does not stop the rest. `remove_todos` produces a batch; `remove_events` puts
+every event in one `schedule_remove` command and lists them in its summary. In
+a request for a named day's events, a repeating event is refused, because
+removing it would remove every other day too. An `answer` may describe
 the calendar but may not say that something was added, changed or removed; only
 a receipt can say that.
 
