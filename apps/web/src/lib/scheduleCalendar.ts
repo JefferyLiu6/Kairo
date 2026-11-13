@@ -228,7 +228,7 @@ export function formatTimeRange(entry: ScheduleEntry): string {
   return formatTimeLabel(entry.start || entry.end);
 }
 
-function formatTimeLabel(hhmm: string): string {
+export function formatTimeLabel(hhmm: string): string {
   const m = parseTimeToMinutes(hhmm);
   if (m === null) return hhmm;
   const h24 = Math.floor(m / 60);
@@ -247,6 +247,22 @@ export function longDateLabel(d: Date): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+/** "Friday, Nov 13, 2026": the day view's title, short enough for the narrow calendar. */
+export function dayTitleLabel(d: Date): string {
+  return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" });
+}
+
+/** "Nov 8 – 14, 2026", or "Nov 29 – Dec 5, 2026" when the week crosses a month. */
+export function weekRangeLabel(weekStart: Date): string {
+  const end = addDays(weekStart, 6);
+  const month = (d: Date) => d.toLocaleDateString(undefined, { month: "short" });
+  if (weekStart.getFullYear() !== end.getFullYear()) {
+    return `${month(weekStart)} ${weekStart.getDate()}, ${weekStart.getFullYear()} – ${month(end)} ${end.getDate()}, ${end.getFullYear()}`;
+  }
+  const endPart = weekStart.getMonth() === end.getMonth() ? `${end.getDate()}` : `${month(end)} ${end.getDate()}`;
+  return `${month(weekStart)} ${weekStart.getDate()} – ${endPart}, ${end.getFullYear()}`;
 }
 
 export function monthYearLabel(d: Date): string {
