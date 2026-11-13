@@ -577,7 +577,7 @@ and improve the live path before the rewrite is finished.
 | Step | Delivers | Why here | Status |
 |---|---|---|---|
 | 1 | **Blind eval set and state-based scorer.** 85 un-coached messages with expected stored outcomes, runnable against any path | Every later step is judged against it | Done — see [BLIND_EVAL.md](../BLIND_EVAL.md) |
-| 2 | **Model date test.** Can the small model fill `create_event` correctly for the set's date and time phrasings? | The assumption the whole design rests on; a day to check | Done — see [MODEL_DATE_TEST.md](../MODEL_DATE_TEST.md). Holds on `gpt-5.4-mini` (about 1% wrong), fails on `gpt-4o-mini` (9%) |
+| 2 | **Model date test.** Can the small model fill `create_event` correctly for the set's date and time phrasings? | The assumption the whole design rests on; a day to check | Done — see [MODEL_DATE_TEST.md](../MODEL_DATE_TEST.md). Holds on `gpt-4o-mini` once a date check and pick-and-show for bare hours are added (0 wrong of 282 in the follow-up run); without them it is 9% wrong |
 | 3 | **Gate, execute, verify and receipts, wired into the current live path** | Replaces the judge and humanizer for writes now: no false "couldn't confirm", no reply that disagrees with storage, two fewer model calls | Done — `kairo/tools/receipts.py`, [results](../BLIND_EVAL.md#after-step-3-receipts-on-the-web-chat-path). "Couldn't confirm" replies 32 → 1, calls per turn 2.5 → 2.0, median reply 4.9 s → 3.2 s. Wrong saves unchanged, as expected |
 | 4 | **Scores ledger and versions in the decision log** (section 8.3) | From here every prompt or tool change is scored and recorded | Done — ledger at `apps/api/evals/scores.jsonl` ([how to use it](../BLIND_EVAL.md#the-scores-ledger)); each orchestrator decision row has a `versions` field. The bundle hash, prompt archive and pin-or-trial setting from section 8.3 wait for the tool registry |
 | 5 | **Registry, graph state, coordinator, tasks inline** | The simplest end-to-end slice of the new graph | |
@@ -605,20 +605,21 @@ Decisions for Jeffery:
 
 1. **Agent or inline per domain at the start.** Proposed: schedule and memory
    as agents, tasks, habits and journal inline.
-2. **Model.** Tested in step 2. `gpt-4o-mini`, the repo's default, gets 9% of
-   date and time answers wrong even with the full contract; `gpt-5.4-mini` gets
-   about 1%. Proposed: `gpt-5.4-mini` for filling tool arguments, after a price
-   check against the $20 cap (about 1,000 input and 50 output tokens per call).
-   The test also made four contract elements requirements, not options: the
-   calendar hint in state, one proposal per request, tool wording that says a
-   task never repeats or holds time, and past-date and repeat-shape checks in
-   the gate. "One proposal per request" means several requests in one message
-   must be split by the coordinator or carried in a list-typed tool, not left
-   to parallel tool calls.
+2. **Model.** Decided 2026-11-13: `gpt-4o-mini`. `gpt-5.4-mini` got about 1%
+   of date and time answers wrong against 9% for `gpt-4o-mini`, but was judged
+   too expensive. With a date check in the gate and pick-and-show for bare
+   hours, `gpt-4o-mini` had no wrong answers in a fresh run of 282
+   ([follow-up](../MODEL_DATE_TEST.md#follow-up-staying-on-gpt-4o-mini)). The
+   test made five contract elements requirements: the calendar hint in state,
+   one proposal per request, tool wording that says a task never repeats or
+   holds time, past-date and repeat-shape checks, and the date check against
+   the message's own date word. "One proposal per request" means several
+   requests in one message must be split by the coordinator or carried in a
+   list-typed tool, not left to parallel tool calls.
 3. **Whether `respond` may use a model.** Proposed: templates for writes and
    approvals, optional model wording for read summaries only.
 4. **Where this lives in the code.** Proposed: a new `kairo/agents/graph/`
    package and `kairo/domains/<name>/`, leaving `orchestrator/` and
    `personal_manager/` untouched until step 5.
-5. **A bare hour.** "Meeting tomorrow at 7": ask, or pick the likelier reading
-   and show it in the receipt? Only `gpt-5.4-mini` reliably asks when told to.
+5. **A bare hour.** Decided 2026-11-13: pick the likelier reading and show it
+   in the receipt. Asking only worked on `gpt-5.4-mini`.

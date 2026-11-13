@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -11,7 +11,10 @@ from evals.blind.spec import load_blind_set
 from evals.datefill.probe import (
     BARS, Call, Case, decide, judge, load_cases, render, run_probe, save_report, summarize,
 )
-from evals.datefill.tools import ARMS, calendar_hint, openai_tools, single_call, system_prompt, validate_call
+from evals.datefill.tools import (
+    ARMS, calendar_hint, date_contradiction, dates_the_wording_allows, openai_tools, single_call, system_prompt,
+    validate_call,
+)
 
 NOW = datetime(2026, 11, 12, 10, 0, tzinfo=ZoneInfo("America/Toronto"))
 
@@ -252,7 +255,7 @@ def test_every_case_runs_in_every_arm_the_given_number_of_times():
 
 def test_the_summary_separates_safe_misses_from_wrong_answers_and_breaks_them_down():
     answers = {
-        ("date_only", "dentist tomorrow at 3pm"): [event(date="2026-11-14")],
+        ("date_only", "dentist tomorrow at 3pm"): [event(start="03:00")],
         ("date_only", "meeting tomorrow at 7"): [event(start="07:00")],
         ("calendar", "dentist tomorrow at 3pm"): [ASK],
         ("calendar", "meeting tomorrow at 7"): [ASK],
@@ -260,12 +263,12 @@ def test_the_summary_separates_safe_misses_from_wrong_answers_and_breaks_them_do
     report = run_probe(TWO_CASES, scripted(answers), now=NOW, repeats=1, workers=1, arms=("date_only", "calendar"))
 
     worse, better = report["arms"]["date_only"]["summary"], report["arms"]["calendar"]["summary"]
-    assert worse["wrong_rate"] == 1.0 and worse["kinds"] == {"wrong_date": 1, "guessed": 1}
+    assert worse["wrong_rate"] == 1.0 and worse["kinds"] == {"wrong_time": 1, "guessed": 1}
     assert better["right_rate"] == 0.5 and better["safe_miss_rate"] == 0.5 and better["wrong_rate"] == 0.0
     assert better["by_category"]["must_ask"] == {"trials": 1, "right": 1, "safe_miss": 0, "wrong": 0}
     trial = report["arms"]["date_only"]["trials"][0]
-    assert trial["id"] == "c1" and trial["kind"] == "wrong_date" and "2026-11-14" in trial["detail"]
-    assert trial["calls"] == [{"name": "create_event", "args": event(date="2026-11-14").args}]
+    assert trial["id"] == "c1" and trial["kind"] == "wrong_time" and "03:00" in trial["detail"]
+    assert trial["calls"] == [{"name": "create_event", "args": event(start="03:00").args}]
 
 
 def test_a_failed_request_is_an_error_not_a_verdict_on_the_model():
@@ -295,7 +298,7 @@ def test_the_decision_follows_the_bars_set_before_the_run():
 
 def test_the_report_names_the_best_arm_and_its_decision():
     answers = {
-        ("date_only", "dentist tomorrow at 3pm"): [event(date="2026-11-14")],
+        ("date_only", "dentist tomorrow at 3pm"): [event(start="03:00")],
         ("date_only", "meeting tomorrow at 7"): [ASK],
         ("calendar", "dentist tomorrow at 3pm"): [event()],
         ("calendar", "meeting tomorrow at 7"): [ASK],
@@ -304,7 +307,7 @@ def test_the_report_names_the_best_arm_and_its_decision():
                        arms=("date_only", "calendar"))
     assert report["best_arm"] == "calendar" and report["decision"] == "go" and report["model"] == {"model": "fake"}
     text = render(report)
-    assert "calendar" in text and "date_only" in text and "GO" in text and "wrong_date" in text
+    assert "calendar" in text and "date_only" in text and "GO" in text and "wrong_time" in text
 
 
 def test_a_saved_report_is_not_overwritten(tmp_path):
@@ -317,3 +320,93 @@ def test_a_saved_report_is_not_overwritten(tmp_path):
 
 def test_summarize_counts_nothing_as_no_rates():
     assert summarize([])["right_rate"] is None
+
+
+# ── The date check: does the proposed date agree with the date words in the message? ──
+
+D = date  # shorthand for the table below
+
+
+@pytest.mark.parametrize("say, allowed", [
+    ("dentist tomorrow at 3pm", {D(2026, 11, 13)}),
+    ("study sesh tmrw 8pm w/ jess", {D(2026, 11, 13)}),
+    ("team dinner the day after tomorrow at 7pm", {D(2026, 11, 14)}),
+    ("call the bank tonight at 8", {D(2026, 11, 12)}),
+    ("coffee with Priya this afternoon at 2", {D(2026, 11, 12)}),
+    ("haircut saturday at 9am", {D(2026, 11, 14)}),
+    ("i need to finish the report by friday", {D(2026, 11, 13)}),          # the nearest Friday, not next week's
+    ("cal fri 3pm standup 30m", {D(2026, 11, 13)}),
+    ("meet Alex next friday at 4pm", {D(2026, 11, 13), D(2026, 11, 20)}),   # "next" is read both ways
+    ("standup thursday 9:30am", {D(2026, 11, 12), D(2026, 11, 19)}),       # today is Thursday
+    ("lunch with Sam on the 20th at noon", {D(2026, 11, 20)}),
+    ("dad's birthday dinner on the 3rd at 7pm", {D(2026, 12, 3)}),         # this month's 3rd has passed
+    ("bio exam nov 24 at 9am", {D(2026, 11, 24)}),
+    ("recital on December 5th at 6 in the evening", {D(2026, 12, 5)}),
+    ("conference on jan 14 at 9am", {D(2027, 1, 14)}),                     # January has passed this year
+    ("flight to Vancouver 12/1 at 6:45am", {D(2026, 12, 1)}),
+    ("add event 2026-11-16 09:00-10:30 quarterly planning", {D(2026, 11, 16)}),
+])
+def test_date_words_in_a_message_pin_down_the_date(say, allowed):
+    assert dates_the_wording_allows(say, NOW) == allowed
+
+
+@pytest.mark.parametrize("say", [
+    "buy milk",
+    "set up a meeting with Jordan",
+    "lunch with Sam next week",
+    "submit expense report by end of month",
+    "gym mon wed fri 7am",                       # several days: left to the repeat check
+    "Schedule gym every Monday at 6am",          # a repeat, not one date
+    "周六下午三点 团队聚餐",                        # only English date words are read
+])
+def test_a_message_without_one_clear_date_word_is_not_checked(say):
+    assert dates_the_wording_allows(say, NOW) is None
+
+
+def test_a_proposed_date_that_contradicts_the_wording_is_caught():
+    say = "i need to finish the report by friday"
+    assert date_contradiction(say, "add_todo", todo(due_date="2026-11-13").args, NOW) is None
+    problem = date_contradiction(say, "add_todo", todo(due_date="2026-11-20").args, NOW)
+    assert "2026-11-20" in problem and "2026-11-13" in problem
+    assert "no date" in date_contradiction("call the bank tonight at 8", "add_todo", todo().args, NOW)
+
+
+def test_the_date_check_leaves_questions_repeats_and_unclear_messages_alone():
+    weekly = event(date="2026-11-16", recurrence={"freq": "weekly", "interval": 1, "by_day": ["FR"]})
+    assert date_contradiction("standup friday", weekly.name, weekly.args, NOW) is None
+    assert date_contradiction("dentist tomorrow", ASK.name, ASK.args, NOW) is None
+    assert date_contradiction("buy milk", "add_todo", todo(due_date="2026-12-25").args, NOW) is None
+
+
+def test_a_wrong_date_the_wording_contradicts_is_stopped_before_it_is_stored():
+    friday = case([{"tool": "add_todo", "args": {"due_date": "2026-11-13"}}], say="finish the report by friday")
+    verdict = judge(friday, [todo(due_date="2026-11-20")], now=NOW)
+    assert (verdict.outcome, verdict.kind) == ("safe_miss", "date_check") and "2026-11-20" in verdict.detail
+    assert judge(friday, [todo(due_date="2026-11-13")], now=NOW).outcome == "right"
+    # Without the clock there is nothing to check against, so the mistake stands.
+    assert judge(friday, [todo(due_date="2026-11-20")]).kind == "wrong_date"
+
+
+def test_a_wrong_date_with_no_date_word_to_check_against_is_still_wrong():
+    month_end = case([{"tool": "add_todo", "args": {"due_date": "2026-11-30"}}], say="submit expenses by end of month")
+    assert judge(month_end, [todo(due_date="2026-12-31")], now=NOW).kind == "wrong_date"
+
+
+# ── A bare hour: pick the likelier reading and show it ────────────────────────
+
+def test_the_rules_say_to_pick_a_bare_hour_and_to_ask_only_when_a_date_or_time_is_missing():
+    rules = system_prompt("calendar_single", NOW).split("\n\n")[-1]
+    assert "likelier" in rules and "ask_user" in rules
+    assert "is not yours to" not in rules  # the earlier rule, which the smaller models ignored
+
+
+@pytest.mark.parametrize("case_id", ["ma4", "fr7", "fr8", "v5", "v6"])
+def test_a_bare_hour_case_accepts_either_reading_or_a_question(case_id):
+    bare = next(c for c in load_cases() if c.id == case_id)
+    day = bare.expect[0].args["date"]
+    hours = bare.expect[0].args["start"]["any"]
+    assert len(hours) == 2 and int(hours[1][:2]) - int(hours[0][:2]) == 12
+    for hour in hours:
+        assert judge(bare, [event(date=day, start=hour)], now=NOW).outcome == "right"
+    assert judge(bare, [ASK], now=NOW).outcome == "right"
+    assert judge(bare, [event(date=day, start="13:00")], now=NOW).outcome == "wrong"

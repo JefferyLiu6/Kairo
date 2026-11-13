@@ -9,7 +9,8 @@ exists (docs/ideas/kairo-2.0-agent-architecture.md, section 8).
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import re
+from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
 
 from langchain_core.utils.function_calling import convert_to_openai_tool
@@ -114,6 +115,85 @@ def validate_call(name: str, args: dict[str, Any], *, now: Optional[datetime] = 
     return None
 
 
+_WEEKDAY_WORDS = {"mon": 0, "monday": 0, "tue": 1, "tues": 1, "tuesday": 1, "wed": 2, "wednesday": 2,
+                  "thu": 3, "thur": 3, "thurs": 3, "thursday": 3, "fri": 4, "friday": 4,
+                  "sat": 5, "saturday": 5, "sun": 6, "sunday": 6}
+_MONTH_WORDS = {name: number for number, name in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), start=1)}
+
+
+def _next_occurrence(today: date, month: int, day: int) -> Optional[date]:
+    """The next time this month and day comes round, today included."""
+    try:
+        this_year = date(today.year, month, day)
+        return this_year if this_year >= today else date(today.year + 1, month, day)
+    except ValueError:
+        return None
+
+
+def dates_the_wording_allows(say: str, now: datetime) -> Optional[set[date]]:
+    """The dates a message's own date word allows, or None if it has no single clear one.
+
+    This does not parse the request. It reads one English date word ("tomorrow", "friday",
+    "the 3rd", "nov 24", "12/1") so a proposed date can be checked against it. A message it
+    cannot read is simply not checked.
+    """
+    text, today = say.lower(), now.date()
+    if found := re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", text):
+        try:
+            return {date(int(found[1]), int(found[2]), int(found[3]))}
+        except ValueError:
+            return None
+    if "day after tomorrow" in text:
+        return {today + timedelta(days=2)}
+    if re.search(r"\b(tomorrow|tmrw|tmr)\b", text):
+        return {today + timedelta(days=1)}
+    if re.search(r"\b(today|tonight|this (morning|afternoon|evening))\b", text):
+        return {today}
+    if found := re.search(r"\b(\d{1,2})/(\d{1,2})\b", text):
+        named = _next_occurrence(today, int(found[1]), int(found[2])) if int(found[1]) <= 12 else None
+        return {named} if named else None
+    if found := re.search(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})(?:st|nd|rd|th)?\b", text):
+        named = _next_occurrence(today, _MONTH_WORDS[found[1]], int(found[2]))
+        return {named} if named else None
+    if found := re.search(r"\bthe (\d{1,2})(st|nd|rd|th)\b", text):
+        this_month = _next_occurrence(today, today.month, int(found[1]))
+        if this_month and this_month.year == today.year:
+            return {this_month}
+        next_month = (today.replace(day=1) + timedelta(days=32)).replace(day=1)
+        try:
+            return {next_month.replace(day=int(found[1]))}
+        except ValueError:
+            return None
+    weekdays = {_WEEKDAY_WORDS[word] for word in re.findall(r"\b(" + "|".join(_WEEKDAY_WORDS) + r")\b", text)}
+    if len(weekdays) == 1 and not re.search(r"\b(every|each)\b", text):
+        ahead = (weekdays.pop() - today.weekday()) % 7
+        nearest = today + timedelta(days=ahead)
+        # "next friday" is read both ways, and so is the weekday that is today.
+        return {nearest, nearest + timedelta(days=7)} if ahead == 0 or re.search(r"\bnext\b", text) else {nearest}
+    return None
+
+
+def date_contradiction(say: str, name: str, args: dict[str, Any], now: datetime) -> Optional[str]:
+    """Why a proposed date disagrees with the message's own date word, or None if it does not.
+
+    A gate check: a proposal that fails it is not stored; it is retried or turned into a question.
+    Questions, repeating events and messages with no readable date word are left alone.
+    """
+    if name == "ask_user" or args.get("recurrence"):
+        return None
+    allowed = dates_the_wording_allows(say, now)
+    if allowed is None:
+        return None
+    wanted = " or ".join(sorted(day.isoformat() for day in allowed))
+    proposed = args.get("date") if name == "create_event" else args.get("due_date")
+    if not proposed:
+        return f"no date was set, but the message points to {wanted}"
+    if date.fromisoformat(proposed) not in allowed:
+        return f"date {proposed} does not match the message, which points to {wanted}"
+    return None
+
+
 def calendar_hint(now: datetime, days: int = 14) -> str:
     """The next `days` dates with their weekdays, so 'next Tuesday' is a lookup, not arithmetic."""
     lines = []
@@ -130,10 +210,10 @@ Turn the user's message into exactly one kind of proposal by calling a tool.
   something. Use add_todo only for a one-off thing to get done, with or without a deadline.
 - Dates are YYYY-MM-DD and times are 24-hour HH:MM. Work them out from the current date above.
 - A time that has already passed today means the next time that day comes around.
-- Read the time of day from context ("dinner at 7" is 19:00, "tonight at 8" is 20:00). A bare hour with
-  no am/pm and nothing in the message that settles morning or evening ("meeting at 7") is not yours to
-  pick: call ask_user.
-- If an event has no date or no time at all, call ask_user. Never invent one.
+- Read the time of day from context ("dinner at 7" is 19:00, "tonight at 8" is 20:00). For a bare hour
+  with nothing to settle morning or evening ("meeting at 7"), pick the likelier reading; the user is
+  shown the time and can correct it.
+- If an event has no date at all, or no time at all, call ask_user. Never invent one.
 - Only set an end time, a due date or a repeat when the user asked for it.
 - The title is the user's own words for the thing, without date, time or repeat words."""
 
