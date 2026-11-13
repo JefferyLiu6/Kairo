@@ -30,11 +30,12 @@ import {
   addDays,
   addMonths,
   startOfWeekSunday,
-  longDateLabel,
+  dayTitleLabel,
+  weekRangeLabel,
   monthYearLabel,
-  shortWeekdayLabel,
-  dayNum,
   buildMonthCells,
+  entryHue,
+  formatTimeLabel,
 } from "../lib/scheduleCalendar";
 
 function emptyRow(overrides: Partial<ScheduleEntry> = {}): ScheduleEntry {
@@ -450,13 +451,11 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
     if (nextEntries && !googleConnected) void persist(nextEntries);
   }, [draggingTask, draggingEntry, entries, googleConnected, persist]);
 
-  const headerSubtitle = useMemo(() => {
+  // What the calendar is showing. It is the title in both the narrow and the full-screen calendar.
+  const title = useMemo(() => {
     if (view === "month") return monthYearLabel(cursor);
-    if (view === "week") {
-      const end = addDays(weekStart, 6);
-      return `${monthYearLabel(weekStart)} · ${shortWeekdayLabel(weekStart)} ${dayNum(weekStart)} – ${shortWeekdayLabel(end)} ${dayNum(end)}`;
-    }
-    return longDateLabel(cursor);
+    if (view === "week") return weekRangeLabel(weekStart);
+    return dayTitleLabel(cursor);
   }, [view, cursor, weekStart]);
 
   const dragDropViewProps = dragDropEnabled
@@ -494,10 +493,7 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
     <div className="sch-cal-main">
       <header className="ws-header sch-cal-header">
         <div className="sch-cal-header-main">
-          <div className="ws-header-left">
-            {!fullscreen && <span className="ws-title" id="sch-title">Schedule</span>}
-            <span className={fullscreen ? "sch-month-title" : "sch-subtitle"}>{headerSubtitle}</span>
-          </div>
+          <h2 className="sch-title" aria-live="polite">{title}</h2>
           <div className="sch-view-tabs" role="group" aria-label="Calendar view">
             {(["day", "week", "month"] as const).map((v) => (
               <button key={v} type="button" aria-pressed={view === v}
@@ -518,29 +514,32 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
             </button>
           </div>
           <div className="sch-header-actions">
-            {!fullscreen && (
-              <button type="button" className="sch-btn sch-btn-secondary" onClick={() => openNew()}>+ Event</button>
-            )}
-            {!fullscreen && (
-              <button type="button" className="sch-btn sch-btn-primary" onClick={() => void save()} disabled={saving || loading}>
-                {googleConnected ? (googleSyncing ? "Syncing..." : "Synced") : saving ? "Saving…" : dirty ? "Save" : "Saved"}
+            {/* Changes save themselves. This only appears while one is in flight, or when one is waiting to be saved. */}
+            {saving ? (
+              <span className="sch-save-state" role="status">Saving…</span>
+            ) : dirty && !googleConnected ? (
+              <button type="button" className="sch-btn sch-btn-secondary" onClick={() => void save()} disabled={loading}>
+                Save changes
               </button>
-            )}
+            ) : null}
+            <button type="button" className="sch-btn sch-btn-primary sch-add-btn" onClick={() => openNew()}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+              </svg>
+              Event
+            </button>
             {fullscreen ? (
-              <>
-                <button type="button" className="sch-btn sch-btn-secondary sch-back-chat-btn" onClick={onClose}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M15 18 9 12l6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  Chat
-                </button>
-                <button type="button" className="sch-fullscreen-add-btn" onClick={() => openNew()} aria-label="Add event">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="white" strokeWidth="2" strokeLinecap="round"/></svg>
-                </button>
-              </>
+              <button type="button" className="sch-btn sch-btn-secondary sch-back-chat-btn" onClick={onClose}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M15 18 9 12l6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Chat
+              </button>
             ) : (
-              <button type="button" className="sch-btn sch-btn-close" onClick={onClose} aria-label="Close calendar" title="Close calendar">
-                <span aria-hidden="true">✕</span>
+              <button type="button" className="sch-icon-btn" onClick={onClose} aria-label="Close calendar" title="Close calendar">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
               </button>
             )}
           </div>
@@ -594,9 +593,10 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
         <div className="sch-agenda-strip">
           <span className="sch-agenda-label">Today</span>
           <div className="sch-agenda-items">
+            {/* An occurrence's id is "<entry id>:<date>". It takes the colour of the entry it belongs to. */}
             {upcoming.map((ev) => (
-              <span key={ev.id} className="sch-agenda-chip" style={{ "--sch-h": (ev.id.charCodeAt(0) * 37) % 360 } as CSSProperties}>
-                {ev.start ? <span className="sch-agenda-time">{ev.start}</span> : null}
+              <span key={ev.id} className="sch-agenda-chip" style={{ "--sch-h": entryHue(ev.id.split(":")[0]) } as CSSProperties}>
+                {ev.start ? <span className="sch-agenda-time">{formatTimeLabel(ev.start)}</span> : null}
                 {ev.title}
               </span>
             ))}
@@ -662,7 +662,7 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
       onClick={(e) => e.stopPropagation()}
       role={sidebar ? "region" : "dialog"}
       aria-modal={sidebar ? undefined : true}
-      aria-labelledby="sch-title"
+      aria-label="Calendar"
     >
       {calendarSection}
     </div>
