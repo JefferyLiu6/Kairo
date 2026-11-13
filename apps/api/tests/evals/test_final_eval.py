@@ -31,11 +31,18 @@ def test_real_orchestrator_control_flow_with_stubbed_models(monkeypatch, expande
     turns = 9 if expanded else 3
     assert result["summary"] == dict(attempted_turns=turns, captured_replies=turns, state_checks_passed=turns, execution_errors=0), result["observations"]
     for case in result["cases"]:
+        step, response = case["id"].rsplit("/", 1)[-1], case["response"]
         if case.get("scenario") == "ambiguous_target":
-            assert "which one?" in case["response"]
-            assert not case["response"].startswith("Final reply:")
-        else:
-            assert case["response"].startswith("Final reply:")
+            assert "which one?" in response
+            assert not response.startswith("Final reply:")
+        elif step == "create":      # a write is answered from the stored record, not by the humanizer
+            assert response == f"Added task: {TITLE} — no due date."
+        elif step == "complete":
+            assert response == f"Checked off: {TITLE}."
+        elif step == "missing":     # the workflow's own answer; nothing was written, so nothing is judged
+            assert response == "Couldn't find a task matching 'nonexistent task'."
+        else:                       # reads, and a repeat that changed nothing, still go through the models
+            assert step in {"list", "repeat"} and response.startswith("Final reply:")
     assert all(case["expected"] is None for case in result["cases"])
     assert result["observations"][-1]["after"][0]["done"] is True
 

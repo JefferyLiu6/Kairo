@@ -147,6 +147,38 @@ What the orchestrator run shows:
 Reports: `artifacts/blind/pm-20261112T230237Z.json` and
 `artifacts/blind/orchestrator-20261112T230239Z.json` (local, git-ignored).
 
+### After step 3: receipts on the web-chat path
+
+Writes are now read back from storage and the reply is built from the stored
+records, with no judge and no humanizer
+([ARCHITECTURE.md](../ARCHITECTURE.md#receipts)). One run, same model.
+
+| Web-chat path | Baseline | With receipts |
+|---|---|---|
+| Right, of scoreable turns | 34% (22 of 65) | 39% (25 of 64) |
+| Wrong but reported done | 18% (13 + 2) | 16% (12 + 2) |
+| Trapped turns | 7 | 3 |
+| Replies saying "I couldn't confirm that was saved" | 32 | 1 |
+| Model calls per turn | 2.5 | 2.0 |
+| Reply time, median / 95th | 4.9 s / 9.3 s | 3.2 s / 6.3 s |
+
+What changed and what did not:
+
+- **The false "couldn't confirm" replies are gone**, and replies are faster.
+- **Replies now show what is stored**, so a wrong save is visible instead of
+  hidden: "Added task: Acme logo v2 — no due date." after "due monday 5pm", and
+  "Added task: fix figure 3 — due Tue 17 Nov." after "due friday".
+- **Wrong saves themselves are unchanged** (13 before, 12 after). They come
+  from the translate-then-parse step, which receipts do not touch. All three
+  bars still fail.
+- **The right rate and trapped count moved within run-to-run noise.** Do not
+  read the five-point gain as an improvement in understanding.
+- **Reads are untouched and still fragile.** "I wasn't able to retrieve that
+  right now" was the reply to 8 turns, including plain "show my todos"; the
+  judge model rejects correct lists.
+
+Report: `artifacts/blind/orchestrator-20261112T235639Z.json`.
+
 ## Writing expectations
 
 Each turn has what the user says and an `expect`: one expectation, or a list of
