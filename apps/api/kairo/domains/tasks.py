@@ -60,7 +60,7 @@ class ListTodos(_Args):
 def _check_new_todos(args: AddTodos, ctx: ToolContext) -> Optional[str]:
     if asks_for_a_repeat(ctx.message):
         return NotThisDomain("a task cannot repeat, and this message asks for something that repeats; "
-                             "hand it off with hand_off")
+                             "hand it off to schedule with hand_off", to="schedule")
     # With several items the message's date word may belong to only one of them, so a missing
     # date is accepted there; with one item, a date word in the message must be carried over.
     alone = len(args.items) == 1
@@ -125,8 +125,21 @@ def _read_open_todos(_args: ListTodos, ctx: ToolContext) -> str:
     return "\n".join(lines + ([f"Done: {done}."] if done else []))
 
 
+MAX_SHOWN = 30
+
+
+def _open_tasks(ctx: ToolContext) -> str:
+    """The open tasks, as whoever calls these tools is shown them."""
+    titles = [item.title for item in load_todos(ctx.user_id, ctx.data_dir).items if not item.done]
+    if not titles:
+        return "The to-do list is empty."
+    more = [f"(and {len(titles) - MAX_SHOWN} more)"] if len(titles) > MAX_SHOWN else []
+    return "\n".join(["Open tasks on the to-do list:", *(f"- {title}" for title in titles[:MAX_SHOWN]), *more])
+
+
 TASKS = DomainSpec(
     name="tasks",
+    context=_open_tasks,
     summary="The to-do list: adding things to get done, finishing or removing a task, and what is on the list.",
     tools=(
         ToolSpec("add_todos", "propose", AddTodos, check=_check_new_todos, propose=_propose_new_todos,

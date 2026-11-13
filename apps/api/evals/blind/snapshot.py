@@ -77,5 +77,5 @@ def _topic(pending: Any) -> str:
     else:
         intent, entities = getattr(pending, "intent", None), getattr(pending, "entities", {}) or {}
     subject = next((str(entities[key]) for key in ("title", "query", "name", "body", "fact") if entities.get(key)),
-                   str(getattr(pending, "original_message", "") or ""))
+                   str(getattr(pending, "original_message", "") or getattr(pending, "topic", "") or ""))
     return f"{getattr(intent, 'value', intent) or pending.type}:{subject.casefold()}"

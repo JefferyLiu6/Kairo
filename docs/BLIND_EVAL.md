@@ -236,6 +236,60 @@ What changed and what did not:
 Reports: `artifacts/blind/graph-20261113T023401Z.json` and
 `artifacts/blind/orchestrator-20261113T023915Z.json`.
 
+### After step 6: the calendar on the agent graph
+
+The coordinator now hands calendar messages to a schedule agent with its own
+prompt, tools and view of the calendar
+([ARCHITECTURE.md](../ARCHITECTURE.md#the-schedule-agent)). Habits, journal,
+memory and conversation still go to the orchestrator. Two recorded graph runs
+on 2026-11-13, `gpt-4o-mini`; the second has one more sentence in the agent's
+prompt (which range to show when none is given).
+
+| Whole set, 85 turns | Web chat (orchestrator), two runs | Agent graph, run 1 | Agent graph, run 2 |
+|---|---|---|---|
+| Right, of scoreable turns | 33%, 32% | 82% (55 of 67) | 89% (62 of 70) |
+| Wrong but reported done | 20%, 14% | 2.4% (2 + 0) | 0% |
+| Trapped turns | 5, 9 | 0 | 0 |
+| Holdout right | 43%, 33% | 75% | 87% |
+| Model calls per turn | 2.04, 1.91 | 1.82 | 1.81 |
+| Reply time, median | 4.1 s, 3.8 s | 2.1 s | 2.6 s |
+| Bar | fail | fail (wrong 2.4% > 2%) | **pass** |
+
+By the kind of turn (42 calendar, 18 task, 25 other):
+
+| | Web chat, two runs | Agent graph, two runs |
+|---|---|---|
+| Calendar turns right | 9, 8 | 35, 41 |
+| Calendar wrong saves and false claims | 10, 6 | 2, 0 |
+| Calendar turns trapped | 5, 8 | 0, 0 |
+| Task turns right | 8, 8 | 16, 16 |
+| Calendar reply time, median | 4.4 s, 4.2 s | 2.3 s, 2.6 s |
+
+What changed and what did not:
+
+- **One run passes the bar and one misses it by one turn.** The bar for wrong
+  saves is 2% of 85 turns, which is one turn. Run 1 had two, both in the
+  holdout: three night shifts stored as one event repeating every Fri/Sat/Sun,
+  and a Chinese title that lost the person's name. Run 2 had none. Treat the
+  graph as at the bar, not safely past it.
+- **No turn was trapped in either run.** A question is offered to the next
+  message and can no longer capture the ones after it.
+- **Reply time is at 2.1 to 2.6 s against a 2 s target.** A calendar turn is
+  two model calls.
+- **What is still missed is almost all on the orchestrator's side**: adding a
+  habit, "remember that …" (the web path has no memory vault configured),
+  "Export my data", "Delete all my todos". Those are the next domains.
+- **Two things the graph itself still gets wrong**: "send Contoso the pricing
+  deck after tomorrow's call" is proposed for the day after tomorrow twice and
+  refused twice, so the user is asked (safe, but a miss); and an approval the
+  user never answered stays pending, so a later bare "approve" asks which one.
+- **The checks read English.** A Chinese or Spanish date word is not compared
+  with the proposal, so those turns rest on the model alone.
+
+Reports: `artifacts/blind/graph-20261113T031459Z.json`,
+`artifacts/blind/graph-20261113T032430Z.json` and the two
+`orchestrator-20261113T03…` runs beside them.
+
 ## The scores ledger
 
 A prompt's version says that it changed, not whether it got better. The ledger,

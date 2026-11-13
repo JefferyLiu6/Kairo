@@ -1,5 +1,5 @@
 {
-  "coordinator": "8a5dea97",
+  "coordinator": "71e6c86e",
   "direct_reply": "694dd565",
   "humanize": "886c1e42",
   "judge": "c8742e9d",
@@ -10,5 +10,6 @@
   "reconcile_profile": "64a59fd6",
   "request_extraction": "34468eb2",
   "route": "ff6b3b60",
+  "schedule_agent": "7823df93",
   "translate": "1a478512"
 }
