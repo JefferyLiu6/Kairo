@@ -135,7 +135,7 @@ export function KairoPanel({
     setMood(nextMood);
   }
 
-const speech = useMemo(() => {
+  const speech = useMemo(() => {
     if (busy) return agentActivity || "Kairo is sorting the queue.";
     if (activeMood === "celebrating") return "Done. XP banked.";
     if (activeMood === "sleepy") return "Low energy. Pick a small win or let me rest.";
@@ -155,7 +155,7 @@ const speech = useMemo(() => {
           disabled={busy}
           aria-label="Interact with Kairo"
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <rect x="4" y="6" width="16" height="12" rx="3" stroke="var(--teal)" strokeWidth="1.5" />
             <circle cx="9" cy="12" r="1.5" fill="var(--teal)" />
             <circle cx="15" cy="12" r="1.5" fill="var(--teal)" />
@@ -168,12 +168,20 @@ const speech = useMemo(() => {
             <span className="pm-pet-compact-title">Kairo</span>
             <span className="pm-pet-compact-level">LVL {level.level}</span>
             <span className={`pm-pet-compact-status${busy ? " working" : ""}`}>
-              <span className={`pm-pet-status-dot${busy ? " working" : ""}`} />
+              <span className={`pm-pet-status-dot${busy ? " working" : ""}`} aria-hidden="true" />
               {busy ? "working" : activeMood}
             </span>
           </div>
           <div className="pm-pet-compact-xp">
-            <div className="pm-pet-xp-track" aria-label={`XP progress ${level.percent}%`}>
+            <div
+              className="pm-pet-xp-track"
+              role="progressbar"
+              aria-label={`Level ${level.level} XP`}
+              aria-valuemin={0}
+              aria-valuemax={level.needed}
+              aria-valuenow={level.current}
+              aria-valuetext={`${level.current} of ${level.needed} XP`}
+            >
               <span className="pm-pet-xp-fill" style={{ width: `${level.percent}%` }} />
             </div>
             <strong>{level.current}/{level.needed} XP</strong>
@@ -187,9 +195,10 @@ const speech = useMemo(() => {
             type="button"
             className={`pm-pet-tab${!calendarFull && !scheduleOpen ? " pm-pet-tab-active" : ""}`}
             onClick={() => { onCalendarFull?.(false); if (scheduleOpen) onToggleSchedule(); if (traceOpen && onToggleTrace) onToggleTrace(); }}
-            title="Chat"
+            aria-label="Chat"
+            aria-pressed={!calendarFull && !scheduleOpen}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
             </svg>
             <span className="pm-pet-tab-label">Chat</span>
@@ -199,9 +208,10 @@ const speech = useMemo(() => {
             type="button"
             className={`pm-pet-tab${calendarFull ? " pm-pet-tab-active" : ""}`}
             onClick={() => onCalendarFull?.(!calendarFull)}
-            title="Calendar"
+            aria-label="Calendar"
+            aria-pressed={Boolean(calendarFull)}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <rect x="3" y="4" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
               <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>

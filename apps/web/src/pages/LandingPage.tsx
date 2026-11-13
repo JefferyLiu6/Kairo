@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -13,7 +13,7 @@ const FEATURES = [
   },
   {
     icon: "shield",
-    color: "#8b5cf6",
+    color: "#3b82f6",
     title: "Focus Protection",
     desc: "Automatically blocks deep-work windows and guards them against meeting creep.",
   },
@@ -37,7 +37,7 @@ const FEATURES = [
   },
   {
     icon: "eye",
-    color: "#ec4899",
+    color: "#f59e0b",
     title: "Decision Trace",
     desc: "Every AI action is logged with reasoning so you stay in control at all times.",
   },
@@ -52,7 +52,7 @@ const STEPS = [
   },
   {
     n: "2",
-    variant: "violet" as const,
+    variant: "blue" as const,
     title: "Share your priorities",
     desc: "Tell Kairo what matters this week — projects, deadlines, personal commitments.",
   },
@@ -64,18 +64,11 @@ const STEPS = [
   },
 ];
 
-const REVIEWS = [
-  { quote: "I haven't manually scheduled a meeting in three weeks. Kairo just handles it.", name: "Alex M.", role: "Product Lead", color: "#14b8a6", initial: "A" },
-  { quote: "The focus block protection is worth it alone. I finally have uninterrupted deep work.", name: "Sarah K.", role: "Senior Engineer", color: "#8b5cf6", initial: "S" },
-  { quote: "It found 12 extra hours in my week that I didn't know I had.", name: "James O.", role: "Founder & CEO", color: "#f97316", initial: "J" },
-  { quote: "Feels like having a great EA who never sleeps and knows your calendar perfectly.", name: "Mia R.", role: "VP of Operations", color: "#3b82f6", initial: "M" },
-  { quote: "Kairo moved a sync when I was running behind — I didn't have to do a thing.", name: "Daniel L.", role: "Engineering Manager", color: "#ef4444", initial: "D" },
-  { quote: "The decision trace makes me trust it. I can see exactly why it made every change.", name: "Priya N.", role: "Staff PM", color: "#14b8a6", initial: "P" },
-];
-
-const AVATARS = [
-  { l: "A", c: "#14b8a6" }, { l: "M", c: "#f97316" }, { l: "J", c: "#3b82f6" },
-  { l: "S", c: "#8b5cf6" }, { l: "R", c: "#ef4444" },
+/** Things that are true of the product today, in place of usage numbers. */
+const FACTS = [
+  { val: "No sign-up", label: "the demo opens in one click" },
+  { val: "Approval first", label: "risky changes ask before they run" },
+  { val: "Decision trace", label: "every action is logged with its reasoning" },
 ];
 
 /* ─── Tiny SVG icons ─────────────────────────────────────────────────────── */
@@ -125,7 +118,7 @@ const CAL_ROWS = [
     cells: [
       { label: "Team standup", cls: "lp-ev-teal" },
       null,
-      { label: "Design review", cls: "lp-ev-purple" },
+      { label: "Design review", cls: "lp-ev-blue" },
       null,
       { label: "Deep work", cls: "lp-ev-outline" },
     ],
@@ -151,8 +144,6 @@ const CAL_ROWS = [
 export function LandingPage() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
-  const [email, setEmail] = useState("");
-  const emailRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!loading && user) navigate("/app", { replace: true });
@@ -160,15 +151,10 @@ export function LandingPage() {
 
   const goApp = () => navigate("/app");
 
-  const handleEmailSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    navigate("/app");
-  };
-
   return (
     <div className="lp">
       {/* ── Nav ── */}
-      <nav className="lp-nav">
+      <nav className="lp-nav" aria-label="Main">
         <div className="lp-logo">
           <div className="lp-logo-mark">
             <img src="/kairo-logo.svg" alt="" width={20} height={20} />
@@ -178,19 +164,17 @@ export function LandingPage() {
         <div className="lp-nav-links">
           <a href="#features">Features</a>
           <a href="#how-it-works">How it works</a>
-          <a href="#reviews">Reviews</a>
         </div>
-        <button className="lp-nav-cta" onClick={goApp}>
-          Get early access
+        <button type="button" className="lp-nav-cta" onClick={goApp}>
+          Try the demo
         </button>
       </nav>
 
       {/* ── Hero ── */}
       <section className="lp-hero">
         {/* Background orbs */}
-        <div className="lp-orb lp-orb-teal" />
-        <div className="lp-orb lp-orb-amber" />
-        <div className="lp-orb lp-orb-violet" />
+        <div className="lp-orb lp-orb-teal" aria-hidden="true" />
+        <div className="lp-orb lp-orb-amber" aria-hidden="true" />
 
         <div className="lp-hero-inner">
           <div className="lp-badge lp-anim">
@@ -207,38 +191,27 @@ export function LandingPage() {
           </h1>
 
           <p className="lp-sub lp-anim lp-anim-2">
-            Kairo is a personal AI manager that schedules your week,
-            <br />
-            protects your focus time, and keeps your life in balance —
-            <br />
-            without you lifting a finger.
+            Kairo is a personal AI manager that schedules your week, protects your focus time, and keeps your
+            life in balance — without you lifting a finger.
           </p>
 
           <div className="lp-cta-row lp-anim lp-anim-3">
-            <button className="lp-btn-primary" onClick={goApp}>
-              Get early access — it's free
+            <button type="button" className="lp-btn-primary" onClick={goApp}>
+              Try the live demo
             </button>
             <a href="#how-it-works" className="lp-btn-ghost">
               See how it works ↓
             </a>
           </div>
 
-          <div className="lp-trust lp-anim lp-anim-4">
-            <div className="lp-avatars">
-              {AVATARS.map((a) => (
-                <div key={a.l} className="lp-avatar" style={{ background: a.c }}>
-                  {a.l}
-                </div>
-              ))}
-            </div>
-            <span>
-              Joined by <strong>2,400+</strong> professionals this week
-            </span>
-          </div>
+          <p className="lp-trust lp-anim lp-anim-4">
+            No sign-up needed. The demo opens with sample data and resets after 24 hours.
+          </p>
         </div>
 
         {/* ── App preview window ── */}
-        <div className="lp-preview lp-anim lp-anim-5">
+        {/* Illustrative mock-up, not live data: hidden from assistive tech. */}
+        <div className="lp-preview lp-anim lp-anim-5" aria-hidden="true">
           {/* Browser chrome */}
           <div className="lp-chrome">
             <span className="lp-dot" style={{ background: "#ff5f57" }} />
@@ -298,8 +271,8 @@ export function LandingPage() {
           <div className="lp-bubble">
             <p>Block 3:30–5pm for investor call prep?</p>
             <div className="lp-bubble-actions">
-              <button className="lp-bubble-yes" onClick={goApp}>Yes, do it</button>
-              <button className="lp-bubble-no">Not now</button>
+              <span className="lp-bubble-yes">Yes, do it</span>
+              <span className="lp-bubble-no">Not now</span>
             </div>
           </div>
         </div>
@@ -307,18 +280,14 @@ export function LandingPage() {
 
       {/* ── Social proof strip ── */}
       <div className="lp-strip">
-        {[
-          { val: "2.4k+", label: "professionals using Kairo" },
-          { val: "12h", label: "avg saved per week" },
-          { val: "4.9★", label: "early access rating" },
-        ].map((s) => (
+        {FACTS.map((s) => (
           <div key={s.val} className="lp-strip-item">
             <strong>{s.val}</strong>
             <span>{s.label}</span>
           </div>
         ))}
         <div className="lp-strip-item lp-strip-gcal">
-          <div className="lp-gcal-dots">
+          <div className="lp-gcal-dots" aria-hidden="true">
             <span style={{ background: "#4285F4" }} />
             <span style={{ background: "#EA4335" }} />
             <span style={{ background: "#FBBC04" }} />
@@ -330,8 +299,7 @@ export function LandingPage() {
 
       {/* ── Features ── */}
       <section className="lp-features" id="features">
-        <div className="lp-orb lp-orb-features-teal" />
-        <div className="lp-orb lp-orb-features-indigo" />
+        <div className="lp-orb lp-orb-features-teal" aria-hidden="true" />
         <div className="lp-section-label">Features</div>
         <h2 className="lp-section-h2">
           Everything you need to reclaim<br />your week
@@ -342,7 +310,7 @@ export function LandingPage() {
               <div className="lp-feature-icon" style={{ background: `${f.color}22`, color: f.color }}>
                 <Icon name={f.icon} />
               </div>
-              <div className="lp-feature-title">{f.title}</div>
+              <h3 className="lp-feature-title">{f.title}</h3>
               <div className="lp-feature-desc">{f.desc}</div>
             </div>
           ))}
@@ -356,37 +324,12 @@ export function LandingPage() {
           Up and running in minutes
         </h2>
         <div className="lp-steps">
-          <div className="lp-steps-line" />
+          <div className="lp-steps-line" aria-hidden="true" />
           {STEPS.map((s) => (
             <div key={s.n} className="lp-step">
               <div className={`lp-step-circle lp-step-${s.variant}`}>{s.n}</div>
-              <div className="lp-step-title">{s.title}</div>
+              <h3 className="lp-step-title">{s.title}</h3>
               <div className="lp-step-desc">{s.desc}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Testimonials ── */}
-      <section className="lp-reviews" id="reviews">
-        <div className="lp-section-label">Reviews</div>
-        <h2 className="lp-section-h2 lp-section-h2-dark">
-          Loved by professionals
-        </h2>
-        <div className="lp-reviews-grid">
-          {REVIEWS.map((r) => (
-            <div key={r.name} className="lp-review-card">
-              <div className="lp-stars">{"★".repeat(5)}</div>
-              <p className="lp-review-quote">"{r.quote}"</p>
-              <div className="lp-review-author">
-                <div className="lp-review-avatar" style={{ background: r.color }}>
-                  {r.initial}
-                </div>
-                <div>
-                  <div className="lp-review-name">{r.name}</div>
-                  <div className="lp-review-role">{r.role}</div>
-                </div>
-              </div>
             </div>
           ))}
         </div>
@@ -394,27 +337,17 @@ export function LandingPage() {
 
       {/* ── CTA section ── */}
       <section className="lp-cta-section">
-        <div className="lp-cta-orb" />
+        <div className="lp-cta-orb" aria-hidden="true" />
         <h2 className="lp-cta-h2">
           Your best week starts<br />
           <span className="lp-h1-gradient">today.</span>
         </h2>
         <p className="lp-cta-sub">
-          Join 2,400+ professionals already using Kairo. No credit card required.
+          Open the demo and ask Kairo to plan your day. No sign-up, no credit card.
         </p>
-        <form className="lp-email-row" onSubmit={handleEmailSubmit}>
-          <input
-            ref={emailRef}
-            type="email"
-            className="lp-email-input"
-            placeholder="Enter your email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <button type="submit" className="lp-email-submit">
-            Get early access
-          </button>
-        </form>
+        <button type="button" className="lp-btn-primary lp-cta-button" onClick={goApp}>
+          Try the live demo
+        </button>
       </section>
 
       {/* ── Footer ── */}
@@ -423,14 +356,13 @@ export function LandingPage() {
           <div className="lp-logo-mark lp-logo-mark-sm">
             <img src="/kairo-logo.svg" alt="" width={16} height={16} />
           </div>
-          <span className="lp-logo-word" style={{ fontSize: 15 }}>Kairo</span>
+          <span className="lp-logo-word lp-logo-word-sm">Kairo</span>
         </div>
         <div className="lp-footer-links">
           <a href="#features">Features</a>
           <a href="#how-it-works">How it works</a>
-          <a href="#reviews">Reviews</a>
         </div>
-        <div className="lp-footer-copy">© 2025 Kairo. All rights reserved.</div>
+        <div className="lp-footer-copy">© {new Date().getFullYear()} Kairo. All rights reserved.</div>
       </footer>
     </div>
   );

@@ -265,6 +265,21 @@ export async function savePmPet(state: PetState): Promise<void> {
   });
 }
 
+export type PmTask = {
+  id: string;
+  title: string;
+  /** YYYY-MM-DD, when the task has a deadline. */
+  due: string | null;
+};
+
+/** The user's open tasks. Throws on failure so callers can tell "none" from "couldn't load". */
+export async function fetchPmTasks(): Promise<PmTask[]> {
+  const res = await apiFetch("/personal-manager/tasks");
+  if (!res.ok) throw new Error(`${res.status}`);
+  const data = (await res.json()) as { tasks: PmTask[] };
+  return data.tasks ?? [];
+}
+
 /** Delete a PM session (thread) by ID. */
 export async function deleteSession(sessionId: string): Promise<boolean> {
   const res = await apiFetch(`/personal-manager/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
