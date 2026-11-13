@@ -14,7 +14,7 @@ from kairo.core.llm_env import build_llm
 from kairo.core.observability.tracing import mark_contract_error, mark_fallback, tag_turn, traced
 from kairo.agents.personal_manager.agent import PMConfig, astream_pm
 from kairo.core.domain.approval_response import has_pending_approval
-from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
+from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat, stored_read_back
 from kairo.agents.personal_manager.application.pending_reply import OpenQuestion, approval_verb, load_open_question, pm_asked_a_question, route_message, still_open_after_error, still_open_reply
 from kairo.core.domain.session import normalize_pm_session_id
 
@@ -25,6 +25,7 @@ from kairo.agents.orchestrator.prompts import HARNESS_SYSTEM as HARNESS_SYSTEM, 
 from kairo.agents.orchestrator.router import is_likely_pm_needed
 from kairo.agents.orchestrator.translator import StructuredAction, build_retry_prompt, is_safe_read_retry, unparsed_action
 from kairo.agents.orchestrator.harness import HarnessVerdict, build_fallback_reply, describe_error, evaluate_harness, enforce_retry_policy, log_fallback
+from kairo.tools.receipts import Collected, collecting, read_back_reply
 
 logger = logging.getLogger(__name__)
 
@@ -325,7 +326,11 @@ async def _astream_orchestrator(
         action = StructuredAction("approval", None, [], 1.0, message.strip().lower(), True)
         try:
             handler = approve_from_chat if verb == "approve" else reject_from_chat
-            reply = handler(action.pm_prompt, config)
+            with collecting() as made:
+                reply = handler(action.pm_prompt, config)
+            # An approved change is described from the stored record, before and after. If the same
+            # approval is sent again, say the same thing.
+            reply = read_back_reply(made.receipts) or stored_read_back(action.pm_prompt, config) or reply
         except Exception:
             reply = "I couldn't verify the approval result. Check your calendar or task list before trying again."
         wm.invalidate_pm_cache()
@@ -380,25 +385,42 @@ async def _astream_orchestrator(
     final_verdict: HarnessVerdict | None = None
     retry_count = 0
     awaiting_details = False
+    made = Collected()
+    read_back: str | None = None      # reply built from stored records, when writes were read back
+    answered_unwritten = False        # the typed workflow answered a write request without writing
 
     for attempt in range(MAX_RETRIES + 1):
         status = "Checking your data…" if attempt == 0 else f"Retrying… (attempt {attempt + 1})"
         yield ("progress", status)
 
         try:
-            pm_output = await _call_pm(current_action.pm_prompt, config)
+            with collecting() as made:
+                pm_output = await _call_pm(current_action.pm_prompt, config)
         except Exception as exc:
             pm_output = f"Error: {exc}"
 
         awaiting_details = pm_asked_a_question(pm_output, lambda: _open_question(config))
+        waiting = has_pending_approval(pm_output) or awaiting_details
+        # Storage is the evidence for a write. If the stores were read back, the reply comes from them
+        # and no model judges or rewrites it. If the typed workflow answered a write request without
+        # writing (not found, needs more detail), its own deterministic reply stands.
+        read_back = None if waiting else read_back_reply(made.receipts)
+        answered_unwritten = (
+            not waiting and read_back is None and not made.receipts and made.workflow_replied
+            and current_action.is_write and bool(pm_output.strip())
+            and not pm_output.strip().lower().startswith("error:")
+        )
 
         # Pending approval is a valid workflow result, not a failed write.
         # Preserve the control instructions without another model interpreting them.
-        verdict = (
-            HarnessVerdict("pass", 1.0, "Awaiting user input; action not completed", "", "null")
-            if has_pending_approval(pm_output) or awaiting_details
-            else _judge(message, current_action, pm_output, profile, config)
-        )
+        if waiting:
+            verdict = HarnessVerdict("pass", 1.0, "Awaiting user input; action not completed", "", "null")
+        elif read_back is not None:
+            verdict = HarnessVerdict("pass", 1.0, "Reply read back from storage", "", "null")
+        elif answered_unwritten:
+            verdict = HarnessVerdict("pass", 1.0, "Workflow answered without writing", "", "null")
+        else:
+            verdict = _judge(message, current_action, pm_output, profile, config)
         verdict = enforce_retry_policy(current_action, verdict)
         emit("tool_verdict", verdict=verdict.verdict, retry_count=retry_count)
         final_verdict = verdict
@@ -425,14 +447,19 @@ async def _astream_orchestrator(
         break
 
     # ── Step 4: invalidate cache on writes ────────────────────────────────────
-    if action.is_write:
+    if action.is_write or made.receipts:
         wm.invalidate_pm_cache()
 
     # ── Step 5: build reply ───────────────────────────────────────────────────
     if final_verdict and final_verdict.verdict == "pass":
         yield ("progress", "Putting it together…")
         try:
-            reply = pm_output if has_pending_approval(pm_output) or awaiting_details else _humanize(message, pm_output, memory_ctx, config)
+            if has_pending_approval(pm_output) or awaiting_details or answered_unwritten:
+                reply = pm_output
+            elif read_back is not None:
+                reply = read_back
+            else:
+                reply = _humanize(message, pm_output, memory_ctx, config)
             if not isinstance(reply, str) or not reply.strip():
                 raise ValueError("Empty response")
         except Exception as exc:
@@ -482,7 +509,7 @@ async def _astream_orchestrator(
         config,
         message,
         "CLARIFICATION" if awaiting_details else "DELEGATE",
-        f"intent={action.intent}",
+        f"intent={action.intent}" + ("; reply read back from storage" if read_back is not None else ""),
         action,
         final_verdict,
         reply,

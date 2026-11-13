@@ -6,6 +6,7 @@ from typing import Any, Optional
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.domain.types import PMAction
 from kairo.tools.executors.dispatcher import execute_pm_action
+from kairo.tools.receipts import collecting, read_back_reply, record as record_receipt
 from kairo.utils.parsing.text import _extract_id
 from kairo.storage.control_store import ApprovalRecord, claim_approval_request, find_approval_request, finish_approval, list_approval_requests, record_audit_event, reject_approval_request
 
@@ -38,7 +39,15 @@ def approve_pm_request(
         requires_approval=True,
         summary=record.summary,
     )
-    result = execute_pm_action(action, config)
+    with collecting() as made:
+        result = execute_pm_action(action, config)
+    for receipt in made.receipts:
+        record_receipt(receipt)  # pass them on to whoever is collecting for the whole turn
+    # Keep what was read back from storage (before and after) with the approval, so a caller that
+    # answers from stored state can say the same thing if the approval is sent again.
+    read_back = read_back_reply(made.receipts)
+    if read_back:
+        result = {**result, "read_back": read_back}
     finish_approval(record.session_id, data_dir, approval_id, ok=bool(result["ok"]), result=result)
     record_audit_event(
         record.session_id,
@@ -50,6 +59,20 @@ def approve_pm_request(
         approval_id=approval_id,
     )
     return result["message"]
+
+
+def stored_read_back(message: str, config: Any) -> Optional[str]:
+    """What was read back when the approval named in `message` ran, if it already ran in this thread."""
+    approval_id = _extract_id(message)
+    if not approval_id:
+        return None
+    sid = getattr(config, "user_id", "") or normalize_pm_session_id(config.session_id)
+    record = find_approval_request(config.data_dir, approval_id, session_id=sid)
+    if record is None or record.status != "executed":
+        return None
+    if record.payload.get("_thread_id") != normalize_pm_session_id(config.session_id):
+        return None
+    return (record.result or {}).get("read_back")
 
 
 def reject_pm_request(

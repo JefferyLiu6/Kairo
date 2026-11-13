@@ -13,6 +13,7 @@ from kairo.agents.personal_manager.application.contextual_scheduling import appl
 from kairo.agents.personal_manager.application.field_completion import build_field_completion_proposal
 from kairo.agents.personal_manager.application.memory_query import build_memory_query_reply
 from kairo.agents.personal_manager.application.pending_reply import PendingTurn, resolve_pending_reply
+from kairo.tools.receipts import note_workflow_reply
 from kairo.agents.personal_manager.application.planner import plan_pm_actions
 from kairo.agents.personal_manager.application.self_disclosure import activity_disclosure_reply, analyze_activity_disclosures, apply_activity_disclosure, apply_style_to_latest_activity_context
 from kairo.agents.personal_manager.application.semantic_memory import interpret_semantic_memory_candidates
@@ -124,7 +125,10 @@ def run_typed_pm_turn(message: str, config: Any) -> Optional[str]:
     d = TurnDecision(session_id=thread_id, message_preview=message)
 
     try:
-        return _run_typed_pm_turn_inner(message, config, uid, thread_id, d)
+        reply = _run_typed_pm_turn_inner(message, config, uid, thread_id, d)
+        if reply is not None:
+            note_workflow_reply()  # a deterministic answer, as opposed to the chat fallback
+        return reply
     except Exception as exc:
         d.route("error", f"typed turn raised {type(exc).__name__}: {str(exc)[:160]}")
         raise
