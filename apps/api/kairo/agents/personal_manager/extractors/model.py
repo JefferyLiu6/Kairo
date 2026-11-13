@@ -12,6 +12,7 @@ from kairo.core.observability.tracing import mark_contract_error
 
 from kairo.agents.personal_manager.contracts import MessageInput
 from kairo.core.domain.types import PMIntent
+from kairo.core.prompt import Prompt, prompt_template
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -31,9 +32,8 @@ def _should_try_model_extraction(config: Optional[Any]) -> bool:
     return True
 
 
-def _format_model_plan_prompt() -> str:
+def _plan_extraction_text(today: str) -> str:
     intents = ", ".join(intent.value for intent in PMIntent)
-    today = local_today().isoformat()
     return f"""\
 You extract a personal-manager message into an ordered task plan. You do not
 execute actions, call tools, mutate data, search the web, export data, or approve.
@@ -85,9 +85,15 @@ The user's message arrives as JSON: {{"message": "..."}}
 """
 
 
-def _format_model_extraction_prompt() -> str:
+_PLAN_PROMPT = prompt_template("plan_extraction", _plan_extraction_text(today="$today"))
+
+
+def _format_model_plan_prompt() -> Prompt:
+    return _PLAN_PROMPT.render(today=local_today().isoformat())
+
+
+def _request_extraction_text(today: str) -> str:
     intents = ", ".join(intent.value for intent in PMIntent)
-    today = local_today().isoformat()
     return f"""\
 You extract a personal-manager request into JSON. You do not execute actions,
 call tools, mutate data, search the web, or bypass approvals.
@@ -137,6 +143,13 @@ For LIST_STATE, always include a "target" field in entities:
 
 The user's message arrives as JSON: {{"message": "..."}}
 """
+
+
+_REQUEST_PROMPT = prompt_template("request_extraction", _request_extraction_text(today="$today"))
+
+
+def _format_model_extraction_prompt() -> Prompt:
+    return _REQUEST_PROMPT.render(today=local_today().isoformat())
 
 
 def call_pm_model(stage: str, system: str, message: str, output: type[T], config: Any) -> Optional[T]:
