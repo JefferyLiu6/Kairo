@@ -172,13 +172,28 @@ Actions requiring explicit approval include:
 - deleting todos
 - removing or updating schedule events
 - modifying or cancelling recurring schedule occurrences
+- stopping a tracked habit
 - private memory export
 - private profile patching
 - sensitive web-search requests
+- adding an event at a time the user did not give (a time the agent suggested,
+  or a plan the assistant put on the calendar)
 
 Approval requests are stored with status, risk level, payload summary, decision
 timestamps, and audit events. Generic approvals and explicit approval IDs must be
 checked against the current authenticated user and current thread.
+
+Several changes proposed together that each need approval are stored as one
+approval of type `batch`, whose summary lists every change. Approving it runs
+each change through the same executors, with a receipt each; nothing in a batch
+skips a check that a single change gets. No model can approve: approval comes
+from an `approve` command, a click on the approval card, or the coordinator's
+`decide_approval` call, which is only offered right after an approval was put
+to the user and only records their yes or no.
+
+A task or event a model picks for removal is checked against the user's own
+words before the approval is created: if the message names items, the pick has
+to be among them, and if it uses a word that is on no item, nothing is picked.
 
 ## Sensitive Memory Policy
 
@@ -194,6 +209,9 @@ The assistant separates lower-risk shared memory from private Kairo memory.
   unless the user specifically asks for it.
 - Sensitive memory writes are routed through typed actions instead of relying on
   free-form model output.
+- `GET /personal-manager/memory` (the About me panel) returns the signed-in
+  user's remembered facts and the number of private notes. The text of a
+  private note is never returned.
 
 ## Prompt-Injection Handling
 
