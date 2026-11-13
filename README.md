@@ -9,16 +9,19 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-UI-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-280%20passing-2ea44f)
-![Evals](https://img.shields.io/badge/evals-252%2F252-2ea44f)
+![Tests](https://img.shields.io/badge/tests-1359%20passing-2ea44f)
+![Blind eval](https://img.shields.io/badge/blind%20eval-97%25%20right-2ea44f)
+![Offline evals](https://img.shields.io/badge/offline%20evals-252%2F252-2ea44f)
 
 Try it out: https://kairo-hazel.vercel.app
 
 Kairo is a full-stack AI agent that lets natural language update calendar,
 tasks, habits, journal, memory, and Google Calendar data without giving the
-model unchecked authority. An orchestrator handles conversation and delegates
-stateful work into a typed workflow with approval gates, audit logs, offline
-evals, adversarial tests, and a decision-trace UI.
+model unchecked authority. A coordinator and a few domain agents can only
+*propose* typed commands; code checks each proposal against what the user
+actually said, runs it through approval gates, and answers from what was read
+back from storage. Around that sit audit logs, a blind eval scored on stored
+state, adversarial tests, and a decision-trace UI.
 
 Why it matters: useful personal AI needs permission, memory, and accountability,
 not just fluent chat.
@@ -39,19 +42,20 @@ Live app: [kairo-hazel.vercel.app](https://kairo-hazel.vercel.app)
 | -------- | ------ |
 | What is it? | A full-stack Kairo agent for calendar, todos, habits, journal, memory, and Google Calendar sync. |
 | What makes it hard? | Natural-language requests can mutate private personal state, so the system must separate understanding from permission, execution, and auditability. |
-| What did I build? | A React UI, FastAPI backend, orchestrator, typed PM workflow, approval policy, SQLite persistence, eval harness, security doc, deployment path, and decision-trace panel. |
-| Proof it works | 280 pytest tests, 252/252 cases on the current offline eval suite, 1518/1518 scoped eval checks, screenshots, adversarial tests, and Docker Compose deployment docs. |
+| What did I build? | A React UI, FastAPI backend, an agent graph (coordinator, domain agents, a tool registry, a gate that checks every proposal), approval policy, receipts read back from storage, SQLite persistence, two eval harnesses, security doc, deployment path, and decision-trace panel. |
+| Proof it works | 1359 pytest tests; a blind eval of 117 un-coached messages scored by what ends up stored (97% right, 0–1 wrong saves, 0 trapped turns in the last two runs, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
 
 ## Highlights
 
 | Dimension | Details |
 | --------- | ------- |
 | Product surface | Chat-based Kairo workspace for calendar, todos, habits, journal, memory, and web-search requests |
-| AI architecture | Orchestrator routes/directs conversation; typed PM workflow handles stateful actions |
-| Safety model | Destructive and privacy-sensitive actions require approval before execution |
+| AI architecture | LangGraph agent graph: a coordinator with inline tools for tasks, habits and journal; agents for calendar, memory and conversation; every model call is one typed tool call that only proposes |
+| Checks before storing | A proposed date, time, repeat or kept text that contradicts the user's own wording is sent back to the model once, then asked about; nothing wrong is stored silently |
+| Safety model | Destructive and privacy-sensitive actions require approval before execution; a sensitive fact is never stored outright |
 | State model | SQLite-backed app state, pending dialogue memory, preference memory, and audit log |
 | Frontend | React 19, TypeScript strict mode, Vite, calendar UI, approval UX, decision trace panel |
-| Verification | `make verify`: 280 pytest tests, 252/252 cases on the current offline eval suite, 1518/1518 scoped eval checks, lint, smoke, web build |
+| Verification | `make verify`: 1359 pytest tests, 252/252 offline eval cases, lint, smoke, web build. `make eval-blind path=graph`: the blind eval against the live model |
 
 ## Contents
 
@@ -65,15 +69,16 @@ Live app: [kairo-hazel.vercel.app](https://kairo-hazel.vercel.app)
 
 | Area | What works |
 | ---- | ---------- |
-| Schedule | Create, move, skip, cancel, and inspect events and recurring series |
-| Todos | Create, list, update, complete, and remove todos |
-| Habits | Track recurring habits and simple streak-style status |
-| Journal | Capture journal entries and recall recent context |
-| Memory | Persist lightweight facts, pending clarifications, and learned scheduling preferences |
-| Orchestration | Route direct vs delegated turns, translate PM prompts, check PM results, retry/fallback safely, and humanize replies |
+| Schedule | Create, move, skip one day of, change one day of, end, cancel, and show events and recurring series; a clash with an existing event is said in the reply |
+| Todos | Add (several in one message), list, complete, and remove todos |
+| Habits | Start, log, stop, and show habits with streaks |
+| Journal | Save an entry in the user's own words; read or search past entries |
+| Memory | Remember facts the user asks to keep; sensitive ones wait for approval as private notes; show what is stored and the activity log |
+| Conversation | Answer questions, plan a day in words, and look things up on the web, from a read-only view of everything stored |
+| Questions | A clarifying question is asked once, offered to the next message, parked once with a reminder if the user moves on, then dropped; it cannot capture later messages |
 | Calendar sync | Mirror/read Google Calendar events and guard write operations |
-| Safety | Block prompt-injection-like input, gate destructive actions, and protect sensitive web-search requests |
-| Observability | Show route, confidence, missing fields, memory reads/writes, approvals, and audit events |
+| Safety | Block prompt-injection-like input before any model sees it, gate destructive actions, and refuse web searches that would send private details out |
+| Observability | Every turn records its route, the tool called, who handled it, prompt and tool-bundle versions, and receipt status; approvals and audit events are inspectable in the UI |
 
 ## Quick Start
 
@@ -104,9 +109,10 @@ The local app still supports email/password signup and login. The public
 portfolio frontend redirects login/signup routes into demo mode so visitors can
 try Kairo without creating durable accounts.
 
-The deterministic workflow, tests, evals, and smoke test do not require API keys.
-The `/orchestrator/stream` web-chat path, live fallback, and model extraction
-paths use the configured provider.
+The tests, the offline evals, and the smoke test do not require API keys. Web
+chat (`/orchestrator/stream`) runs on the agent graph and needs a configured
+provider; it is measured on `gpt-4o-mini`. Setting `KAIRO_AGENT=legacy` switches
+web chat back to the previous orchestrator.
 
 ## Deployment
 
@@ -120,8 +126,8 @@ docker compose --env-file .env.production up --build
 
 Compose starts:
 
-- `backend` on `${AGENT_PORT:-8766}` with FastAPI, the orchestrator, PM workflow,
-  SQLite state, audit logs, approvals, and optional Google Calendar sync.
+- `backend` on `${AGENT_PORT:-8766}` with FastAPI, the agent graph, SQLite state,
+  audit logs, approvals, and optional Google Calendar sync.
 - `frontend` on port `80`, served by nginx from the Vite production build.
 
 Required production/demo env vars:
@@ -134,14 +140,15 @@ Required production/demo env vars:
 | `COOKIE_SAMESITE` | Use `lax` when Vercel proxies `/api` to the backend; use `none` only for direct cross-origin API calls |
 | `CORS_ORIGINS` | Explicit comma-separated frontend origins allowed to call the backend with cookies |
 | `VITE_API_BASE` | Browser-facing API base. Use `/api` with the Vercel rewrite. |
-| `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Live model provider for orchestrator/model fallback paths |
+| `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Live model provider for web chat |
 
 Optional deploy flags:
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
-| `MODEL` | provider default | Main orchestrator/model-extraction model |
-| `PM_MODEL` | `MODEL` fallback | Cheaper/faster delegated PM model |
+| `MODEL` | provider default | The model web chat runs on (measured on `gpt-4o-mini`) |
+| `KAIRO_AGENT` | unset | Set to `legacy` to switch web chat back to the previous orchestrator |
+| `PM_MODEL` | `MODEL` fallback | Delegated model, used by the previous orchestrator only |
 | `RATE_LIMIT_RPM` | `60` | Per-IP and per-user PM requests per minute; `0` disables this limiter |
 | `PM_DEMO_RATE_LIMIT_RPM` / `PM_DEMO_RATE_LIMIT_DAILY` | `20` / `100` | Stricter PM chat limits for temporary demo users |
 | `AUTH_DEMO_RATE_LIMIT_RPM` / `AUTH_DEMO_RATE_LIMIT_DAILY` | `2` / `25` | Public demo-account creation limits by IP |
@@ -193,13 +200,16 @@ High-value files to inspect:
 
 | File | Why it matters |
 | ---- | -------------- |
-| [`apps/api/kairo/agents/personal_manager/workflow.py`](apps/api/kairo/agents/personal_manager/workflow.py) | Turn orchestration, pending-state guard, approvals, execution |
-| [`apps/api/kairo/agents/personal_manager/application/extraction.py`](apps/api/kairo/agents/personal_manager/application/extraction.py) | Deterministic/model extraction arbitration |
-| [`apps/api/kairo/agents/orchestrator/agent.py`](apps/api/kairo/agents/orchestrator/agent.py) | Router/translator/harness/humanizer layer over the PM agent |
-| [`apps/api/kairo/agents/orchestrator/harness.py`](apps/api/kairo/agents/orchestrator/harness.py) | Retry/fallback safety for delegated PM calls |
-| [`apps/api/tests/orchestrator/test_orchestrator.py`](apps/api/tests/orchestrator/test_orchestrator.py) | Offline orchestrator tests for routing, translation confidence, retry, fallback, and write-failure safety |
-| [`apps/api/kairo/agents/personal_manager/extractors/intent.py`](apps/api/kairo/agents/personal_manager/extractors/intent.py) | Intent priority ladder and safety prechecks |
-| [`apps/api/evals/pm_runner.py`](apps/api/evals/pm_runner.py) | Offline eval harness and report generation |
+| [`apps/api/kairo/agents/graph/nodes.py`](apps/api/kairo/agents/graph/nodes.py) | The agent graph's nodes: ingest, coordinate, agent, gate, act, respond, persist |
+| [`apps/api/kairo/domains/registry.py`](apps/api/kairo/domains/registry.py) | The tool registry: one typed spec per tool, grouped into domains that run inline or as agents |
+| [`apps/api/kairo/domains/schedule.py`](apps/api/kairo/domains/schedule.py) | The calendar agent: its tools, its checks, and its view of the calendar |
+| [`apps/api/kairo/domains/checks.py`](apps/api/kairo/domains/checks.py) | Checks that compare a proposal with the message's own date, time and repeat wording |
+| [`apps/api/kairo/tools/receipts.py`](apps/api/kairo/tools/receipts.py) | Reads the stores back after a write and builds the reply from what is stored |
+| [`apps/api/tests/graph/`](apps/api/tests/graph) | Turn-level tests of the graph with a scripted model and real stores |
+| [`apps/api/evals/blind/`](apps/api/evals/blind) and [`docs/BLIND_EVAL.md`](docs/BLIND_EVAL.md) | The blind eval: un-coached messages scored by stored state, with every recorded run |
+| [`docs/ideas/kairo-2.0-agent-architecture.md`](docs/ideas/kairo-2.0-agent-architecture.md) | The design proposal the graph was built from, with what was done and what differs |
+| [`apps/api/kairo/agents/personal_manager/workflow.py`](apps/api/kairo/agents/personal_manager/workflow.py) | The previous path: typed workflow, pending-state guard, approvals, execution |
+| [`apps/api/evals/pm_runner.py`](apps/api/evals/pm_runner.py) | Offline eval harness for the previous deterministic workflow |
 | [`apps/api/tests/personal_manager/test_pm_adversarial.py`](apps/api/tests/personal_manager/test_pm_adversarial.py) | Adversarial and safety regression tests |
 | [`apps/web/src/components/DecisionTracePanel.tsx`](apps/web/src/components/DecisionTracePanel.tsx) | Decision-trace observability UI |
 
@@ -225,8 +235,10 @@ cd apps/api
 uv run python scripts/demo_walkthrough.py
 ```
 
-The walkthrough drives nine real turns through the workflow: create, clarify,
-approve, learn, block sensitive search, and refuse injection-like input.
+The walkthrough drives nine real turns through the previous deterministic
+workflow, with no model: create, clarify, approve, learn, block sensitive
+search, and refuse injection-like input. The prompts above run on the agent
+graph in the UI.
 
 ## Screenshots
 
@@ -248,47 +260,98 @@ are visible from the trace panel.
 
 ## Architecture
 
-This is the current web-chat pipeline. The source of truth for orchestration is
-[`apps/api/kairo/agents/orchestrator/agent.py`](apps/api/kairo/agents/orchestrator/agent.py);
-delegated stateful work reaches
-[`apps/api/kairo/agents/personal_manager/workflow.py`](apps/api/kairo/agents/personal_manager/workflow.py),
-and lower-level extraction arbitration lives in
-[`apps/api/kairo/agents/personal_manager/application/extraction.py`](apps/api/kairo/agents/personal_manager/application/extraction.py).
+Web chat runs on an agent graph
+([`apps/api/kairo/agents/graph`](apps/api/kairo/agents/graph)). Two nodes call a
+model, and a model can only propose: it picks one tool and fills in typed
+arguments. Code does the rest.
 
 ```mermaid
 flowchart TD
     A["React UI"] --> B["/orchestrator/stream"]
-    B --> C{"Needs PM data<br/>or mutation?"}
-    C -->|no| D["Direct orchestrator reply"]
-    C -->|yes| E["Translate to PM trigger phrase"]
-    E --> F["PM typed workflow"]
-    F --> G{"Approval required?"}
-    G -->|yes| H["Queue approval request"]
-    G -->|no| I["Execute typed action"]
-    F --> J["Clarify / choices / safe fallback"]
-    H --> K["Raw PM result"]
-    I --> K
-    J --> K
-    K --> L["Harness checks result<br/>retry or fallback if needed"]
-    L --> M["Humanize reply"]
-    D --> N["Reply"]
-    M --> N
-    N --> O["Decision trace and audit log"]
-    O -. read/write .-> DB["SQLite stores:<br/>app state, working memory,<br/>approvals, audit events, traces"]
+    B --> ING["ingest<br/>injection check, open question,<br/>pending approval"]
+    ING -->|"approve / reject"| APP["approval<br/>no model"]
+    ING --> CO["coordinator<br/>one model call, one tool call"]
+    CO -->|"tasks, habits, journal tool"| G["gate<br/>schema and wording checks"]
+    CO -->|"hand off"| AG["domain agent<br/>calendar · memory · assistant"]
+    AG -->|"one of its tools"| G
+    AG -->|"answer or question"| R
+    G -->|"rejected once:<br/>back to whoever proposed"| CO
+    G -->|"typed commands"| ACT["act<br/>approval policy, executors,<br/>read stores back"]
+    G -->|"read result or question"| R["respond<br/>reply built from receipts"]
+    APP --> R
+    ACT --> R
+    R --> P["persist<br/>history, decision trace, audit log"]
+    P -. read/write .-> DB["SQLite stores:<br/>app state, open question,<br/>approvals, audit events, traces"]
 ```
 
-Deep dives are in [`ARCHITECTURE.md`](ARCHITECTURE.md): intent classification,
-working-memory state machine, long-term learning, persistence, and memory routing.
+- **A model proposes; code decides.** No model has a tool that writes. A
+  proposal is validated against a strict schema, then against the user's own
+  wording: "by friday" proposed as next week's Friday, "2-3pm" proposed as 3 to
+  4, or a repeat nobody asked for is sent back once with the reason. If the
+  retry is still wrong, nothing is stored and the user is asked.
+- **Replies come from storage.** After a write the stores are read back and the
+  reply is built from the stored record, so it cannot describe something that
+  is not there.
+- **A question is asked once.** It is offered to the next message, parked once
+  with a reminder if the user moves on, and then dropped.
+- **Domains are data.** Tasks, habits, journal, calendar, memory and the
+  assistant are entries in a registry
+  ([`apps/api/kairo/domains`](apps/api/kairo/domains)); adding one is a module
+  and one line.
+
+The path this replaced (an orchestrator that translated each message into a
+trigger phrase for a keyword-driven workflow, then judged and rewrote the
+reply) is still in the repo and answers web chat when `KAIRO_AGENT=legacy` is
+set. Deep dives on both are in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Measurement
 
-The project is measured as a system, not as a single prompt. The 100% figures
-below are scoped to the current offline eval suite and its explicit checks; they
-are not claims of general natural-language coverage or production security.
+The project is measured as a system, not as a single prompt, and by what ends
+up stored, not by what the reply says.
+
+### Blind eval (the agent graph, live model)
+
+117 un-coached messages from 13 simulated personas, written the way people
+type. A turn is right only if the stores afterwards hold what was asked. The
+bar: at least 70% right, at most 2% wrong-but-reported-done, zero trapped
+turns. Last two recorded runs on `gpt-4o-mini`:
+
+| | Previous path | Agent graph, run 1 | Agent graph, run 2 |
+| --- | --- | --- | --- |
+| Right, of scoreable turns | 30% | **97%** | **97%** |
+| Wrong but reported done | 21 turns | 0 | 1 |
+| Trapped by an old question | 9 turns | 0 | 0 |
+| Model calls per turn | 2.05 | 1.52 | 1.51 |
+| Median reply time | 3.7 s | 1.7 s | 1.7 s |
+| Passes the bar | no | **yes** | **yes** |
+
+What these numbers are not:
+
+- The personas are simulated, not real users, and the set is small. A single
+  run moves by a few turns; earlier runs of the graph landed on both sides of
+  the bar while it was being built.
+- Three personas are held out, and the graph scored 90% on them the first time
+  it saw them. Fixes made after that look used those turns, so the holdout
+  share of the 97% is no longer a first look.
+- The wording checks read English. Messages in other languages rest on the
+  model alone.
+
+Every recorded run, including the failed ones, is in
+[`apps/api/evals/scores.jsonl`](apps/api/evals/scores.jsonl) and explained in
+[`docs/BLIND_EVAL.md`](docs/BLIND_EVAL.md). The date-and-time test that chose
+the model is in [`docs/MODEL_DATE_TEST.md`](docs/MODEL_DATE_TEST.md).
+
+### Offline suite (the previous deterministic workflow)
+
+The 100% figures below are scoped to the offline eval suite and its explicit
+checks. They cover the earlier keyword-driven workflow, which runs without a
+model; they are not claims of general natural-language coverage or production
+security. The blind eval above shows how that path does on messages it was not
+written for: 30% right as web chat.
 
 | Metric | Result |
 | ------ | ------ |
-| Unit tests | **280 passing**, 0 xfail |
+| Unit tests (whole repo) | **1359 passing**, 0 xfail |
 | Adversarial tests | **68 passing** |
 | Current offline eval cases | **252/252 (100%)** |
 | Current offline eval checks | **1518/1518 (100%)** |
@@ -304,7 +367,17 @@ Current report: [`eval-report.md`](eval-report.md).
 
 ## Eval Methodology
 
-The eval suite is an offline deterministic harness over
+There are two harnesses. The blind eval
+([`apps/api/evals/blind`](apps/api/evals/blind)) sends each persona's messages
+through a path in order, snapshots every store before and after each turn, and
+judges the turn from the difference: right, wrong save, false claim, trapped,
+blocked by an earlier failure, or missed. It never reads the model's intent,
+only what was stored and what the reply claimed. It needs a model key and costs
+about six cents a run. `make eval-blind path=graph record="why"` runs it and
+appends the result to the scores ledger; a test fails if the current prompts
+have no recorded run.
+
+The offline suite is a deterministic harness over
 [`apps/api/tests/fixtures/pm_eval_cases.json`](apps/api/tests/fixtures/pm_eval_cases.json).
 Each case runs extraction and, when requested, the typed workflow against seeded
 local state. It is designed to run in CI without live model credentials.
@@ -348,10 +421,11 @@ Every failure is reduced to a minimal fixture case, fixed in the relevant layer,
 then paired with a near-neighbor regression test proving the fix does not break a
 legitimate variant. The hardening cases stay in `adversarial_hardening` after they pass.
 
-## Hardening Results
+## Hardening Results (the previous workflow)
 
-Before the hardening pass, the eval harness exposed approval-safety and
-adversarial failures. After patching, the full suite is green.
+Before the hardening pass on the earlier workflow, the offline harness exposed
+approval-safety and adversarial failures. After patching, that suite is green.
+The test count is from that time; the repo has 1359 tests now.
 
 | Suite | Before | After |
 | ----- | ------ | ----- |
@@ -367,10 +441,15 @@ Current report: [`eval-report.md`](eval-report.md). Regression coverage:
 
 | Decision | Rationale |
 | -------- | --------- |
-| Deterministic controls around optional model extraction | Structured model extraction can help with messy phrasing, but deterministic validation, missing-field checks, and policy gates decide what can execute. |
-| Typed plans between extraction and execution | Extractors produce `PMPlanExtraction`; planners and executors consume typed commands. Raw text does not flow into mutation handlers. |
-| Working memory in SQLite | Pending clarification, choice, and confirmation state survives process restarts and frontend reconnects. |
-| Approval policy outside the extractor | The extractor describes user intent; workflow and policy decide whether an action can execute. |
+| A model proposes, code decides | Each model call is one strict tool call. Schema validation, wording checks, the approval policy and the executors are code, so a model cannot write on its own, and an answer in words that claims a change is sent back. |
+| Check proposals against the user's own words | A small model gets about one date in ten wrong on its own. Comparing its proposal with the date, time and repeat words in the message, and sending a mismatch back once, removed those wrong saves in the date test without rejecting correct ones. |
+| Replies from receipts, not from the model | The stores are read back after every write and the reply is built from the stored record. This replaced an LLM judge and an LLM rewriter, and with them the "I couldn't confirm that was saved" replies to writes that had succeeded. |
+| One parse, no trigger phrases | The earlier path translated a message into a phrase that a keyword ladder parsed again. The tool arguments are now the command, and nothing re-reads text. |
+| Questions that cannot trap | An open question used to capture the next messages until it timed out. It is now typed, offered once, parked once, and dropped. |
+| Domains in a registry | Tools are declared with their arguments, checks and proposals in one place; the coordinator's prompt and the graph are assembled from the registry, and prompts and tool bundles are versioned by content hash. |
+| Measure by stored state | The eval judges what is in the stores after a turn. It was built before the rewrite, so every step was scored against the path it replaced. |
+| Working memory in SQLite | Pending questions and approvals survive process restarts and frontend reconnects. |
+| Approval policy outside the model | A tool call describes what the user asked for; policy decides whether it can run without a yes. |
 | Near-neighbor tests for safety rules | Risky-input blockers also get tests proving they do not block legitimate nearby requests. |
 | Decision traces in the UI | The app exposes route, confidence, missing fields, memory reads/writes, and audit events so behavior is inspectable. |
 
@@ -383,10 +462,12 @@ Security details are in [`SECURITY.md`](SECURITY.md). In short:
 - user data is scoped by `user_id`; conversation state is scoped by `thread_id`
 - state-changing cookie-auth routes require CSRF protection
 - credentialed CORS requires explicit origins, never wildcard origins
-- prompt-injection-like messages are blocked before workflow routing
-- private/sensitive memory has a separate storage path
+- prompt-injection-like messages are refused before any model sees them
+- a sensitive fact is never stored outright: it waits for approval as a private
+  note, the approval prompt does not repeat it, and private notes are never
+  shown to a model
 - destructive actions require approval
-- sensitive web-search requests are blocked behind a high-risk approval
+- a web search that would send private details to a search engine is not run
 - demo accounts are temporary, seeded with synthetic data, and blocked from Google
   Calendar connection
 
@@ -401,21 +482,41 @@ This is still a portfolio demo, not a fully hardened production multi-tenant ser
 - SQLite files are not encrypted at rest by this project.
 - Demo-account cleanup is opportunistic, not a dedicated scheduled job.
 - Google Calendar sync is limited; full two-way conflict resolution is not implemented.
-- Deterministic replies return whole; only fallback/model paths stream token-by-token.
-- Eval coverage focuses on workflow behavior and safety shape, not model-generated prose quality.
-- Live orchestrator routing, translation, harness judging, and humanization quality depends on model behavior and is not fully graded by the offline eval suite.
-- The learning loop is narrow: mostly time-window preferences, not broad behavioral modeling.
+- Replies return whole; the agent graph does not stream token by token.
+- Only the first request in a message is handled ("add milk, then plan my
+  evening" adds the milk).
+- The wording checks read English date, time and repeat words. In other
+  languages a proposal is not cross-checked, and a non-English event title has
+  lost a name in testing.
+- Not built yet: forgetting a remembered fact, changing a task's due date,
+  removing every task at once, and ranked time-slot suggestions on the graph
+  (a new event with no time gets a question instead).
+- The blind eval uses simulated personas. Real users' messages are the test
+  that has not been run.
+- The previous orchestrator and workflow are still in the repo. They answer
+  web chat under `KAIRO_AGENT=legacy` and still serve
+  `/personal-manager/chat`, `/personal-manager/stream`, and the legacy demo
+  route; the offline 252-case suite covers them, not the graph.
+- The schedule tools reuse the existing Google Calendar references, but the
+  graph has not been run against a connected Google account.
+- The learning loop is narrow: mostly time-window preferences on the previous
+  path, not broad behavioral modeling.
 - Legacy workspace/terminal routes should remain disabled in public deployments.
 
 ## Project Layout
 
 | Path | Purpose |
 | ---- | ------- |
-| `apps/api/kairo/agents/orchestrator/` | Direct/delegate routing, translation, harness checks, fallback, humanization |
-| `apps/api/kairo/agents/personal_manager/` | Typed PM workflow, extraction, planning, approval policy, executors, persistence |
-| `apps/api/tests/` | Unit, integration, adversarial, eval-runner, and orchestrator control-flow tests |
+| `apps/api/kairo/agents/graph/` | The agent graph web chat runs on: state, nodes, coordinator prompt |
+| `apps/api/kairo/domains/` | Tool registry and the domains: tasks, habits, journal, schedule, memory, assistant, and the wording checks |
+| `apps/api/kairo/tools/` | Executors, resolvers, receipts, calendar sync, web search |
+| `apps/api/kairo/agents/orchestrator/` | The previous web-chat path: routing, translation, harness checks, humanization |
+| `apps/api/kairo/agents/personal_manager/` | Approval flow and policy (used by the graph), and the previous typed workflow, extraction and planning |
+| `apps/api/evals/` | Blind eval and scores ledger, model date test, offline suite, judge evals |
+| `apps/api/tests/` | Unit, graph turn-level, domain, adversarial, eval-runner, and orchestrator control-flow tests |
 | `apps/web/src/` | React chat UI, calendar panel, approval card, decision trace panel |
-| `ARCHITECTURE.md` / `SECURITY.md` / `eval-report.md` | Deep architecture, security policy, and current eval report |
+| `ARCHITECTURE.md` / `SECURITY.md` / `eval-report.md` | Deep architecture, security policy, and the offline suite's report |
+| `docs/BLIND_EVAL.md` / `docs/MODEL_DATE_TEST.md` / `docs/ideas/` | Blind eval method and every result, the model date test, and the 2.0 plan and design |
 | `docker-compose.yml` | Demo deployment shape with backend, frontend, and persistent volumes |
 
 Runtime data is stored under `data/` or `apps/api/data/` depending on how the app
