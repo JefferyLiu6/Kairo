@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -69,6 +69,31 @@ def _private_notes(ctx: ToolContext) -> int:
     return len(load_private(ctx.user_id, ctx.data_dir).notes_private)
 
 
+_REMEMBER_SUMMARY = "Remember: "     # how _propose_remember summarises a fact, which is what the audit log keeps
+
+
+def memory_overview(user_id: str, data_dir: str, vault_dir: str) -> dict[str, Any]:
+    """What Kairo remembers about the user, beside what they asked it to remember.
+
+    `asked` is read from the audit log, newest first: each fact a `remember` action stored, when,
+    and whether the profile still holds it in those words. A fact that is no longer there word for
+    word was reworded or dropped after it was saved (the profile is tidied in the background).
+    Private notes are counted, never returned.
+    """
+    ctx = ToolContext(user_id=user_id, thread_id="", data_dir=data_dir, now=datetime.now().astimezone(),
+                      message="", vault_dir=vault_dir)
+    facts = _facts(ctx)
+    held = {fact.casefold() for fact in facts}
+    asked = []
+    for event in list_all_audit_events(user_id, data_dir, limit=200):
+        summary = event["payloadSummary"]
+        if event["eventType"] != "action_executed" or event["actionType"] != "remember" or not isinstance(summary, str):
+            continue
+        text = summary.removeprefix(_REMEMBER_SUMMARY).strip()
+        asked.append({"text": text, "at": event["createdAt"], "kept": text.casefold() in held})
+    return {"facts": facts, "privateNotes": _private_notes(ctx), "asked": asked}
+
+
 def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" + ("" if count == 1 else "s")
 
@@ -87,7 +112,7 @@ def _propose_remember(args: Remember, ctx: ToolContext) -> Proposal:
         return Answer("Memory isn't set up here, so I can't keep that.")
     if any(known.casefold() == fact.casefold() for known in _facts(ctx)):
         return Answer(f"I already have that: {fact}.")
-    return [PMAction("remember", {"fact": fact}, summary=f"Remember: {fact}")]
+    return [PMAction("remember", {"fact": fact}, summary=f"{_REMEMBER_SUMMARY}{fact}")]
 
 
 def _propose_export(_args: ExportData, _ctx: ToolContext) -> Proposal:

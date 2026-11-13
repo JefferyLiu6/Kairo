@@ -4,6 +4,7 @@ type Props = {
   onHistory: () => void;
   onSchedule?: () => void;
   onTrace?: () => void;
+  onAbout?: () => void;
   onStopAgent?: () => void;
   agentBusy?: boolean;
   onNewChat: () => void;
@@ -15,6 +16,7 @@ export function TopNav({
   onHistory,
   onSchedule,
   onTrace,
+  onAbout,
   onStopAgent,
   agentBusy,
   onNewChat,
@@ -83,6 +85,14 @@ export function TopNav({
           <button type="button" className="topnav-action-btn" onClick={onTrace} aria-label="Decision trace" title="Decision trace">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M18 20V10M12 20V4M6 20v-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
+        {onAbout && (
+          <button type="button" className="topnav-action-btn" onClick={onAbout} aria-label="About me" title="About me: what Kairo remembers">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="8" r="4" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M4 21a8 8 0 0 1 16 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </button>
         )}

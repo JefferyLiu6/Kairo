@@ -551,6 +551,18 @@ def get_pm_tasks(request: Request):
                       for item in todos.items if not item.done]}
 
 
+@app.get("/personal-manager/memory")
+def get_pm_memory(request: Request):
+    """What Kairo remembers about the user, for the About me panel. Read-only: a fact is
+    remembered by asking the agent, and private notes are counted, never returned."""
+    user = require_user(request)
+    from kairo.domains.memory import memory_overview
+    from kairo.storage.control_store import pm_db_path
+    data_dir = _service_data_dir()
+    # Web chat keeps a user's profile in their own data directory (see astream_graph).
+    return memory_overview(user.id, data_dir, os.path.dirname(pm_db_path(user.id, data_dir)))
+
+
 class PetStateRequest(BaseModel):
     xp: int = 0
     energy: int = 72
