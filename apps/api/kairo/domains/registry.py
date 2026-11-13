@@ -32,7 +32,7 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel
 
 from kairo.core.domain.types import PMAction
-from kairo.core.prompt import PromptTemplate
+from kairo.core.prompt import Prompt, PromptTemplate
 
 _TOOL_NAME = re.compile(r"[a-z][a-z0-9_]*")
 
@@ -117,6 +117,8 @@ class DomainSpec:
     mode: Literal["inline", "agent", "legacy"] = "inline"
     prompt: Optional[PromptTemplate] = None                 # agent only: what its model is told ($clock, $context, $open_question)
     context: Optional[Callable[[ToolContext], str]] = None  # the domain's store, as whoever calls its tools is shown it
+    guidance: Optional[Prompt] = None                       # inline only: when and how the coordinator uses its tools
+    restate: str = "Could you say “{message}” another way?"  # what to ask when a proposal could not be made right
 
     def bundle(self) -> str:
         """One version for everything this domain's agent is told: its prompt and its tool definitions."""
@@ -135,6 +137,8 @@ class Registry:
             raise ValueError(f"domain {domain.name!r} is already registered")
         if domain.mode in ("inline", "agent") and not domain.tools:
             raise ValueError(f"{domain.mode} domain {domain.name!r} has no tools")
+        if domain.mode == "inline" and domain.guidance is None:
+            raise ValueError(f"inline domain {domain.name!r} needs guidance for the coordinator")
         if domain.mode == "agent" and domain.prompt is None:
             raise ValueError(f"agent domain {domain.name!r} needs a prompt")
         if domain.mode == "legacy" and (domain.tools or self.fallback() is not None):

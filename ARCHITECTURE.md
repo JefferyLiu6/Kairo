@@ -29,7 +29,7 @@ api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 | --- | --- | --- |
 | `kairo/api/` | HTTP only: FastAPI app, auth, rate limits | `app.py`, `auth.py` |
 | `kairo/agents/` | Anything that decides what to do with a message | `graph/` (2.0 agent graph), `orchestrator/`, `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
-| `kairo/domains/` | What Kairo can do, declared as typed tools grouped by area | `registry.py`, `tasks.py`, `schedule.py`, `checks.py`, `catalog.py` |
+| `kairo/domains/` | What Kairo can do, declared as typed tools grouped by area | `registry.py`, `tasks.py`, `habits.py`, `journal.py`, `schedule.py`, `memory.py`, `checks.py`, `catalog.py` |
 | `kairo/tools/` | Actions the agents can take | `executors/`, `calendar/`, `resolvers/`, `memory/`, `web_search.py` |
 | `kairo/storage/` | All SQLite and file persistence | `control_store.py`, `working_memory.py`, `store.py` |
 | `kairo/core/` | Shared foundations, no HTTP and no SQL | `llm.py` (contract gateway), `domain/`, `observability/` |
@@ -148,20 +148,21 @@ Important boundaries:
 With `KAIRO_AGENT=graph`, `/orchestrator/stream` runs
 [`kairo/agents/graph`](apps/api/kairo/agents/graph) instead of the
 orchestrator. Without it, nothing below is used. The graph takes domains over
-one at a time: tasks and the calendar so far. Habits, journal, memory and
-conversation are handed, whole, to the orchestrator described above.
+one at a time: tasks, habits, the journal, the calendar and memory so far. Web
+search, planning a day and conversation are handed, whole, to the orchestrator
+described above.
 
 ```mermaid
 flowchart TD
     A["User message"] --> ING["ingest<br/>injection check, what is waiting on the user,<br/>recent turns"]
     ING -->|"approve / reject"| APP["approval<br/>no model"]
     ING --> CO["coordinate<br/>one model call, one tool call"]
-    CO -->|"a tasks tool"| G["gate<br/>schema, date, time and repeat checks"]
-    CO -->|"hand_off to schedule"| AG["agent<br/>the schedule agent: its own prompt,<br/>tools and view of the calendar"]
+    CO -->|"a tasks, habits or journal tool"| G["gate<br/>schema, date, time, repeat<br/>and own-words checks"]
+    CO -->|"hand_off to schedule or memory"| AG["agent<br/>that domain's agent: its own prompt,<br/>tools and view of its store"]
     CO -->|"yes or no to the approval just asked"| APP
     CO -->|"hand_off to assistant,<br/>or nothing usable"| OLD["assistant<br/>the orchestrator answers and logs the turn"]
     CO -->|"ask_user"| R
-    AG -->|"a calendar tool"| G
+    AG -->|"one of its tools"| G
     AG -->|"answer or ask_user"| R
     AG -->|"hand_back"| OLD
     G -->|"rejected, first time:<br/>back to whoever proposed"| CO
@@ -195,8 +196,11 @@ How it differs from the orchestrated turn:
   belongs to the calendar" (a repeating reminder is not a task) and the graph
   routes it there. A lookup that finds nothing in the domain's own store is
   sent back once, and then handed on, because the thing may live elsewhere.
-- **Model calls per turn:** one for a tasks request, two for a calendar
-  request (coordinator, then the schedule agent), none for approve or reject.
+- **Model calls per turn:** one for a tasks, habits or journal request, two
+  for a calendar or memory request (coordinator, then that agent), none for
+  approve or reject.
+- **Kept words are copied, not reworded.** A journal entry or a remembered
+  fact that is mostly not the user's own words is sent back.
 - **An approval can be answered in plain words**, but only right after it was
   asked: while the approval prompt is the last thing Kairo said and it is the
   thread's only pending approval, the coordinator may record a yes or no to it.
@@ -226,6 +230,23 @@ weekly repeat (the next day it falls on), and whether a new event overlaps
 something already there (said in the reply as a note). An `answer` may describe
 the calendar but may not say that something was added, changed or removed; only
 a receipt can say that.
+
+### Memory
+
+The memory agent ([`kairo/domains/memory.py`](apps/api/kairo/domains/memory.py))
+is shown the remembered facts and proposes `remember`, `export_data`,
+`show_memory` or `show_stored_data`.
+
+- **A sensitive fact is never stored outright.** Code, not the model, decides
+  what is sensitive (`kairo/utils/sensitivity.py`). Such a fact becomes a
+  private note that waits for approval, and the approval prompt does not repeat
+  it.
+- **A private note is never shown to a model** or repeated in a reply. The
+  agent is told only how many there are.
+- **No vault needs to be configured.** Web chat sets no `VAULT_DIR`, which made
+  "remember …" fail on the orchestrated path. The graph keeps the profile in
+  the user's own data directory unless a vault is configured, and hands the
+  same location to the orchestrator when a turn is handed off.
 
 ### Questions
 
@@ -263,9 +284,16 @@ part. A domain runs one of three ways:
 
 | Mode | How it runs | Now |
 |---|---|---|
-| `inline` | its tools are given to the coordinator | tasks |
-| `agent` | the coordinator hands off to the domain's own agent: its own prompt, tools and view of its store | schedule |
-| `legacy` | the coordinator hands off to the orchestrator; the one fallback | everything else |
+| `inline` | its tools are given to the coordinator, with the domain's own guidance and view of its store | tasks, habits, journal |
+| `agent` | the coordinator hands off to the domain's own agent: its own prompt, tools and view of its store | schedule, memory |
+| `legacy` | the coordinator hands off to the orchestrator; the one fallback | web search, planning, conversation |
+
+Adding a domain is a module in `kairo/domains` and one line in `catalog.py`.
+The coordinator's prompt is assembled from the registry: each inline domain
+contributes its summary, its guidance (a versioned prompt of its own) and what
+is in its store, and each hand-off domain contributes one routing line. The
+graph's nodes name no domain; the coordinator's own prompt still has one
+sentence about what goes to the calendar.
 
 Each model's prompt and every tool definition it is shown are hashed into a
 bundle version, recorded with each turn in the decision log.

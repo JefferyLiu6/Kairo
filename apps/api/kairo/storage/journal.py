@@ -112,3 +112,21 @@ def journal_search(query: str, db_path: str, limit: int = 10) -> str:
     for r in rows:
         lines.append(f"\n### [{r['id']}] {r['ts'][:10]}\n{r['body']}")
     return "\n".join(lines)
+
+
+def journal_rows(db_path: str, *, limit: int = 5, query: str = "") -> list[dict]:
+    """Journal entries, newest first: {"id", "ts", "body"}. With `query`, only entries that contain its words."""
+    if not os.path.exists(db_path):
+        return []       # nothing has been stored for this user yet
+    _init(db_path)
+    with _conn(db_path) as conn:
+        if not query.strip():
+            rows = conn.execute("SELECT id, ts, body FROM journal_entries ORDER BY ts DESC, rowid DESC LIMIT ?",
+                                (limit,)).fetchall()
+        else:
+            words = [word for word in query.split() if word]
+            where = " AND ".join("body LIKE ? ESCAPE '\\'" for _ in words)
+            like = ["%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" for w in words]
+            rows = conn.execute(f"SELECT id, ts, body FROM journal_entries WHERE {where} ORDER BY ts DESC, rowid DESC LIMIT ?",
+                                (*like, limit)).fetchall()
+    return [{"id": r["id"], "ts": r["ts"], "body": r["body"]} for r in rows]

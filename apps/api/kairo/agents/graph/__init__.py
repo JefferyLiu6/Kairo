@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from dataclasses import replace
 from typing import AsyncIterator
 
 from langgraph.graph import END, START, StateGraph
@@ -29,8 +30,10 @@ from langgraph.graph import END, START, StateGraph
 from kairo.agents.graph import nodes
 from kairo.agents.graph.state import GraphState
 from kairo.agents.orchestrator.agent import OrchestratorConfig
+from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.observability.telemetry import span
 from kairo.core.prompt import collecting_prompts
+from kairo.storage.control_store import pm_db_path
 
 
 def _next(state: GraphState) -> str:
@@ -64,6 +67,11 @@ def graph_enabled() -> bool:
 
 async def astream_graph(message: str, config: OrchestratorConfig) -> AsyncIterator[tuple[str, str]]:
     """One turn. Yields the same ("progress" | "token" | "done", text) events as the previous assistant."""
+    if not config.vault_dir:
+        # Web chat configures no memory vault. What the user asks Kairo to remember is kept in
+        # their own data directory, next to everything else stored for them.
+        user = config.user_id or normalize_pm_session_id(config.session_id)
+        config = replace(config, vault_dir=os.path.dirname(pm_db_path(user, config.data_dir)))
     with span("turn"), collecting_prompts():
         yield ("progress", "Thinking…")
         final = await GRAPH.ainvoke({"message": message},

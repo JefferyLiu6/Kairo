@@ -26,7 +26,11 @@ PROMPT_MODULES = (
     "kairo.agents.personal_manager.agent",
     "kairo.agents.personal_manager.extractors.model",
     "kairo.agents.personal_manager.application.semantic_memory",
+    "kairo.domains.habits",
+    "kairo.domains.journal",
+    "kairo.domains.memory",
     "kairo.domains.schedule",
+    "kairo.domains.tasks",
     "kairo.tools.memory.reconciliation",
 )
 
