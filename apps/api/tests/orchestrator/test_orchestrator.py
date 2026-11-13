@@ -321,7 +321,7 @@ def test_approval_result_bypasses_models(tmp_path, monkeypatch, verb, explicit_i
     record = find_approval_request(str(tmp_path), approval.id, session_id=config.session_id)
     entries = load_schedule(config.session_id, str(tmp_path)).entries
     if verb == "approve":
-        assert reply == "Removed 'Morning run' from your calendar."
+        assert reply == "Removed from your calendar: Morning run."  # read back from storage
         assert record.status == "executed"
         assert entries == []
         assert _done(_run_events(f"approve {approval.id}", config)) == reply
