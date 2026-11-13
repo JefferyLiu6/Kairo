@@ -197,6 +197,10 @@ def _ask(state: GraphState, cfg: OrchestratorConfig, domain: str, prompt: str, t
     After MAX_ROUNDS in a row it is still asked but no longer kept, so a request cannot turn
     into an endless exchange.
     """
+    said = f"{because} {prompt}".strip()
+    if "?" not in prompt and "？" not in prompt:
+        # A statement sent as a question (a model sometimes refuses this way). It is said; nothing is open.
+        return {"notes": [said], "handler": domain, "route": "respond"}
     previous = state.get("question")
     follows_up = bool(previous) and previous["domain"] == domain
     rounds = previous["round"] + 1 if follows_up else 1
@@ -204,7 +208,7 @@ def _ask(state: GraphState, cfg: OrchestratorConfig, domain: str, prompt: str, t
         _save_question(cfg, GraphQuestion(domain=domain, prompt=prompt, topic=(topic or prompt).casefold(),
                                           request=previous["request"] if follows_up else state["message"],
                                           round=rounds))
-    return {"notes": [f"{because} {prompt}".strip()], "asked": True, "handler": domain, "route": "respond"}
+    return {"notes": [said], "asked": True, "handler": domain, "route": "respond"}
 
 
 def _park(state: GraphState, cfg: OrchestratorConfig) -> Optional[str]:
@@ -262,6 +266,8 @@ async def ingest(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     message = state["message"]
     update: dict[str, Any] = {"now": local_now(), "attempts": 0, "agent_attempts": 0, "rejection": None,
                               "question": None, "offer": None, "history": []}
+    if _looks_like_injection(message):
+        return {**update, "notes": [_REFUSAL], "route": "respond"}   # refused before anything else is touched
 
     # A question this graph asked is taken off the table now and decided on at the end of the turn.
     # One left open by the assistant that ran before the graph is closed: nobody here can resume it,
@@ -276,8 +282,6 @@ async def ingest(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
             except ValidationError:
                 logger.warning("dropped an unreadable graph question in thread %s", thread)
 
-    if _looks_like_injection(message):
-        return {**update, "notes": [_REFUSAL], "route": "respond"}
     turns = get_working_memory(user, thread, cfg.data_dir).turns[-HISTORY_TURNS:]
     update["history"] = [(turn["role"], turn["content"]) for turn in turns]
     update["offer"] = _approval_on_offer(cfg, update["history"])
