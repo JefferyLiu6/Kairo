@@ -27,7 +27,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [demoStarting]);
 
-  if (loading) return <div className="auth-loading">Loading…</div>;
+  if (loading) return <div className="auth-loading" role="status">Loading…</div>;
   if (!user) {
     return (
       <div className="auth-page">
@@ -39,7 +39,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
           <h1 className="auth-title">
             {error ? "Demo unavailable" : slowStart ? "Waking up the server" : "Setting up demo"}
           </h1>
-          <p className={error ? "auth-error" : "auth-confirm"}>
+          <p className={error ? "auth-error" : "auth-confirm"} role={error ? "alert" : "status"}>
             {error ||
               (slowStart
                 ? "The server sleeps when idle and can take up to a minute to wake. Hang tight — your demo will start automatically."
