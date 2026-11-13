@@ -148,7 +148,7 @@ class OrchestratorPath:
         env = load_default_llm_from_env()
         prompts = prompt_versions.current()
         return {"provider": env.get("provider"), "model": env.get("model"),
-                "pm_model": os.environ.get("PM_MODEL", env.get("model")),
+                "pm_model": os.environ.get("PM_MODEL") or env.get("model"),
                 "prompt_set": prompt_set(prompts), "prompts": prompts,
                 "note": "mirrors kairo/api/app.py orchestrator_stream, including no memory vault"}
 
@@ -163,7 +163,7 @@ class OrchestratorPath:
         config = OrchestratorConfig(
             user_id=session.user_id, session_id=session.thread_id, data_dir=data_dir,
             provider=env["provider"], model=env["model"], api_key=env.get("api_key"), base_url=env.get("base_url"),
-            pm_provider=env["provider"], pm_model=os.environ.get("PM_MODEL", env["model"]),
+            pm_provider=env["provider"], pm_model=os.environ.get("PM_MODEL") or env["model"],
             pm_api_key=env.get("api_key"), pm_base_url=env.get("base_url"),
         )
         session.config = config

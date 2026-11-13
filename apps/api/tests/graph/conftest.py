@@ -1,6 +1,7 @@
 """Shared by the graph tests: real graph and stores, with the model scripted."""
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -43,6 +44,9 @@ def chat(tmp_path, monkeypatch):
 
     `chat.model` is a list of answers the coordinator's model gives, in order: each is one
     tool call, or a list of them. `chat.asked` records what the model was shown each time.
+
+    The voice model is scripted too. It returns each draft unchanged unless a test sets
+    `chat.voice` to a function of the draft; `chat.voiced` records what it was shown.
     """
     config = OrchestratorConfig(session_id=THREAD, user_id=USER, data_dir=str(tmp_path), provider="test",
                                 model="small-model", pm_provider="test", pm_model="unused")
@@ -56,7 +60,14 @@ def chat(tmp_path, monkeypatch):
         answer = script.pop(0)
         return answer if isinstance(answer, list) else [answer]
 
+    def reword(_config, _system, shown):
+        voiced.append(json.loads(shown))
+        return send.voice(voiced[-1]["draft"])
+
+    voiced: list[dict] = []
     monkeypatch.setattr(nodes, "ask_model", ask_model)
+    monkeypatch.setattr(nodes, "reword", reword)
+    monkeypatch.delenv("KAIRO_VOICE", raising=False)
 
     def send(message: str) -> str:
         with time_machine.travel(THURSDAY, tick=True):
@@ -68,6 +79,7 @@ def chat(tmp_path, monkeypatch):
             return load_active_working_memory(THREAD, str(tmp_path), user_id=USER)
 
     send.model, send.asked, send.question = script, asked, question
+    send.voice, send.voiced = (lambda draft: draft), voiced
     send.data_dir, send.config = str(tmp_path), config
     return send
 
