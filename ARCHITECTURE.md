@@ -1,10 +1,24 @@
-# Kairo + Orchestrator Architecture
+# Kairo Architecture
 
-This document describes the current Kairo orchestrator and controlled workflow
-implementation. It is meant to be accurate enough for code review, not a
-marketing diagram.
+This document describes how Kairo is built. It is meant to be accurate enough
+for code review, not a marketing diagram.
 
-Primary source files:
+Web chat runs on the agent graph. The previous path (an orchestrator over a
+typed workflow) is still in the repo, answers web chat under
+`KAIRO_AGENT=legacy`, and shares the approval flow, executors and stores with
+the graph. Both are described here: the graph in
+[Agent Graph](#agent-graph-the-web-chat-path), the previous path in the
+sections around it.
+
+Primary source files, the agent graph:
+
+- [`apps/api/kairo/agents/graph/`](apps/api/kairo/agents/graph) - the graph: its nodes (`nodes.py`), state, prompts, and the voice pass (`voice.py`)
+- [`apps/api/kairo/domains/`](apps/api/kairo/domains) - what Kairo can do: the tool registry, one module per area, and the checks proposals are held to
+- [`apps/api/kairo/agents/personal_manager/application/approval_flow.py`](apps/api/kairo/agents/personal_manager/application/approval_flow.py) - approval policy, single and batch approvals, approve and reject
+- [`apps/api/kairo/tools/receipts.py`](apps/api/kairo/tools/receipts.py) - reads the stores back after a write and builds the reply from them
+- [`apps/api/kairo/storage/`](apps/api/kairo/storage) - working memory, approvals, audit, traces, personalization, semantic memory
+
+Primary source files, the previous path:
 
 - [`apps/api/kairo/agents/orchestrator/agent.py`](apps/api/kairo/agents/orchestrator/agent.py) - conversational router/translator/harness/humanizer over the PM agent
 - [`apps/api/kairo/agents/orchestrator/router.py`](apps/api/kairo/agents/orchestrator/router.py) - heuristic plus model routing for direct vs delegated turns
@@ -15,7 +29,6 @@ Primary source files:
 - [`apps/api/kairo/agents/personal_manager/application/extraction.py`](apps/api/kairo/agents/personal_manager/application/extraction.py) - deterministic/model extraction arbitration
 - [`apps/api/kairo/agents/personal_manager/application/planner.py`](apps/api/kairo/agents/personal_manager/application/planner.py) - intent-to-action planning
 - [`apps/api/kairo/agents/personal_manager/application/approval_policy.py`](apps/api/kairo/agents/personal_manager/application/approval_policy.py) - destructive/privacy approval gates
-- [`apps/api/kairo/storage/`](apps/api/kairo/storage) - working memory, approvals, audit, traces, personalization, semantic memory
 
 ## Package Layout
 
@@ -29,7 +42,7 @@ api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 | --- | --- | --- |
 | `kairo/api/` | HTTP only: FastAPI app, auth, rate limits | `app.py`, `auth.py` |
 | `kairo/agents/` | Anything that decides what to do with a message | `graph/` (2.0 agent graph), `orchestrator/`, `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
-| `kairo/domains/` | What Kairo can do, declared as typed tools grouped by area | `registry.py`, `tasks.py`, `habits.py`, `journal.py`, `schedule.py`, `memory.py`, `checks.py`, `catalog.py` |
+| `kairo/domains/` | What Kairo can do, declared as typed tools grouped by area | `registry.py`, `tasks.py`, `habits.py`, `journal.py`, `schedule.py`, `memory.py`, `assistant.py`, `checks.py`, `catalog.py` |
 | `kairo/tools/` | Actions the agents can take | `executors/`, `calendar/`, `resolvers/`, `memory/`, `web_search.py` |
 | `kairo/storage/` | All SQLite and file persistence | `control_store.py`, `working_memory.py`, `store.py` |
 | `kairo/core/` | Shared foundations, no HTTP and no SQL | `llm.py` (contract gateway), `domain/`, `observability/` |
@@ -45,7 +58,9 @@ api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 flowchart TB
     UI["React UI<br/>apps/web/src"] <-->|HTTP + SSE| API["FastAPI<br/>kairo/api/app.py"]
 
-    API -->|/orchestrator/stream| ORCH["Orchestrator<br/>kairo/agents/orchestrator"]
+    API -->|"/orchestrator/stream (default)"| GRAPH["Agent graph<br/>kairo/agents/graph + kairo/domains"]
+    GRAPH -->|"typed commands"| POLICY
+    API -->|"/orchestrator/stream (KAIRO_AGENT=legacy)"| ORCH["Orchestrator<br/>kairo/agents/orchestrator"]
     API -->|/personal-manager/stream| PM["Kairo PM workflow<br/>agent.py"]
     ORCH -->|delegates via astream_pm| PM
     ORCH -->|direct reply| OLLM["Orchestrator LLM<br/>chat, routing, humanizing"]
@@ -344,6 +359,18 @@ is shown the remembered facts and proposes `remember`, `export_data`,
   it.
 - **A private note is never shown to a model** or repeated in a reply. The
   agent is told only how many there are.
+- **What is remembered is shown to the calendar agent,** so a time it suggests
+  can fit the user's habits (`remembered_facts`). Private notes are not part
+  of it.
+- **The user can see it and check it.** `GET /personal-manager/memory`
+  (`memory_overview`) returns every fact in the profile, a count of private
+  notes, and each fact a `remember` action stored, read from the audit log,
+  with whether the profile still holds it word for word. The web app's About
+  me panel shows these side by side.
+- **The background tidy-up copies facts exactly.** It removes duplicates and
+  the older of two facts that contradict each other
+  (`kairo/tools/memory/reconciliation.py`). It used to merge facts and put them
+  in the third person, which changed who a fact was about.
 - **No vault needs to be configured.** Web chat sets no `VAULT_DIR`, which made
   "remember …" fail on the orchestrated path. The graph keeps the profile in
   the user's own data directory unless a vault is configured, and hands the
