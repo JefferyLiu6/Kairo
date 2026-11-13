@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from kairo.domains.checks import range_the_wording_gives, repeat_problem, times_the_wording_gives
+from kairo.domains.checks import named_in, range_the_wording_gives, repeat_problem, times_the_wording_gives
 
 
 @pytest.mark.parametrize("say, times", [
@@ -29,6 +29,18 @@ def test_clock_times_and_ranges_stated_in_a_message(say, times):
 ])
 def test_a_time_range_stated_in_a_message(say, stated):
     assert range_the_wording_gives(say) == stated
+
+
+@pytest.mark.parametrize("title, said, named", [
+    ("guitar lesson with Leo", "and Leo has guitar on Thursdays 5:30 to 6:15pm", True),
+    ("piano lesson with Maya", "and Leo has guitar on Thursdays 5:30 to 6:15pm", False),   # from an earlier message
+    ("send investor update", "Add todo: review Q4 hiring plan", False),
+    ("和王医生见面", "明天下午3点和王医生见面", True),                                          # no spaces to split on
+    ("交房租", "提醒我周五交房租", True),
+    ("Arzttermin", "termin beim arzt am freitag um 10", False),                              # reworded: not found
+])
+def test_whether_a_title_is_named_in_what_was_said(title, said, named):
+    assert named_in(title, (said,)) is named
 
 
 def weekly(*days, interval=1):
