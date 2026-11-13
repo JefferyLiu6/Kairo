@@ -57,6 +57,12 @@ class ExportData(_Args):
     """Propose giving the user a copy of their private data. The user is asked to approve first."""
 
 
+def remembered_facts(ctx: ToolContext) -> list[str]:
+    """What the user asked Kairo to remember, for another domain to take into account. Private
+    notes are not part of it."""
+    return _facts(ctx)[:MAX_SHOWN]
+
+
 def _facts(ctx: ToolContext) -> list[str]:
     """The remembered facts: the bullets of the user's profile."""
     if not ctx.vault_dir:

@@ -154,7 +154,7 @@ def test_completing_a_task_names_the_stored_task_by_id(tmp_path):
 
 def test_removing_a_task_names_it_in_the_summary_the_user_approves(tmp_path):
     seed(tmp_path, "rotate API keys")
-    tool, args, context = call("remove_todo", tmp_path, query="rotate")
+    tool, args, context = call("remove_todos", tmp_path, queries=["rotate"])
     (action,) = tool.propose(args, context)
     assert action.action_type == "todo_remove" and action.payload["id"] == "t1"
     assert action.summary == "Remove todo: rotate API keys"

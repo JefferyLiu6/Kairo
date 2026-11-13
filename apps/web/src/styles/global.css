@@ -3334,6 +3334,14 @@ body {
   color: var(--text);
 }
 
+.approval-items {
+  margin: 0;
+  padding: 4px 14px 4px 32px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
 .approval-actions {
   display: flex;
   gap: 8px;

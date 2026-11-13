@@ -10,7 +10,7 @@
 ![React](https://img.shields.io/badge/React-UI-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-1359%20passing-2ea44f)
-![Blind eval](https://img.shields.io/badge/blind%20eval-96%25%20right-2ea44f)
+![Blind eval](https://img.shields.io/badge/blind%20eval-96%E2%80%9397%25%20right-2ea44f)
 ![Offline evals](https://img.shields.io/badge/offline%20evals-252%2F252-2ea44f)
 
 Try it out: https://kairo-mu-two.vercel.app
@@ -43,7 +43,7 @@ Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 | What is it? | A full-stack Kairo agent for calendar, todos, habits, journal, memory, and Google Calendar sync. |
 | What makes it hard? | Natural-language requests can mutate private personal state, so the system must separate understanding from permission, execution, and auditability. |
 | What did I build? | A React UI, FastAPI backend, an agent graph (coordinator, domain agents, a tool registry, a gate that checks every proposal), approval policy, receipts read back from storage, SQLite persistence, two eval harnesses, security doc, deployment path, and decision-trace panel. |
-| Proof it works | 1359 pytest tests; a blind eval of 117 un-coached messages scored by what ends up stored (96% right, 1 wrong save, 0 trapped turns in the latest run, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
+| Proof it works | 1359 pytest tests; a blind eval of 117 un-coached messages scored by what ends up stored (96% and 97% right, 2 and 0 wrong but reported done, 0 trapped turns in the last two runs, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
 
 ## Highlights
 
@@ -316,6 +316,13 @@ flowchart TD
   original and dropped if a number, time, day, name, quoted text or list item
   changed, or if it claims a change nothing backs. Approval prompts and failed
   writes are never reworded, and the other models keep reading the original.
+- **The calendar agent looks before it asks.** Given a day but no time, it
+  reads the day's free time (worked out by code) and what the user asked to be
+  remembered, and suggests a time. A time the user did not give is never stored
+  outright: the suggestion waits for their approval and says it was suggested.
+- **Several changes, one approval.** "Delete all my todos" or "delete
+  everything on my calendar" is asked for once, in a card that lists every item.
+  Approving runs each change through the same executors, with a receipt each.
 - **A question is asked once.** It is offered to the next message, parked once
   with a reminder if the user moves on, and then dropped.
 - **Domains are data.** Tasks, habits, journal, calendar, memory and the
@@ -343,15 +350,18 @@ the voice pass (two runs), and the graph as it runs now:
 
 | | Previous path | Agent graph, before the voice pass | Agent graph, now |
 | --- | --- | --- | --- |
-| Right, of scoreable turns | 30% | 97% and 97% | **96%** |
-| Wrong but reported done | 21 turns | 0 and 1 | 1 |
+| Right, of scoreable turns | 30% | 97% and 97% | **96% and 97%** |
+| Wrong but reported done | 21 turns | 0 and 1 | 2 and 0 |
 | Trapped by an old question | 9 turns | 0 | 0 |
-| Model calls per turn | 2.05 | 1.52 and 1.51 | 2.38 |
-| Median reply time | 3.7 s | 1.7 s | 2.6 s |
+| Model calls per turn | 2.05 | 1.52 and 1.51 | 2.39 and 2.42 |
+| Median reply time | 3.7 s | 1.7 s | 2.1 s and 2.0 s |
 | Passes the bar | no | yes | **yes** |
 
 The voice pass rewords each reply with one more model call, which is where the
-extra call and the extra second come from. "Now" is a single run.
+extra call and the extra half second come from. "Now" is the last two runs,
+with the calendar agent suggesting a time instead of asking for one and several
+removals asked for in one approval. The two faults in the first of them were
+fixed before the second.
 
 What these numbers are not:
 
