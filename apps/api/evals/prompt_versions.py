@@ -21,6 +21,7 @@ SNAPSHOT = FIXTURES / "prompt_versions.json"
 
 # Every module that declares a prompt. tests/test_prompt_versions.py checks this list is complete.
 PROMPT_MODULES = (
+    "kairo.agents.graph.prompts",
     "kairo.agents.orchestrator.prompts",
     "kairo.agents.personal_manager.agent",
     "kairo.agents.personal_manager.extractors.model",

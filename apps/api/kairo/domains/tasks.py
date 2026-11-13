@@ -1,0 +1,142 @@
+"""
+The tasks domain: the to-do list.
+
+Tool wording follows what docs/MODEL_DATE_TEST.md measured: a task is one thing
+to get done, never a repeat and never a block of time, and a due date is set
+only when the user gave one.
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from kairo.core.domain.commands import TodoAddCommand, TodoCompleteCommand, TodoRemoveCommand, action_from_command
+from kairo.domains.checks import asks_for_a_repeat, date_word_problem, dates_the_wording_allows, past_problem, time_word_problem
+from kairo.domains.registry import Answer, DomainSpec, NotThisDomain, Proposal, ToolContext, ToolSpec
+from kairo.storage.store import load_todos
+from kairo.tools.receipts import due_phrase
+from kairo.tools.resolvers.todo import resolve_todo_id
+
+_DATE = r"^\d{4}-\d{2}-\d{2}$"
+_TIME = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class _Args(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class TodoItemArgs(_Args):
+    title: str = Field(description="What to do, in the user's own words, without the due date, the time, or "
+                                   "words like 'todo' and 'remind me'.")
+    due_date: Optional[str] = Field(pattern=_DATE, description="YYYY-MM-DD if the user gave a deadline or a day; "
+                                                               "otherwise null.")
+    due_time: Optional[str] = Field(pattern=_TIME, description="24-hour HH:MM if the user gave a time; otherwise null.")
+
+
+class AddTodos(_Args):
+    """Propose one or more tasks: one-off things to get done, with or without a deadline. A task never
+    repeats and never holds time on the calendar. Put every item of a list in one call."""
+
+    items: list[TodoItemArgs] = Field(min_length=1)
+
+
+class CompleteTodo(_Args):
+    """Propose marking one task as done."""
+
+    query: str = Field(description="Words from the task's title, enough to tell it from the others.")
+
+
+class RemoveTodo(_Args):
+    """Propose deleting one task from the list. The user is asked to approve before it is removed."""
+
+    query: str = Field(description="Words from the task's title, enough to tell it from the others.")
+
+
+class ListTodos(_Args):
+    """Show the user's open tasks. Use it for any question about what is on the to-do list."""
+
+
+def _check_new_todos(args: AddTodos, ctx: ToolContext) -> Optional[str]:
+    if asks_for_a_repeat(ctx.message):
+        return NotThisDomain("a task cannot repeat, and this message asks for something that repeats; "
+                             "hand it off with hand_off")
+    # With several items the message's date word may belong to only one of them, so a missing
+    # date is accepted there; with one item, a date word in the message must be carried over.
+    alone = len(args.items) == 1
+    for item in args.items:
+        problem = past_problem(item.due_date, ctx.now) or date_word_problem(
+            ctx.message, item.due_date if item.due_date or not item.due_time else None, ctx.now,
+            must_have_date=alone and not item.due_time,   # a time with no date means today
+        ) or (time_word_problem(ctx.message, item.due_time) if alone else None)
+        if problem:
+            return f"task '{item.title}': {problem}"
+    return None
+
+
+def _propose_new_todos(args: AddTodos, ctx: ToolContext) -> Proposal:
+    actions = []
+    for item in args.items:
+        day = item.due_date
+        if item.due_time and not day:  # "at 4pm" with no day: the day the wording points to, else today
+            allowed = dates_the_wording_allows(ctx.message, ctx.now)
+            day = (min(allowed) if allowed else ctx.now.date()).isoformat()
+        due = f"{day}T{item.due_time}:00" if day and item.due_time else day
+        actions.append(action_from_command("todo_add", TodoAddCommand(title=item.title.strip(), due=due),
+                                           summary=f"Add todo: {item.title.strip()}"))
+    return actions
+
+
+def _find(query: str, ctx: ToolContext) -> tuple[Optional[str], Optional[str], Optional[Answer]]:
+    """(task id, task title, None) for exactly one match; otherwise (None, None, what to tell the user)."""
+    found = resolve_todo_id(ctx.user_id, ctx.data_dir, {"query": query})
+    if not found["ok"]:
+        ambiguous = bool(found.get("candidates"))
+        return None, None, Answer(found["message"], asks=ambiguous, topic=query, elsewhere=not ambiguous)
+    title = next(item.title for item in load_todos(ctx.user_id, ctx.data_dir).items if item.id == found["id"])
+    return found["id"], title, None
+
+
+def _propose_complete(args: CompleteTodo, ctx: ToolContext) -> Proposal:
+    task_id, title, answer = _find(args.query, ctx)
+    if answer:
+        return answer
+    return [action_from_command("todo_complete", TodoCompleteCommand(id=task_id, query=title),
+                                summary=f"Mark todo complete: {title}")]
+
+
+def _propose_remove(args: RemoveTodo, ctx: ToolContext) -> Proposal:
+    task_id, title, answer = _find(args.query, ctx)
+    if answer:
+        return answer
+    return [action_from_command("todo_remove", TodoRemoveCommand(id=task_id, query=title),
+                                risk_level="medium", requires_approval=True, summary=f"Remove todo: {title}")]
+
+
+def _read_open_todos(_args: ListTodos, ctx: ToolContext) -> str:
+    items = [item.model_dump(mode="json") for item in load_todos(ctx.user_id, ctx.data_dir).items]
+    open_items = [item for item in items if not item["done"]]
+    if not open_items:
+        return "You have no open tasks."
+    lines = ["Your open tasks:"]
+    for item in open_items:
+        lines.append(f"- {item['title']}" + (f" — {due_phrase(item)}" if item.get("due") else ""))
+    done = len(items) - len(open_items)
+    return "\n".join(lines + ([f"Done: {done}."] if done else []))
+
+
+TASKS = DomainSpec(
+    name="tasks",
+    summary="The to-do list: adding things to get done, finishing or removing a task, and what is on the list.",
+    tools=(
+        ToolSpec("add_todos", "propose", AddTodos, check=_check_new_todos, propose=_propose_new_todos,
+                 examples=("add todo fix figure 3 due friday", "brain dump: email advisor, buy cat food",
+                           "remind me at 4pm to leave for the dentist")),
+        ToolSpec("complete_todo", "propose", CompleteTodo, propose=_propose_complete,
+                 examples=("done email advisor", "mark the field trip form todo as done")),
+        ToolSpec("remove_todo", "propose", RemoveTodo, propose=_propose_remove,
+                 examples=("delete todo expense report",)),
+        ToolSpec("list_todos", "read", ListTodos, read=_read_open_todos,
+                 examples=("show my todos", "what follow-ups do I owe people?")),
+    ),
+)

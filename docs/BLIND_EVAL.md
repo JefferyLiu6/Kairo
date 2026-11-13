@@ -13,6 +13,7 @@ is the measure every Kairo 2.0 step is judged against
 ```bash
 make eval-blind                      # offline typed workflow, no model, about a second
 make eval-blind path=orchestrator    # the web-chat path; calls the configured model
+make eval-blind path=graph           # the 2.0 agent graph (KAIRO_AGENT=graph); calls the configured model
 ```
 
 or, from `apps/api`:
@@ -28,8 +29,8 @@ A run prints a summary and writes the full report (every turn, reply, outcome
 and reason) to `artifacts/blind/<path>-<time>.json`. Reports are never
 overwritten. `artifacts/` is git-ignored.
 
-The orchestrator path reads model credentials from `apps/api/.env` the same way
-the API does. Eval turns are never sent to LangSmith.
+The orchestrator and graph paths read model credentials from `apps/api/.env` the
+same way the API does. Eval turns are never sent to LangSmith.
 
 ## What is in the set
 
@@ -179,6 +180,62 @@ What changed and what did not:
 
 Report: `artifacts/blind/orchestrator-20261112T235639Z.json`.
 
+### After step 5: tasks on the agent graph
+
+With `KAIRO_AGENT=graph` the coordinator fills task requests as typed, checked
+commands ([ARCHITECTURE.md](../ARCHITECTURE.md#agent-graph-kairo-20-behind-kairo_agentgraph)).
+Everything else is still handed to the orchestrator, so the fair comparison is
+the 20 turns of the set that expect a change to, or a reading of, the task
+list. Both runs below are from 2026-11-13 on `gpt-4o-mini`, same prompt set.
+
+| The 20 task turns | Web chat (orchestrator) | Agent graph |
+|---|---|---|
+| Right | 9 | 19 |
+| Wrong but reported done | 9 | 0 |
+| Missed (nothing stored, user asked) | 2 | 1 |
+| Model calls per turn | 2.25 | 1.05 |
+| Reply time, median | 4.5 s | 1.2 s |
+
+Across the four most recent orchestrator runs the same 20 turns scored 7, 9, 7
+and 9 right with 6 to 9 wrong saves. The graph scored 17, 17, 17 and 19 right
+while it was being built; the one or two wrong saves in the earlier graph runs
+led to the checks listed below.
+
+| Whole set, 85 turns | Web chat (orchestrator) | Agent graph |
+|---|---|---|
+| Right, of scoreable turns | 31% (22 of 70) | 49% (31 of 63) |
+| Wrong but reported done | 21% (13 + 5) | 7% (5 + 1) |
+| Trapped turns | 9 | 6 |
+| Model calls per turn | 1.98 | 2.33 |
+| Reply time, median | 3.9 s | 3.4 s |
+
+What changed and what did not:
+
+- **Task turns meet the bar; the whole set does not.** 65 of the 85 turns are
+  still answered by the orchestrator, and every wrong save, false claim and
+  trapped turn in the graph run is one of those. All three bars still fail.
+- **A handed-off turn costs one more model call** (the coordinator's, then the
+  orchestrator's own), which is why calls per turn rose over the whole set.
+  That goes away as domains move onto the graph.
+- **Three checks were added because a run showed the need**: a repeating
+  reminder proposed as a one-off task is sent back and handed off; a clock time
+  stated in the message must be carried into the task; a request to finish or
+  remove something the task list does not have is handed on, since it may be a
+  calendar event or a habit.
+- **The remaining task miss is a safe one.** "send Contoso the pricing deck
+  after tomorrow's call" is proposed for the day after tomorrow twice, the date
+  check refuses it both times, nothing is stored and the user is asked. The
+  question it asks reads like a log line and should be reworded.
+- **Not yet covered.** The date check reads English date words only, so
+  "提醒我周五交房租" passed in one run and was stored without its due date in
+  two. That scenario is in the holdout, so it was not tuned against; date cases
+  in other languages belong in the model date test first.
+- **Open-ended task questions get the plain list.** "what should i do first"
+  is answered with all open tasks. It is not scored, and it is not an answer.
+
+Reports: `artifacts/blind/graph-20261113T023401Z.json` and
+`artifacts/blind/orchestrator-20261113T023915Z.json`.
+
 ## The scores ledger
 
 A prompt's version says that it changed, not whether it got better. The ledger,
@@ -275,7 +332,8 @@ that does not fit its kind is an error, not a silent pass.
 A path turns a message into a reply for one user in one data directory. All
 paths write to the same stores, so they share the snapshot reader. Add a class
 to `evals/blind/adapters.py` with `name`, `describe()` and `open()`, and
-register it in `PATHS`. The Kairo 2.0 graph will be added this way.
+register it in `PATHS`. The Kairo 2.0 graph was added this way (`GraphPath`,
+which reuses the web-chat configuration and only changes how a message is sent).
 
 ## Limits
 

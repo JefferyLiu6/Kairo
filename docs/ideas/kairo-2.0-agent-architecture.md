@@ -1,6 +1,6 @@
 # Kairo 2.0 — Agent Architecture (proposal)
 
-**Date:** 2026-11-12 · **Status:** Proposal for review. No code has been changed.
+**Date:** 2026-11-12 · **Status:** Steps 1 to 5 of the build order (section 11) are done; the graph runs behind `KAIRO_AGENT=graph`.
 **Context:** [idea-refine working doc](kairo-2.0-idea-refine.md), decision 9 ·
 **Replaces, once built:** the orchestrator and PM sections of [`ARCHITECTURE.md`](../../ARCHITECTURE.md)
 
@@ -580,7 +580,7 @@ and improve the live path before the rewrite is finished.
 | 2 | **Model date test.** Can the small model fill `create_event` correctly for the set's date and time phrasings? | The assumption the whole design rests on; a day to check | Done — see [MODEL_DATE_TEST.md](../MODEL_DATE_TEST.md). Holds on `gpt-4o-mini` once a date check and pick-and-show for bare hours are added (0 wrong of 282 in the follow-up run); without them it is 9% wrong |
 | 3 | **Gate, execute, verify and receipts, wired into the current live path** | Replaces the judge and humanizer for writes now: no false "couldn't confirm", no reply that disagrees with storage, two fewer model calls | Done — `kairo/tools/receipts.py`, [results](../BLIND_EVAL.md#after-step-3-receipts-on-the-web-chat-path). "Couldn't confirm" replies 32 → 1, calls per turn 2.5 → 2.0, median reply 4.9 s → 3.2 s. Wrong saves unchanged, as expected |
 | 4 | **Scores ledger and versions in the decision log** (section 8.3) | From here every prompt or tool change is scored and recorded | Done — ledger at `apps/api/evals/scores.jsonl` ([how to use it](../BLIND_EVAL.md#the-scores-ledger)); each orchestrator decision row has a `versions` field. The bundle hash, prompt archive and pin-or-trial setting from section 8.3 wait for the tool registry |
-| 5 | **Registry, graph state, coordinator, tasks inline** | The simplest end-to-end slice of the new graph | |
+| 5 | **Registry, graph state, coordinator, tasks inline** | The simplest end-to-end slice of the new graph | Done — `kairo/domains/` and `kairo/agents/graph/`, behind `KAIRO_AGENT=graph`; the orchestrator is untouched and takes every hand-off; the typed workflow now submits commands through the same `submit_action` the graph uses, with no change in behaviour (252 of 252 on the old suite). On the 20 task turns of the blind set: 19 right, 0 wrong, 1 safe miss, 1.05 model calls and 1.2 s median, against 9 right and 9 wrong on web chat ([results](../BLIND_EVAL.md#after-step-5-tasks-on-the-agent-graph)). Not built yet from this step's scope: the startup check that refuses to boot (the registry refuses an incomplete domain at import instead), the prompt archive and the pin-or-trial setting |
 | 6 | **Schedule agent, with open questions built in** (`expects`, `parked`) | The schedule agent cannot work without asking for a missing time; fixes the pending trap where it occurs | |
 | 7 | **Several requests in one message, in parallel** | An optimisation, not a prerequisite | |
 | 8 | **Memory agent, then habits and journal** | Each is a registry entry; confirms the extension path | |

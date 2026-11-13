@@ -445,8 +445,12 @@ async def orchestrator_stream(req: PMChatRequest, request: Request):
     user = require_user(request)
     _rate_limit(request, user)
     _consume_credit_or_402(user)
+    from kairo.agents.graph import astream_graph, graph_enabled
     from kairo.agents.orchestrator.agent import OrchestratorConfig, astream_orchestrator
     from kairo.storage.user_store import ensure_thread
+    # KAIRO_AGENT=graph runs the 2.0 agent graph; anything it has not taken over yet is handed
+    # to the previous assistant from inside the graph.
+    stream_turn = astream_graph if graph_enabled() else astream_orchestrator
     thread_id = normalize_pm_session_id(req.session_id)
     # Register the thread in users.db
     ensure_thread(_service_data_dir(), user.id, thread_id)
@@ -467,7 +471,7 @@ async def orchestrator_stream(req: PMChatRequest, request: Request):
 
     async def _event_stream():
         try:
-            async for kind, value in astream_orchestrator(req.message, config):
+            async for kind, value in stream_turn(req.message, config):
                 if kind == "progress":
                     payload = json.dumps({"progress": value}, ensure_ascii=False)
                 elif kind == "token":

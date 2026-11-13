@@ -48,6 +48,7 @@ def entry_from_report(report: Mapping[str, Any], note: str, *, report_file: Opti
         "pm_model": path.get("pm_model"),
         "prompt_set": path.get("prompt_set"),
         "prompts": path.get("prompts") or {},
+        "bundle": path.get("bundle"),   # prompt plus tool definitions, for a path that calls tools
         "eval_set": report["fixture"]["sha256"],
         "turns": report["fixture"]["turns"],
         "code": f"{commit}+uncommitted" if commit and code.get("dirty") else commit,

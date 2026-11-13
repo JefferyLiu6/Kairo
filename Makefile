@@ -14,7 +14,7 @@ help:
 	@echo "  make seed         Seed demo data for the 'demo' session"
 	@echo "  make test         Run backend tests + evals + smoke check"
 	@echo "  make eval-offline Run local regression and judge contracts; save a report"
-	@echo "  make eval-blind   Score un-coached messages by stored state (path=pm|orchestrator)"
+	@echo "  make eval-blind   Score un-coached messages by stored state (path=pm|orchestrator|graph)"
 	@echo "  make eval-dates   Test a model on date and time phrasing (model=<name>, calls the model)"
 	@echo "  make lint         Lint backend (ruff) and frontend (tsc)"
 	@echo "  make build-web    Build the production web bundle"
@@ -100,7 +100,8 @@ eval-offline:
 	cd $(BACKEND_DIR) && uv run --offline --extra dev python -m evals.offline_eval
 
 # Un-coached messages scored by what ends up stored. `make eval-blind` runs the offline
-# workflow; `make eval-blind path=orchestrator` runs the web-chat path and calls the model.
+# workflow; `make eval-blind path=orchestrator` runs the web-chat path and calls the model;
+# `path=graph` runs the 2.0 agent graph the same way.
 # Add record="why" to append the run to the scores ledger; `make eval-history` prints the ledger.
 .PHONY: eval-blind eval-history
 path ?= pm

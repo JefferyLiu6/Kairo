@@ -5,10 +5,11 @@ from typing import Any, Optional
 
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.domain.types import PMAction
+from kairo.agents.personal_manager.application.approval_policy import apply_approval_policy
 from kairo.tools.executors.dispatcher import execute_pm_action
 from kairo.tools.receipts import collecting, read_back_reply, record as record_receipt
 from kairo.utils.parsing.text import _extract_id
-from kairo.storage.control_store import ApprovalRecord, claim_approval_request, find_approval_request, finish_approval, list_approval_requests, record_audit_event, reject_approval_request
+from kairo.storage.control_store import ApprovalRecord, claim_approval_request, create_approval_request, find_approval_request, finish_approval, list_approval_requests, record_audit_event, reject_approval_request
 
 
 class _ApprovalConfig:
@@ -17,6 +18,59 @@ class _ApprovalConfig:
         self.session_id = session_id
         self.data_dir = data_dir
         self.vault_dir = vault_dir
+
+
+def submit_action(
+    action: PMAction,
+    config: Any,
+    session_id: str,
+    *,
+    thread_id: str = "",
+    intent: str = "",
+) -> tuple[str, dict[str, Any]]:
+    """Apply the approval policy to one typed action, then queue it for approval or run it.
+
+    Returns (summary, result). `result` has "ok" and "message"; a queued action also has
+    "pending": True and its "approval_id", and its message is the approval prompt.
+    """
+    tid = thread_id or session_id
+    uid = session_id if thread_id else ""
+    guarded = apply_approval_policy(action)
+    summary = guarded.summary or action.summary or guarded.action_type
+    if guarded.requires_approval:
+        approval = create_approval_request(
+            session_id,
+            config.data_dir,
+            action_type=guarded.action_type,
+            payload={**guarded.payload, "_thread_id": tid},
+            summary=summary,
+            risk_level=guarded.risk_level,
+        )
+        record_audit_event(
+            tid,
+            config.data_dir,
+            user_id=uid,
+            event_type="approval_created",
+            intent=intent,
+            action_type=guarded.action_type,
+            payload_summary=summary,
+            approval_id=approval.id,
+        )
+        return summary, {"ok": True, "pending": True, "approval_id": approval.id,
+                         "message": _format_approval_prompt(approval)}
+
+    result = execute_pm_action(guarded, config)
+    record_audit_event(
+        tid,
+        config.data_dir,
+        user_id=uid,
+        event_type="action_executed" if result["ok"] else "action_failed",
+        intent=intent,
+        action_type=guarded.action_type,
+        payload_summary=summary or guarded.payload,
+        result_summary=result["message"],
+    )
+    return summary, result
 
 
 def approve_pm_request(
