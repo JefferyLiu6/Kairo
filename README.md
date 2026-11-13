@@ -13,7 +13,7 @@
 ![Blind eval](https://img.shields.io/badge/blind%20eval-97%25%20right-2ea44f)
 ![Offline evals](https://img.shields.io/badge/offline%20evals-252%2F252-2ea44f)
 
-Try it out: https://kairo-hazel.vercel.app
+Try it out: https://kairo-mu-two.vercel.app
 
 Kairo is a full-stack AI agent that lets natural language update calendar,
 tasks, habits, journal, memory, and Google Calendar data without giving the
@@ -28,7 +28,7 @@ not just fluent chat.
 
 ## Demo
 
-Live app: [kairo-hazel.vercel.app](https://kairo-hazel.vercel.app)
+Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 
 > Portfolio demo only. Do not enter real personal data.
 > The public frontend starts in temporary demo mode by default because the free
