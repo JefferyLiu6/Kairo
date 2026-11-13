@@ -34,7 +34,10 @@ same way the API does. Eval turns are never sent to LangSmith.
 
 ## What is in the set
 
-`apps/api/tests/fixtures/blind_eval_set.json`: thirteen personas, 117 turns.
+`apps/api/tests/fixtures/blind_eval_set.json`: fourteen personas, 127 turns.
+The fourteenth (ten turns, holdout) was added on 2026-11-13 with messages that
+ask for several things at once or name a day without a time; results before it
+are on 117 turns.
 Until 2026-11-13 it was the first ten (85 turns); results before that date are
 on the smaller set and are not comparable with later ones.
 
@@ -549,6 +552,190 @@ approval as well as a single one. Two recorded runs, 2026-11-13, `gpt-4o-mini`:
   so the batch path is covered by the scripted tests, not by these runs.
 
 Reports: `artifacts/blind/graph-20261113T181829Z.json` and the run after it.
+
+### After the coordinator plans
+
+A message that asks for several separate things is now split by the
+coordinator (`plan`) and done one part at a time, with approvals held and asked
+for once. Three recorded runs, 2026-11-13, `gpt-4o-mini`:
+
+| Whole set, 117 turns | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| Right, of scoreable turns | 95% (97 of 102) | 96% (99 of 103) | 97% (102 of 105) |
+| Wrong but reported done | 1 | 1 | 0 |
+| Trapped turns | 0 | 0 | 0 |
+| Questions put to the user | 6 | 3 | 3 |
+| Approvals asked for | 17 | 19 | 19 |
+| Model calls per turn | 2.45 | 2.41 | 2.42 |
+| Reply time, median / 95th | 2.4 s / 6.5 s | 2.6 s / 6.0 s | 2.5 s / 5.3 s |
+| Bar | pass | pass | **pass** |
+
+- **Where the plan rule sits in the prompt mattered.** In run 1 it came before
+  the routing rules. The coordinator then sent "I teach Maya piano every
+  Tuesday at 4" to memory and "What's on my schedule this week?" to the
+  journal. Moved after the routing rules (runs 2 and 3), those turns are right
+  again.
+- **The set has no message with several parts,** so these runs show that
+  planning did not break single requests, not that planning works. That rests
+  on the scripted tests and on live tries: "move the standup to 10am and add a
+  task to email Sam", "add milk to my list and tell me what's on tomorrow",
+  "delete all my todos and cancel tomorrow's dentist".
+- **The small model does not always plan.** Asked "delete all my todos and
+  cancel tomorrow's dentist" four times with the final prompt, it planned three
+  times and once proposed only the to-do removals, leaving the dentist. Nothing
+  wrong is stored when that happens, and the approval shows what will be done,
+  but part of the request is dropped without a word.
+- **Run 2's wrong save** was a calendar event stored as "见面" without the
+  doctor's name. The calendar agent's prompt did not change in this step and
+  run 3 has it right, so it reads as variation between runs.
+
+Reports: `artifacts/blind/graph-20261113T185558Z.json` and the two runs after it.
+
+### A fourteenth persona, and what it found
+
+The set had no message with several parts, so a persona was added who writes
+that way (`14_office_manager`, ten turns, holdout). An expectation of kind
+`approval` may now also list what the same turn stores, for a message where
+one part is done and another waits.
+
+**First look, before any change made for it:** 7 of 9 scored turns right, one
+trapped. "put a walkthrough of the new room on monday" was answered with "What
+time on Monday?", and the "yes" that followed got the same question again.
+"push the team lunch to 12:30 and add a todo to tell everyone" moved the lunch
+and never added the task.
+
+What was changed, and what was tried and thrown away:
+
+- **Kept: the calendar agent may not ask the time on a day the user named.**
+  The question is sent back once. The walkthrough turn and its "yes" are right
+  in every run since.
+- **Kept: among several events in one call, a start the message never gave is
+  refused.** In one run the calendar agent had turned "note in my journal that
+  the move went fine" into an event at 10 AM.
+- **Thrown away: every coordinator call stating what it leaves undone.** A
+  required `rest` argument was filled with fragments of the same request, which
+  were then done a second time: two suggestions for one walkthrough, two moves
+  of one lunch.
+- **Thrown away: one hand-off tool that lists the message's parts.** It split
+  single requests ("team lunch friday 12-1" also became a task) and did not
+  split the double ones more often.
+- **Kept after the first two runs below: guards on a split.** The tool was
+  called `plan`, and "Plan my day tomorrow" was answered by adding a task. It
+  is now `do_several`, and a split is refused when its steps go to one area or
+  use a word the message does not have.
+- **Kept after run 4: an event's title keeps who it is with.** "明天下午3点和王医生见面"
+  was stored as "见面" in about half of eight tries; with the title's
+  description saying so, in one of eight.
+
+Five recorded runs of the 127-turn set, 2026-11-13, `gpt-4o-mini`:
+
+| Whole set, 127 turns | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 |
+|---|---|---|---|---|---|
+| Right, of scoreable turns | 96% (107 of 112) | 94% (106 of 113) | 96% (110 of 114) | 94% (105 of 112) | 96% (110 of 114) |
+| Wrong but reported done | 1 | 3 | 0 | 2 | 0 |
+| Trapped turns | 0 | 0 | 0 | 0 | 0 |
+| Holdout right | 92% | 92% | 92% | 87% | 92% |
+| Questions put to the user | 3 | 3 | 3 | 3 | 3 |
+| Approvals asked for | 22 | 22 | 23 | 22 | 22 |
+| Model calls per turn | 2.44 | 2.43 | 2.43 | 2.43 | 2.44 |
+| Reply time, median / 95th | 2.2 s / 4.6 s | 2.4 s / 6.3 s | 2.5 s / 5.2 s | 2.3 s / 5.7 s | 2.3 s / 5.2 s |
+| Bar | pass | **fail** (3 of 127 is 2.4%) | pass | pass, at the limit | pass |
+
+- **Run 2 failed the bar.** Its three wrong saves were the task made up for
+  "Plan my day tomorrow", "block friday morning" stored as two one-hour events,
+  and the "见面" title. The split guards came after it (runs 3 to 5), the title
+  fix after run 4.
+- **One turn is wrong in every run:** "push the team lunch to 12:30 and add a
+  todo to tell everyone". The coordinator hands the whole message to the
+  calendar and the task is never added. Nothing wrong is stored and the
+  approval shows what will happen, but half the request is dropped without a
+  word. The other three multi-part turns of the persona are right in every run.
+- **The new persona is no longer a first look.** Four of the changes above were
+  made because of it.
+
+Reports: `artifacts/blind/graph-20261113T194638Z.json` and the four runs after it.
+
+### After tasks by id and plans on the calendar
+
+Tasks are now shown to the coordinator with ids and picked by id, so "done
+email advisor" no longer asks which of two tasks is meant. The assistant can
+put a plan on the calendar as one approval (`block_time`). Three recorded runs
+of the 127-turn set, 2026-11-13, `gpt-4o-mini`:
+
+| Whole set, 127 turns | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| Right, of scoreable turns | 95% (107 of 113) | 93% (105 of 113) | 96% (109 of 114) |
+| Wrong but reported done | 1 | 2 | 0 |
+| Trapped turns | 0 | 0 | 0 |
+| Holdout right | 92% | 84% | 92% |
+| Questions put to the user | 2 | 3 | 2 |
+| Approvals asked for | 23 | 22 | 23 |
+| Model calls per turn | 2.45 | 2.48 | 2.46 |
+| Reply time, median / 95th | 2.5 s / 6.8 s | 2.4 s / 8.0 s | 2.5 s / 5.1 s |
+| Bar | pass | pass, at the limit | **pass** |
+
+Picking by id let the model pick wrongly, and each wrong pick found got a check:
+
+- **Live try: "the funding one", with nothing about funding open, checked off
+  an unrelated task.** A pick is now held to the user's words.
+- **Run 1: a new event was written over an old one.** "schedule discovery call
+  ... next wednesday at 11am" became a rename of "Acme logo work". A rename to
+  what the message says, of an event it never mentions, is refused.
+- **Run 2: "delete the standup", with no standup, proposed removing "1:1 with
+  priya", and the next "approve" removed it.** This had happened in an earlier
+  run too. Removals are now held to the user's words like task picks.
+- **Live tries: "plan my day tomorrow" produced an event to approve, and "block
+  time tomorrow for my open tasks" was stored by the calendar agent as seven
+  events called "open tasks".** A suggestion has to be for something the
+  message names; several events are never made up for a message with no
+  number in it, and such a request is passed to the assistant; `block_time` is
+  refused unless the message asks for time on the calendar.
+
+The set has no turn that blocks time for a list of tasks, so that path rests on
+scripted tests and three live tries. Only run 3 is on the final code.
+
+Reports: `artifacts/blind/graph-20261113T204836Z.json` and the two runs after it.
+
+### After the sweep
+
+One turn had been wrong in every run since the fourteenth persona was added:
+"push the team lunch to 12:30 and add a todo to tell everyone" moved the lunch
+and dropped the task. Two fixes inside the coordinator's own call had made
+things worse (see above). The third works from the other end: before a turn
+that was not split replies, the small model is shown the message beside what
+was done and names a request that was left out, which is then done as a part of
+its own. Two recorded runs of the 127-turn set, 2026-11-13, `gpt-4o-mini`:
+
+| Whole set, 127 turns | Before (step 4, run 3) | Run 1 | Run 2 |
+|---|---|---|---|
+| Right, of scoreable turns | 96% (109 of 114) | 96% (110 of 114) | 97% (111 of 114) |
+| Wrong but reported done | 0 | 0 | 0 |
+| Trapped turns | 0 | 0 | 0 |
+| Holdout right | 92% | 95% | 95% |
+| Questions put to the user | 2 | 2 | 2 |
+| Approvals asked for | 23 | 24 | 22 |
+| Model calls per turn | 2.46 | 2.51 | 2.54 |
+| Reply time, median / 95th | 2.5 s / 5.1 s | 2.4 s / 6.2 s | 2.4 s / 6.1 s |
+| Bar | pass | pass | **pass** |
+
+- **The team lunch turn is right in both runs,** and in three of three runs of
+  that persona alone before them. The task it adds is titled "tell everyone
+  about the team lunch change": the model fills in what "everyone" is told.
+- **It did not duplicate work,** which is what sank the first attempt. A part
+  is ignored if it shares a word with what the turn already did, and that
+  refuses a second go at something done.
+- **That same rule lets some things through undone.** In one run of the
+  persona, "note in my journal that the move went fine" was left out and not
+  picked up: the reply had a line starting "Note:", and the shared word counted
+  as covered.
+- **Cost:** one more small-model call on messages that join things, about 0.06
+  calls per turn across the set.
+- **"block friday morning for the Acme logo work" was a miss in run 1 and in
+  the run before it:** it was offered for approval on the wrong Friday instead
+  of stored. Six tries of that message on its own stored it each time, so the
+  cause is in the conversation before it and has not been found.
+
+Reports: `artifacts/blind/graph-20261113T213542Z.json` and the run after it.
 
 ## The scores ledger
 

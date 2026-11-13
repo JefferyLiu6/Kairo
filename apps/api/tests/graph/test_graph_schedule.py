@@ -87,15 +87,15 @@ def test_a_clash_is_said_alongside_what_was_stored(chat):
 # ── A question, asked once ────────────────────────────────────────────────────
 
 def ask_time(chat):
-    chat.model.extend([TO_SCHEDULE, call("ask_user", question="What time on Saturday?")])
-    assert chat("schedule a dentist appointment on saturday") == "What time on Saturday?"
+    chat.model.extend([TO_SCHEDULE, call("ask_user", question="What hour on Saturday?")])
+    assert chat("schedule a dentist appointment on saturday") == "What hour on Saturday?"
 
 
 def test_the_agents_question_is_remembered_with_who_asked_and_what_about(chat):
     ask_time(chat)
     asked = chat.question().payload
     assert (asked["domain"], asked["prompt"], asked["request"], asked["parked"]) == (
-        "schedule", "What time on Saturday?", "schedule a dentist appointment on saturday", False)
+        "schedule", "What hour on Saturday?", "schedule a dentist appointment on saturday", False)
     assert calendar(chat) == []
 
 
@@ -105,8 +105,8 @@ def test_the_answer_goes_back_to_the_agent_that_asked_and_completes_the_request(
 
     assert chat("3pm") == "Added to your calendar: dentist appointment — Sat 14 Nov, 3 PM–4 PM."
     coordinator, agent = chat.asked[2:]
-    assert 'The schedule agent just asked the user: "What time on Saturday?"' in coordinator["system"]
-    assert 'You just asked the user: "What time on Saturday?"' in agent["system"]
+    assert 'The schedule agent just asked the user: "What hour on Saturday?"' in coordinator["system"]
+    assert 'You just asked the user: "What hour on Saturday?"' in agent["system"]
     assert "schedule a dentist appointment on saturday" in agent["system"]
     assert chat.question() is None
 
@@ -127,7 +127,7 @@ def test_a_message_about_something_else_is_handled_and_the_question_is_parked_on
     chat.model.append(call("add_todos", items=[item("buy milk")]))
 
     assert chat("add todo buy milk").splitlines() == ["Added task: buy milk — no due date.",
-                                                    "Still open: What time on Saturday?"]
+                                                    "Still open: What hour on Saturday?"]
     assert todos(chat) == [("buy milk", None, False)] and chat.question().payload["parked"] is True
 
     # The parked question is offered once more, and an answer still completes the request.
@@ -150,15 +150,15 @@ def test_a_request_gets_at_most_two_questions_in_a_row(chat):
     chat.model.extend([TO_SCHEDULE, call("ask_user", question="Morning or afternoon?")])
     assert chat("not sure") == "Morning or afternoon?" and chat.question().payload["round"] == 2
 
-    chat.model.extend([TO_SCHEDULE, call("ask_user", question="Roughly when?")])
-    assert chat("whenever") == "Roughly when?"
+    chat.model.extend([TO_SCHEDULE, call("ask_user", question="Roughly which part of the day?")])
+    assert chat("whenever") == "Roughly which part of the day?"
     assert chat.question() is None      # said, but not kept: the next message starts fresh
 
 
 def test_an_approval_command_leaves_the_question_parked_not_lost(chat):
     ask_time(chat)
     reply = chat("approve")
-    assert reply.splitlines() == ["You don't have any pending approvals right now.", "Still open: What time on Saturday?"]
+    assert reply.splitlines() == ["You don't have any pending approvals right now.", "Still open: What hour on Saturday?"]
     assert len(chat.asked) == 2 and chat.question().payload["parked"] is True
 
 

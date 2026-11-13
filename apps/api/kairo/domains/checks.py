@@ -225,6 +225,41 @@ def named_in(title: str, said: tuple[str, ...]) -> bool:
     return any(word in spoken for word in words)
 
 
+# Words that point at a stored item without describing one. A message made only of these ("done
+# with it", "the second one", "delete them all", "cancel everything on friday") leaves the choice
+# to the conversation.
+_POINTING = frozenset("""
+    done did finish finished finishing complete completed completing mark marked check checked tick ticked
+    delete deleted remove removed cancel cancelled canceled clear drop scrap skip move push todo todos task tasks
+    item items list event events meeting meetings calendar schedule that this these those them they first second
+    third fourth last next other another both everything every each please just already also with from have has
+    been was were will would could can you the one ones all and off out thing today tonight tomorrow tmrw week
+    weekend morning afternoon evening night
+""".split()) | frozenset(_WEEKDAY_WORDS) | frozenset(_MONTH_WORDS)
+
+
+def not_what_was_said(chosen: list[str], items: dict[str, str], said: tuple[str, ...]) -> Optional[str]:
+    """Why the items a model chose by id are not the ones the user's words point to, if so.
+
+    `items` is every item it could have chosen, id -> title. If the message names some of them, the
+    choice has to be among those. If it names none but uses a word that is on no item ("the funding
+    one" when nothing about funding is there, "delete the standup" with no standup), nothing is
+    picked for it at all: a made-up match is worse than saying it is not there.
+    """
+    named = {item_id for item_id, title in items.items() if named_in(title, said)}
+    off = next((item_id for item_id in chosen if named and item_id not in named), None)
+    if off:
+        return (f"the message does not name '{items[off]}'; what it names is: "
+                + ", ".join(f"[{item_id}] {items[item_id]}" for item_id in sorted(named)))
+    if not named:
+        words = [word for text in said for word in re.findall(r"[^\W\d_]+", text.casefold())
+                 if len(word) >= 4 and word.isascii() and word not in _POINTING]
+        if words:
+            return (f"nothing here mentions “{words[0]}”, so nothing is picked for it: it may be gone already, "
+                    "or be something else. Say so, or hand it off")
+    return None
+
+
 def say_dates(days: set[date]) -> str:
     """Dates with their weekdays, for telling a model which one was meant: '2026-11-13 (Fri)'."""
     return " or ".join(f"{day.isoformat()} ({day:%a})" for day in sorted(days))

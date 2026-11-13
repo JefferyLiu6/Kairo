@@ -142,6 +142,67 @@ def test_a_time_nobody_gave_cannot_be_stored_through_create_events(chat):
     assert calendar(chat) == [] and "Fri 13 Nov, 10 AM–11 AM (you gave no time" in reply
 
 
+def test_asking_for_the_time_on_a_named_day_is_sent_back_once_and_then_allowed(chat):
+    ask = call("ask_user", question="What time on Saturday would you like the appointment?")
+    chat.model.extend([TO_SCHEDULE, ask, look(), suggest("dentist appointment", SATURDAY, "10:00")])
+    assert "Sat 14 Nov, 10 AM–11 AM" in chat(DENTIST)
+    assert "the message names the day, so the time is not asked for" in chat.asked[2]["turns"][-1][1]
+
+    chat.model.extend([TO_SCHEDULE, ask, ask])                       # it insists: the user is asked after all
+    assert chat("schedule a haircut on sunday") == "What time on Saturday would you like the appointment?"
+
+    chat.model.extend([TO_SCHEDULE, call("ask_user", question="What day is the haircut?")])
+    assert chat("schedule a haircut") == "What day is the haircut?"     # no day named: asking is right
+
+
+def test_a_part_of_a_message_that_is_not_an_event_cannot_ride_along_at_a_made_up_time(chat):
+    plants = {"title": "water the plants", "date": "2026-11-16", "start": "09:00", "end": None,
+              "recurrence": {"freq": "weekly", "interval": 1, "by_day": ["MO"]}}
+    note = {"title": "note in my journal that the move went fine", "date": "2026-11-12", "start": "10:00",
+            "end": None, "recurrence": None}
+    chat.model.extend([TO_SCHEDULE, call("create_events", events=[plants, note]), call("create_events", events=[plants])])
+
+    reply = chat("remind me to water the plants every monday at 9am and note in my journal that the move went fine")
+
+    assert "start 10:00 is not a time the message gives (09:00)" in chat.asked[2]["turns"][-1][1]
+    assert [title for title, *_ in calendar(chat)] == ["water the plants"] and "journal" not in reply
+
+
+def test_several_events_are_never_made_up_for_a_message_with_no_times(chat):
+    made_up = call("create_events", events=[
+        {"title": "open tasks", "date": "2026-11-13", "start": start, "end": None, "recurrence": None}
+        for start in ("09:00", "12:00")])
+    blocks = call("block_time", blocks=[{"title": "write the report", "date": "2026-11-13", "start": "09:00", "end": "10:00"},
+                                        {"title": "call the bank", "date": "2026-11-13", "start": "10:30", "end": "11:00"}])
+    chat.model.extend([TO_SCHEDULE, made_up, made_up, blocks])
+
+    reply = chat("block time tomorrow for my open tasks")
+
+    assert "several events are never made up for it" in chat.asked[2]["turns"][-1][1]
+    # The calendar agent kept it; the graph passed it to the assistant, whose plan waits for approval.
+    assert chat.asked[3]["prompt"] == "assistant_agent" and calendar(chat) == []
+    assert "Add 2 schedule events, at suggested times:" in reply and len(pending(chat)) == 1
+
+
+def test_a_new_event_is_not_written_over_one_the_message_never_mentions(chat):
+    night_shifts(chat)
+    over = call("update_event", event_id="lunch001", new_title="discovery call", new_date="2026-11-18",
+                new_start="11:00", new_end=None)
+    new = call("create_events", events=[{"title": "discovery call", "date": "2026-11-18", "start": "11:00",
+                                         "end": None, "recurrence": None}])
+    chat.model.extend([TO_SCHEDULE, over, new])
+
+    reply = chat("schedule discovery call next wednesday at 11am")
+
+    assert "the message does not mention 'lunch with Sam', so it is not renamed" in chat.asked[2]["turns"][-1][1]
+    assert reply.startswith("Added to your calendar: discovery call") and pending(chat) == []
+    assert ("lunch with Sam", SATURDAY, "12:00", "13:00") in calendar(chat)
+
+    chat.model.extend([TO_SCHEDULE, call("update_event", event_id="lunch001", new_title="lunch with Sam and Jo",
+                                         new_date=None, new_start=None, new_end=None)])
+    assert "rename to lunch with Sam and Jo" in chat("rename the lunch with Sam to lunch with Sam and Jo")
+
+
 def test_a_suggestion_has_to_be_on_the_day_the_user_named(chat):
     chat.model.extend([TO_SCHEDULE, look("2026-11-15"), suggest("dentist appointment", "2026-11-15", "10:00"),
                        suggest("dentist appointment", SATURDAY, "10:00")])

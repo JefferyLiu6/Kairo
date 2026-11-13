@@ -39,7 +39,7 @@ def test_the_coordinator_is_shown_the_open_tasks_so_it_knows_what_is_on_the_list
     tasks = DOMAINS.domain("tasks")
     assert tasks.context(ctx(tmp_path)) == "The to-do list is empty."
     seed(tmp_path, "email advisor", "buy cat food", "renew passport", done=("renew passport",))
-    assert tasks.context(ctx(tmp_path)).splitlines() == ["Open tasks on the to-do list:", "- email advisor", "- buy cat food"]
+    assert tasks.context(ctx(tmp_path)).splitlines() == ["Open tasks on the to-do list (the id of each task is in brackets):", "- [t1] email advisor", "- [t2] buy cat food"]
 
 
 # ── add_todos ─────────────────────────────────────────────────────────────────
@@ -147,33 +147,37 @@ def test_a_due_date_that_agrees_with_the_message_passes(tmp_path, message, items
 
 def test_completing_a_task_names_the_stored_task_by_id(tmp_path):
     seed(tmp_path, "email advisor about committee date", "buy cat food")
-    tool, args, context = call("complete_todo", tmp_path, query="cat food")
+    tool, args, context = call("complete_todo", tmp_path, task_id="t2")
+    assert tool.check(args, context) is None
     (action,) = tool.propose(args, context)
     assert action.action_type == "todo_complete" and action.payload["id"] == "t2"
+    assert action.summary == "Mark todo complete: buy cat food"
 
 
-def test_removing_a_task_names_it_in_the_summary_the_user_approves(tmp_path):
-    seed(tmp_path, "rotate API keys")
-    tool, args, context = call("remove_todos", tmp_path, queries=["rotate"])
-    (action,) = tool.propose(args, context)
-    assert action.action_type == "todo_remove" and action.payload["id"] == "t1"
-    assert action.summary == "Remove todo: rotate API keys"
+def test_removing_tasks_names_each_in_the_summary_the_user_approves(tmp_path):
+    seed(tmp_path, "rotate API keys", "book dentist")
+    tool, args, context = call("remove_todos", tmp_path, task_ids=["t1", "t2", "t1"])
+    actions = tool.propose(args, context)
+    assert [(a.action_type, a.payload["id"], a.summary) for a in actions] == [
+        ("todo_remove", "t1", "Remove todo: rotate API keys"), ("todo_remove", "t2", "Remove todo: book dentist")]
+    assert all(a.requires_approval for a in actions)
 
 
-def test_a_task_that_is_not_there_is_answered_not_guessed(tmp_path):
-    seed(tmp_path, "buy cat food")
-    tool, args, context = call("complete_todo", tmp_path, query="expense report")
-    answer = tool.propose(args, context)
-    assert isinstance(answer, Answer) and "expense report" in answer.text and answer.asks is False
-    assert answer.elsewhere      # the task list only knows tasks; it may be on the calendar or a habit
+def test_an_id_that_is_not_an_open_task_is_sent_back_and_may_belong_elsewhere(tmp_path):
+    seed(tmp_path, "buy cat food", "old thing", done=("old thing",))
+    for name, args in (("complete_todo", {"task_id": "nope"}), ("complete_todo", {"task_id": "t2"}),
+                       ("remove_todos", {"task_ids": ["t1", "nope"]})):
+        tool, parsed, context = call(name, tmp_path, **args)
+        problem = tool.check(parsed, context)
+        assert "no open task has id" in problem and "a habit, a calendar event" in problem
 
 
-def test_several_matching_tasks_become_a_question(tmp_path):
-    seed(tmp_path, "email advisor", "email advisor about committee date")
-    tool, args, context = call("complete_todo", tmp_path, query="email advisor")
-    answer = tool.propose(args, context)
-    assert isinstance(answer, Answer) and answer.asks and "committee date" in answer.text
-    assert not answer.elsewhere  # it is on the task list; the only doubt is which one
+def test_the_tasks_shown_to_the_model_carry_their_ids_and_due_dates(tmp_path):
+    save_todos(TodoData(items=[TodoItem(id="t1", title="rotate API keys", due="2026-11-20"),
+                               TodoItem(id="t2", title="book dentist"), TodoItem(id="t3", title="done", done=True)]),
+               USER, str(tmp_path))
+    shown = DOMAINS.domain("tasks").context(ctx(tmp_path, ""))
+    assert shown.splitlines()[1:] == ["- [t1] rotate API keys — due Fri 20 Nov", "- [t2] book dentist"]
 
 
 # ── list_todos ────────────────────────────────────────────────────────────────
@@ -195,3 +199,24 @@ def test_the_list_names_every_open_task_with_its_due_date(tmp_path):
 def test_an_empty_list_says_so(tmp_path):
     tool, args, context = call("list_todos", tmp_path)
     assert tool.read(args, context) == "You have no open tasks."
+
+
+@pytest.mark.parametrize("message, task_id, problem", [
+    ("done email advisor", "t1", None),                                   # named, and one of the two it names
+    ("done email advisor", "t3", "does not name 'buy cat food'"),         # the words point elsewhere
+    ("done with it", "t3", None),                                         # only pointing: the conversation decides
+    ("delete the second one", "t2", None),
+    ("the funding one", "t3", "nothing here mentions “funding”"),         # nothing about funding is open
+    ("done the dentist thing", "t1", "nothing here mentions “dentist”"),
+])
+def test_a_task_picked_by_id_is_held_to_the_users_words(tmp_path, message, task_id, problem):
+    seed(tmp_path, "email advisor", "email advisor about committee date", "buy cat food")
+    tool, args, context = call("complete_todo", tmp_path, message, task_id=task_id)
+    found = tool.check(args, context)
+    assert found is None if problem is None else problem in found
+
+
+def test_deleting_everything_is_not_held_to_any_title(tmp_path):
+    seed(tmp_path, "email advisor", "buy cat food")
+    tool, args, context = call("remove_todos", tmp_path, "Delete all my todos", task_ids=["t1", "t2"])
+    assert tool.check(args, context) is None

@@ -90,7 +90,7 @@ def test_arguments_that_break_the_schema_are_sent_back_too(chat):
 
 def test_finishing_a_task_checks_it_off(chat):
     seed(chat, "email advisor about committee date", "buy cat food")
-    chat.model.append(call("complete_todo", query="cat food"))
+    chat.model.append(call("complete_todo", task_id="t2"))
 
     assert chat("done buy cat food") == "Checked off: buy cat food."
     assert todos(chat)[1] == ("buy cat food", None, True)
@@ -99,36 +99,43 @@ def test_finishing_a_task_checks_it_off(chat):
 @pytest.mark.parametrize("second", ["hands it off", "insists"])
 def test_something_the_task_list_does_not_have_is_sent_back_because_it_may_live_elsewhere(chat, second):
     seed(chat, "buy cat food")
-    not_a_task = call("complete_todo", query="morning run")
+    not_a_task = call("complete_todo", task_id="made-up")
     chat.model.extend([not_a_task, call("hand_off", domain="assistant") if second == "hands it off" else not_a_task,
                        say("I'm not tracking a morning run. Say 'add a habit called morning run' to start.")])
 
     reply = chat("I did my morning run")
 
     assert reply.startswith("I'm not tracking a morning run") and chat.asked[2]["prompt"] == "assistant_agent"
-    assert "morning run" in chat.asked[1]["turns"][-1][1] and "a habit, a calendar event" in chat.asked[1]["turns"][-1][1]
+    assert "made-up" in chat.asked[1]["turns"][-1][1] and "a habit, a calendar event" in chat.asked[1]["turns"][-1][1]
     assert todos(chat) == [("buy cat food", None, False)] and chat.question() is None
 
 
-def test_several_matching_tasks_become_one_question_that_is_asked_once(chat):
+def test_the_model_is_shown_each_task_with_its_id_and_picks_the_one_meant(chat):
     seed(chat, "email advisor", "email advisor about committee date")
-    chat.model.append(call("complete_todo", query="email advisor"))
+    chat.model.append(call("complete_todo", task_id="t1"))
+
+    assert chat("done email advisor") == "Checked off: email advisor."      # no question: one title is what was said
+    assert "- [t1] email advisor\n- [t2] email advisor about committee date" in chat.asked[0]["system"]
+    assert todos(chat) == [("email advisor", None, True), ("email advisor about committee date", None, False)]
+
+
+def test_when_the_model_cannot_tell_which_task_it_asks_and_the_answer_settles_it(chat):
+    seed(chat, "email advisor about funding", "email advisor about committee date")
+    chat.model.append(call("ask_user", question="Which one: about funding, or about the committee date?"))
 
     reply = chat("done email advisor")
 
-    assert "which one?" in reply and all(not done for _, _, done in todos(chat))
+    assert reply.endswith("?") and all(not done for _, _, done in todos(chat))
     assert chat.question().source == "graph"
 
-    chat.model.append(call("complete_todo", query="committee date"))
+    chat.model.append(call("complete_todo", task_id="t2"))
     assert chat("the committee one") == "Checked off: email advisor about committee date."
-    # The question was taken off the table when the next message arrived, and shown to the model.
-    assert chat.question() is None
-    assert "which one?" in chat.asked[1]["system"]
+    assert chat.question() is None and "Which one" in chat.asked[1]["system"]
 
 
 def test_removing_a_task_waits_for_approval_and_approving_needs_no_model(chat):
     seed(chat, "rotate API keys")
-    chat.model.append(call("remove_todos", queries=["rotate"]))
+    chat.model.append(call("remove_todos", task_ids=["t1"]))
 
     prompt = chat("delete the rotate api keys todo")
 
@@ -190,10 +197,10 @@ def test_the_model_is_given_the_calendar_the_tools_and_the_conversation_so_far(c
     assert "- memory: What Kairo remembers" in first["system"]
     assert "tasks: The to-do list" in first["system"] and "habits: Habits the user tracks" in first["system"]
     assert "No habits are tracked yet." in first["system"]
-    assert "The to-do list is empty." in first["system"] and "- buy milk" in second["system"]
+    assert "The to-do list is empty." in first["system"] and "] buy milk" in second["system"]
     assert first["tools"] == ["add_todos", "complete_todo", "remove_todos", "list_todos",
                               "add_habit", "log_habit", "remove_habit", "show_habits",
-                              "write_journal", "show_journal", "hand_off", "ask_user"]
+                              "write_journal", "show_journal", "hand_off", "do_several", "ask_user"]
     assert first["turns"] == [("user", "add todo buy milk")]
     assert second["turns"] == [("user", "add todo buy milk"), ("assistant", "Added task: buy milk — no due date."),
                                ("user", "what's on my list")]
