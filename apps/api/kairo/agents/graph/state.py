@@ -18,7 +18,8 @@ Each field has one kind of writer:
     notes                                  any node with something to tell the user
     findings                               gate (what a lookup tool returned, for the agent that asked)
     asked                                  whichever node asked the user a new question
-    reply                                  respond
+    draft                                  respond (the reply as the records give it; what the models read next turn)
+    reply, wording                         voice (the reply as the user reads it, and whether it was reworded)
     route                                  the node that just ran, to pick the next one
 
 The list fields are appended to, never replaced, so nodes cannot erase each
@@ -58,5 +59,7 @@ class GraphState(TypedDict, total=False):
     findings: Annotated[list[str], operator.add]      # lookup results, shown to the agent on its next call
 
     asked: bool                               # a new question was put to the user this turn
+    draft: str
     reply: str
+    wording: str                              # "reworded", or "as written (<why>)"
     route: str
