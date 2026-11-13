@@ -3,7 +3,7 @@
 FastAPI backend for the Kairo orchestrator and controlled workflow. The PM
 fallback path still uses LangGraph for low-risk chat. For the project pitch,
 architecture, and portfolio context, see the top-level
-[`README.md`](../README.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md).
+[`README.md`](../../README.md) and [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
 
 ## Run
 
@@ -12,7 +12,7 @@ From the repo root, prefer the Makefile:
 ```bash
 make dev          # Backend on :8766, frontend on :5173
 make test         # pytest + eval harness + smoke check
-make eval-report  # Regenerate ../eval-report.md
+make eval-report  # Regenerate ../../eval-report.md
 ```
 
 Or directly in this directory:
@@ -58,4 +58,4 @@ scripts/
 - `pytest tests/test_pm_adversarial.py` — 68 adversarial hardening tests
 - `python -m evals.pm_runner` — 252 eval cases, 1518 checks
 
-Current eval results are in [`../eval-report.md`](../eval-report.md). The adversarial regression coverage lives in [`tests/test_pm_adversarial.py`](tests/test_pm_adversarial.py).
+Current eval results are in [`../../eval-report.md`](../../eval-report.md). The adversarial regression coverage lives in [`tests/personal_manager/test_pm_adversarial.py`](tests/personal_manager/test_pm_adversarial.py).
