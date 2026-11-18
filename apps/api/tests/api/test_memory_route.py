@@ -43,14 +43,14 @@ def test_memory_requires_a_signed_in_user(client):
 
 
 def test_a_new_demo_account_holds_its_sample_profile_and_was_asked_nothing(client):
-    client.post("/auth/demo")
+    client.post("/auth/demo", json={})
     body = client.get("/personal-manager/memory").json()
     assert "Name: Alex (demo account)" in body["facts"]
     assert body["privateNotes"] == 0 and body["asked"] == []
 
 
 def test_memory_lists_what_is_held_and_checks_it_against_what_was_asked(client, tmp_path):
-    user_id = client.post("/auth/demo").json()["id"]
+    user_id = client.post("/auth/demo", json={}).json()["id"]
     data_dir = str(tmp_path)
     _remember(user_id, data_dir, "I prefer meetings after 10am")
     _remember(user_id, data_dir, "Maya's mum prefers texts over calls")

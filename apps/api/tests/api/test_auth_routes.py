@@ -8,21 +8,10 @@ from kairo.api.app import app
 from kairo.storage.user_store import init_users_db
 
 
-# ── Shared state reset ────────────────────────────────────────────────────────
-
-@pytest.fixture(autouse=True)
-def _reset_process_local_state():
-    """Clear process-local CSRF tokens between tests."""
-    import kairo.api.auth as _auth
-    _auth._csrf_tokens.clear()
-    yield
-    _auth._csrf_tokens.clear()
-
-
 # ── Client fixture ────────────────────────────────────────────────────────────
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
+def client(tmp_path, monkeypatch, account_mail):
     """TestClient with an isolated data dir and background sync disabled."""
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("GOOGLE_CALENDAR_BACKGROUND_SYNC_SECONDS", "0")
@@ -30,14 +19,24 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("COOKIE_SAMESITE", "lax")
     init_users_db(str(tmp_path))
     with TestClient(app, raise_server_exceptions=True) as c:
+        c.account_mail = account_mail
         yield c
 
 
 def _signup(client, email="user@example.com", password="hunter2hunter2",
             display_name="Test User"):
-    return client.post("/auth/signup", json={
+    result = client.post("/auth/signup", json={
         "email": email, "password": password, "display_name": display_name,
     })
+    # Exercise the real verification route before tests requiring a signed-in user.
+    import re
+    links = [body for recipient, subject, body in client.account_mail
+             if recipient == email.lower() and subject == "Verify your Kairo email"]
+    if result.status_code == 200 and links:
+        token = re.search(r"#token=([A-Za-z0-9_-]+)", links[-1])[1]
+        client.post("/auth/verification/confirm", json={"token": token, "password": password})
+    return result
+
 
 
 def _login(client, email="user@example.com", password="hunter2hunter2"):
@@ -149,7 +148,7 @@ def test_auth_demo_starts_with_initial_credits(client, monkeypatch):
     from kairo.storage.user_store import DEMO_INITIAL_CREDITS
 
     monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_RPM", "100")
-    res = client.post("/auth/demo")
+    res = client.post("/auth/demo", json={})
     assert res.status_code == 201
     data = res.json()
     assert data["is_demo"] is True
@@ -235,10 +234,10 @@ def test_auth_demo_rate_limit_has_retry_after(client, monkeypatch):
     monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_HOURLY", "100")
     monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_DAILY", "100")
 
-    first = client.post("/auth/demo")
+    first = client.post("/auth/demo", json={})
     assert first.status_code == 201
 
-    second = client.post("/auth/demo")
+    second = client.post("/auth/demo", json={})
     assert second.status_code == 429
     assert int(second.headers["Retry-After"]) > 0
 
@@ -274,7 +273,7 @@ def test_demo_user_pm_rate_limit_uses_demo_policy(client, monkeypatch):
     monkeypatch.setenv("PM_DEMO_RATE_LIMIT_RPM", "100")
     monkeypatch.setenv("PM_DEMO_RATE_LIMIT_DAILY", "1")
 
-    demo = client.post("/auth/demo")
+    demo = client.post("/auth/demo", json={})
     assert demo.status_code == 201
     csrf = client.get("/auth/csrf").json()["csrf_token"]
 
@@ -326,15 +325,6 @@ def test_pm_chat_returns_402_when_credits_exhausted(client):
 
 
 # ── Thread deletion data isolation ───────────────────────────────────────────
-
-def _authed_client_with_csrf(client):
-    """Return a csrf-bypassing client and user id after signup+login."""
-    import kairo.api.app as _pm_mod
-    _pm_mod.is_valid_csrf_token = lambda token, request=None: True
-    _signup(client)
-    _login(client)
-    return client
-
 
 def test_delete_session_purges_transcript(tmp_path, monkeypatch):
     """Deleting a PM thread must remove its conversation_log rows."""
@@ -410,3 +400,181 @@ def test_session_cookie_has_max_age(client):
     res = _login(client)
     set_cookie = res.headers.get("set-cookie", "")
     assert "max-age" in set_cookie.lower()
+
+
+# ── Production auth boundaries (real cookies and CSRF; no auth bypasses) ──────
+
+def test_csrf_tokens_survive_multiple_tabs(client):
+    _signup(client)
+    _login(client)
+    tokens = [client.get('/auth/csrf').json()['csrf_token'] for _ in range(2)]
+    for token in tokens:
+        assert client.put('/personal-manager/pet', json={'xp': 7},
+                          headers={'X-CSRF-Token': token}).status_code == 204
+
+
+def test_csrf_validates_in_an_independent_process(client):
+    import json
+    import subprocess
+    import sys
+
+    _signup(client)
+    _login(client)
+    token = client.get('/auth/csrf').json()['csrf_token']
+    worker = subprocess.run(
+        [sys.executable, '-c', '''
+import json, sys
+from starlette.requests import Request
+from kairo.api.auth import is_valid_csrf_token
+value = json.load(sys.stdin)
+request = Request({'type': 'http', 'headers': [
+    (b'cookie', ('kairo_session=' + value['cookie']).encode())
+]})
+assert is_valid_csrf_token(value['csrf'], request)
+'''], input=json.dumps({'cookie': client.cookies['kairo_session'], 'csrf': token}),
+        text=True, capture_output=True, timeout=30,
+    )
+    assert worker.returncode == 0, worker.stderr
+
+
+def test_login_rotates_and_revokes_the_previous_session(client):
+    _signup(client)
+    _login(client)
+    old_cookie = client.cookies['kairo_session']
+    old_csrf = client.get('/auth/csrf').json()['csrf_token']
+    _login(client)
+    assert client.cookies['kairo_session'] != old_cookie
+    assert client.put('/personal-manager/pet', json={},
+                      headers={'X-CSRF-Token': old_csrf}).status_code == 403
+    assert client.get('/auth/me', headers={'Cookie': f'kairo_session={old_cookie}'}).status_code == 401
+
+
+def test_logout_revokes_a_replayed_cookie_and_csrf(client):
+    _signup(client)
+    _login(client)
+    cookie = client.cookies['kairo_session']
+    csrf = client.get('/auth/csrf').json()['csrf_token']
+    response = client.post('/auth/logout', headers={'X-CSRF-Token': csrf})
+    assert response.status_code == 204
+    assert 'Max-Age=0' in response.headers['set-cookie']
+    assert client.get('/auth/me', headers={'Cookie': f'kairo_session={cookie}'}).status_code == 401
+    assert client.put('/personal-manager/pet', json={}, headers={
+        'Cookie': f'kairo_session={cookie}', 'X-CSRF-Token': csrf,
+    }).status_code == 403
+
+
+@pytest.mark.parametrize('invalidation', ['session_expiry', 'account_deletion'])
+def test_invalid_sessions_cannot_read_or_write(client, invalidation):
+    import os
+    from kairo.storage.user_store import _conn
+
+    _signup(client)
+    user = _login(client).json()
+    token = client.get('/auth/csrf').json()['csrf_token']
+    with _conn(os.environ['DATA_DIR']) as db:
+        if invalidation == 'session_expiry':
+            db.execute("UPDATE auth_sessions SET expires_at = '2000-01-01' WHERE user_id = ?", (user['id'],))
+        else:
+            db.execute('DELETE FROM users WHERE id = ?', (user['id'],))
+    assert client.get('/auth/me').status_code == 401
+    assert client.put('/personal-manager/pet', json={}, headers={'X-CSRF-Token': token}).status_code == 403
+
+
+def test_csrf_rejects_tampering_and_missing_request(client):
+    from kairo.api.auth import is_valid_csrf_token
+
+    _signup(client)
+    _login(client)
+    token = client.get('/auth/csrf').json()['csrf_token']
+    assert not is_valid_csrf_token(token)
+    modified = ('0' if token[0] != '0' else '1') + token[1:]
+    assert client.put('/personal-manager/pet', json={},
+                      headers={'X-CSRF-Token': modified}).status_code == 403
+
+
+@pytest.mark.parametrize('path', ['/auth/login', '/auth/signup', '/auth/demo'])
+def test_preauth_rejects_untrusted_origin_and_simple_forms(client, path):
+    assert client.post(path, json={}, headers={'Origin': 'https://evil.example'}).status_code == 403
+    assert client.post(path, json={}, headers={'Origin': 'null'}).status_code == 403
+    assert client.post(path, content='{}', headers={'Content-Type': 'text/plain'}).status_code == 415
+    assert client.post(path, data={'email': 'user@example.com'}).status_code == 415
+
+
+def test_preauth_allows_same_origin_and_explicit_frontend(client, monkeypatch):
+    import kairo.api.app as module
+
+    _signup(client)
+    payload = {'email': 'user@example.com', 'password': 'hunter2hunter2'}
+    assert client.post('/auth/login', json=payload, headers={'Origin': 'http://testserver'}).status_code == 200
+    monkeypatch.setattr(module, '_cors_origins', ['https://frontend.example'])
+    assert client.post('/auth/login', json=payload, headers={'Origin': 'https://frontend.example'}).status_code == 200
+
+
+def test_auth_and_private_responses_are_not_cacheable(client):
+    _signup(client)
+    response = _login(client)
+    assert response.headers['cache-control'] == 'no-store'
+    for path in ['/auth/me', '/auth/csrf', '/personal-manager/tasks']:
+        assert client.get(path).headers['cache-control'] == 'no-store'
+
+
+def test_secure_cookie_flags(client, monkeypatch):
+    _signup(client)
+    monkeypatch.setenv('COOKIE_SECURE', 'true')
+    monkeypatch.setenv('COOKIE_SAMESITE', 'lax')
+    cookie = _login(client).headers['set-cookie'].lower()
+    assert 'secure' in cookie and 'httponly' in cookie and 'samesite=lax' in cookie
+
+
+def test_users_cannot_read_delete_or_take_over_another_users_thread(client):
+    import os
+    from kairo.storage.user_store import ensure_thread, list_threads
+    from kairo.storage.control_store import append_conversation_turn, list_conversation_turns
+
+    data_dir = os.environ['DATA_DIR']
+    _signup(client, email='alice@example.com')
+    alice = _login(client, email='alice@example.com').json()
+    alice_csrf = client.get('/auth/csrf').json()['csrf_token']
+    ensure_thread(data_dir, alice['id'], 'pm-alice-private-thread', 'Private')
+    append_conversation_turn(alice['id'], 'pm-alice-private-thread', data_dir, 'private text', 'private reply')
+
+    _signup(client, email='bob@example.com')
+    bob = _login(client, email='bob@example.com').json()
+    bob_csrf = client.get('/auth/csrf').json()['csrf_token']
+    headers = {'X-CSRF-Token': bob_csrf}
+    assert client.get('/personal-manager/sessions').json()['sessions'] == []
+    for suffix in ['', '/messages']:
+        assert client.get('/personal-manager/sessions/pm-alice-private-thread' + suffix).status_code == 404
+    assert client.put('/personal-manager/pet', json={}, headers={'X-CSRF-Token': alice_csrf}).status_code == 403
+    client.delete('/personal-manager/sessions/pm-alice-private-thread', headers=headers)
+    response = client.post('/orchestrator/stream', json={
+        'session_id': 'pm-alice-private-thread', 'message': 'read this conversation',
+    }, headers=headers)
+    assert response.status_code == 404
+    assert client.get('/auth/me').json()['credits_remaining'] == bob['credits_remaining']
+    assert len(list_threads(data_dir, alice['id'])) == 1
+    assert len(list_conversation_turns(alice['id'], 'pm-alice-private-thread', data_dir)) == 2
+
+
+def test_supplied_user_id_cannot_read_or_overwrite_another_schedule(client):
+    import os
+    from kairo.storage.store import load_schedule
+
+    _signup(client, email='alice@example.com')
+    alice = _login(client, email='alice@example.com').json()
+    alice_csrf = client.get('/auth/csrf').json()['csrf_token']
+    schedule = {'entries': [{'id': 'private', 'title': 'Alice appointment', 'date': '2027-01-01'}]}
+    assert client.put('/personal-manager/schedule/default', json=schedule,
+                      headers={'X-CSRF-Token': alice_csrf}).status_code == 200
+    _signup(client, email='bob@example.com')
+    _login(client, email='bob@example.com')
+    bob_csrf = client.get('/auth/csrf').json()['csrf_token']
+    path = f"/personal-manager/schedule/{alice['id']}?user_id={alice['id']}"
+    assert client.get(path).json()['entries'] == []
+    assert client.put(path, json={'entries': []}, headers={'X-CSRF-Token': bob_csrf}).status_code == 200
+    assert load_schedule(alice['id'], os.environ['DATA_DIR']).entries[0].title == 'Alice appointment'
+
+
+def test_demo_cannot_connect_google_calendar(client):
+    assert client.post('/auth/demo', json={}).status_code == 201
+    assert client.get('/personal-manager/google-calendar/connect').status_code == 403

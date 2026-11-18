@@ -23,7 +23,7 @@ def client(tmp_path, monkeypatch):
 
 
 def _demo_user_id(client) -> str:
-    res = client.post("/auth/demo")
+    res = client.post("/auth/demo", json={})
     assert res.status_code == 201, res.text
     return res.json()["id"]
 

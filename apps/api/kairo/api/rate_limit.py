@@ -125,7 +125,9 @@ def check_rate_limit(
 
     current = time.time() if now is None else now
     max_window = max(rule.window_seconds for rule in active_rules)
-    oldest_needed = current - max_window
+    # Another route may enforce an hourly/daily limit in this shared table.
+    # A short-window request must not erase that route's recent history.
+    oldest_needed = current - max(86400, max_window)
 
     with _conn(data_dir) as db:
         db.execute("BEGIN IMMEDIATE")

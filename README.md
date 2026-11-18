@@ -31,8 +31,8 @@ not just fluent chat.
 Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 
 > Portfolio demo only. Do not enter real personal data.
-> The public frontend starts in temporary demo mode by default because the free
-> deployment does not provide durable SQLite storage.
+> Use **Try the demo** for a temporary account. Real accounts require durable
+> backend storage; the free deployment does not provide durable SQLite storage.
 
 ![Kairo demo: a calendar change behind an approval, a suggested time and a batch approval, the decision trace, the task list, About me, and the mobile calendar](docs/demo/kairo-demo.gif)
 
@@ -105,9 +105,13 @@ make dev
 
 Open `http://localhost:5173`.
 
-The local app still supports email/password signup and login. The public
-portfolio frontend redirects login/signup routes into demo mode so visitors can
-try Kairo without creating durable accounts.
+Email/password signup and login are available at `/signup` and `/login`.
+`/app` requires an existing session; it never silently creates an account.
+The explicit `/demo` entry creates a temporary account with sample data.
+Signing out revokes the server session and returns to the login screen.
+Real accounts must verify their email before signing in. Configure account email
+and MFA using [the setup guide](docs/AUTHENTICATION.md). Existing accounts must
+verify their email after upgrading; demo accounts keep working without email.
 
 The tests, the offline evals, and the smoke test do not require API keys. Web
 chat (`/orchestrator/stream`) runs on the agent graph and needs a configured
@@ -548,8 +552,14 @@ This is still a portfolio demo, not a fully hardened production multi-tenant ser
 
 ## Known Limitations
 
-- CSRF tokens are process-local. Rate-limit events use local SQLite, so
-  multi-instance production deployments need a shared store.
+- CSRF tokens work across workers and restarts using a per-session signature.
+  Sessions and rate limits still use SQLite: workers must share the same durable
+  `DATA_DIR`; independent instances need a shared database.
+- Account verification, password recovery and authenticator MFA are implemented.
+  Configure SMTP and the persistent MFA encryption key before real-user rollout;
+  see [account security setup](docs/AUTHENTICATION.md).
+- A self-service device/session list is not implemented; password recovery revokes
+  all sessions and MFA changes revoke other sessions.
 - The credit system is intentionally simple for demo cost control; there is no
   billing, top-up, or admin grant flow yet.
 - SQLite files are not encrypted at rest by this project.
