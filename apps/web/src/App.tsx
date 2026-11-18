@@ -11,6 +11,9 @@ import { KairoPanel } from "./components/KairoPanel";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { LandingPage } from "./pages/LandingPage";
+import { AccountRecoveryPage } from "./pages/AccountRecoveryPage";
+import { SecurityPage } from "./pages/SecurityPage";
+import { AuthPage } from "./pages/AuthPage";
 import { streamChat, fetchSession } from "./api";
 import { useSpeech } from "./hooks/useSpeech";
 import type { Message, Mode } from "./types";
@@ -33,6 +36,7 @@ function DemoBanner() {
 
 function MainApp() {
   const { user, refreshUser, logout } = useAuth();
+  const [logoutError, setLogoutError] = useState("");
   const [mode, setMode] = useState<Mode>("personal-manager");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -48,6 +52,7 @@ function MainApp() {
   const [progressSteps, setProgressSteps] = useState<string[]>([]);
   const sessionIdRef = useRef<string>(getOrCreateSessionId());
   const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
   const speech = useSpeech();
   const speakRef = useRef(speech.speak);
   speakRef.current = speech.speak;
@@ -237,8 +242,12 @@ function MainApp() {
         onStopAgent={handleStop}
         onNewChat={mode === "personal-manager" ? handleNewPmSession : handleClear}
         user={user ?? undefined}
-        onLogout={logout}
+        onLogout={() => {
+          setLogoutError("");
+          logout().catch(() => setLogoutError("Sign out failed. Please try again."));
+        }}
       />
+      {logoutError && <p className="auth-error" role="alert">{logoutError}</p>}
       {user?.isDemo && <DemoBanner />}
 
       <div className="main">
@@ -367,18 +376,29 @@ function MainApp() {
   );
 }
 
+function AccountWorkspace() {
+  const { user } = useAuth();
+  return <MainApp key={user?.id} />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<Navigate to="/" replace />} />
-        <Route path="/signup" element={<Navigate to="/" replace />} />
+        <Route path="/login" element={<AuthPage key="login" />} />
+        <Route path="/signup" element={<AuthPage key="signup" signup />} />
+        <Route path="/forgot-password" element={<AccountRecoveryPage key="forgot" mode="forgot" />} />
+        <Route path="/verify-email/request" element={<AccountRecoveryPage key="resend" mode="resend" />} />
+        <Route path="/verify-email" element={<AccountRecoveryPage key="verify" mode="verify" />} />
+        <Route path="/reset-password" element={<AccountRecoveryPage key="reset" mode="reset" />} />
+        <Route path="/account/security" element={<ProtectedRoute><SecurityPage /></ProtectedRoute>} />
+        <Route path="/demo" element={<ProtectedRoute demo>{null}</ProtectedRoute>} />
         <Route
           path="/app/*"
           element={
             <ProtectedRoute>
-              <MainApp />
+              <AccountWorkspace />
             </ProtectedRoute>
           }
         />

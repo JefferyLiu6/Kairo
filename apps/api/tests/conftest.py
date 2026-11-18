@@ -45,3 +45,19 @@ def authed_client(monkeypatch, tmp_path):
     monkeypatch.setenv("GOOGLE_CALENDAR_BACKGROUND_SYNC_SECONDS", "0")
     with TestClient(app) as client:
         yield client
+
+
+@pytest.fixture
+def account_mail(monkeypatch):
+    """Capture only account mail: no real SMTP or secrets are used by auth tests."""
+    from cryptography.fernet import Fernet
+    from kairo.api import account_mail as mail
+    monkeypatch.setenv("AUTH_PUBLIC_URL", "https://kairo.example")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example")
+    monkeypatch.setenv("SMTP_FROM", "accounts@kairo.example")
+    monkeypatch.setenv("SMTP_SECURITY", "starttls")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("AUTH_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    messages = []
+    monkeypatch.setattr(mail, "send_message", lambda to, subject, body: messages.append((to, subject, body)))
+    return messages

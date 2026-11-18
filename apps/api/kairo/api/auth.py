@@ -3,17 +3,21 @@ from __future__ import annotations
 from kairo.utils.clock import local_today
 
 import logging
+import hashlib
+import hmac
 import os
 import re
 import secrets
 import shutil
 import sqlite3
 
-from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, field_validator
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
+from pydantic import BaseModel, Field, field_validator
 
 from kairo.api.rate_limit import RateLimitRule, bucket, email_bucket, enforce_rate_limit, env_limit, request_ip_bucket
-from kairo.storage.user_store import User, create_demo_user, create_session, create_user, delete_expired_demo_users, delete_session, get_session_user, init_users_db
+from kairo.storage import identity
+from kairo.api import account_mail as mail
+from kairo.storage.user_store import User, create_demo_user, create_user, delete_expired_demo_users, delete_session, get_session_user, init_users_db
 
 _log = logging.getLogger(__name__)
 
@@ -21,11 +25,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# CSRF tokens: session_id (SHA-256 of cookie) → issued token.
-# Process-local: in a multi-worker deployment each worker holds its own map, so a
-# token issued by worker A will be rejected by worker B.  Acceptable for a single-
-# process deploy; replace with a shared cache (Redis, DB) before adding workers.
-_csrf_tokens: dict[str, str] = {}  # session_id → csrf_token
+# The opaque HttpOnly session token is a per-session signing key. A random nonce
+# allows concurrent tabs to fetch tokens without invalidating one another.
+_CSRF_CONTEXT = b"kairo.csrf.v1:"
 
 
 # ── Cookie helpers ────────────────────────────────────────────────────────────
@@ -148,9 +150,9 @@ def require_user(request: Request) -> User:
 # ── Models ────────────────────────────────────────────────────────────────────
 
 class SignupRequest(BaseModel):
-    email: str
-    password: str
-    display_name: str
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=1024)
+    display_name: str = Field(max_length=100)
 
     @field_validator("email")
     @classmethod
@@ -176,8 +178,9 @@ class SignupRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=1024)
+    code: str = Field(default="", max_length=64)
 
 
 class UserResponse(BaseModel):
@@ -191,10 +194,13 @@ class UserResponse(BaseModel):
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.post("/signup", status_code=200)
-def signup(req: SignupRequest, request: Request) -> dict:
+def signup(req: SignupRequest, request: Request, background: BackgroundTasks) -> dict:
     _auth_rate_limit(request, _signup_rules(), ip_kind="auth_signup_ip")
     data_dir = _data_dir()
     init_users_db(data_dir)
+
+    _mail_ready()
+    _email_limit(request, req.email)
 
     # Always return the same response regardless of whether the email is already registered.
     # Returning 409 for existing emails is an enumeration oracle; 200 + same body is not.
@@ -207,12 +213,12 @@ def signup(req: SignupRequest, request: Request) -> dict:
     except sqlite3.IntegrityError:
         pass  # Duplicate email — silently succeed so callers can't distinguish new vs existing.
 
-    return {"detail": "If this email is not already registered, your account has been created. Sign in to continue."}
+    background.add_task(mail.send_account_link, data_dir, req.email, "verify")
+    return {"detail": "If this account needs verification, an email will arrive shortly. Check your inbox or request a new link."}
 
 
 @router.post("/login", response_model=UserResponse)
 def login(req: LoginRequest, request: Request, response: Response) -> UserResponse:
-    from kairo.storage.user_store import verify_password
     _auth_rate_limit(request, _login_ip_rules(), ip_kind="auth_login_ip")
     _auth_rate_limit(
         request,
@@ -223,11 +229,16 @@ def login(req: LoginRequest, request: Request, response: Response) -> UserRespon
     data_dir = _data_dir()
     init_users_db(data_dir)
 
-    user = verify_password(data_dir, req.email, req.password)
+    try:
+        token = identity.login_session(data_dir, req.email, req.password, req.code,
+                                       request.cookies.get("kairo_session"))
+    except identity.IdentityError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except identity.IdentityUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Account security is temporarily unavailable") from exc
+    user = get_session_user(data_dir, token)
     if user is None:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-
-    token = create_session(data_dir, user.id)
+        raise HTTPException(status_code=401, detail="Sign in again")
     _set_auth_cookie(response, token)
     return UserResponse(
         id=user.id,
@@ -258,13 +269,10 @@ def me(request: Request) -> UserResponse:
     )
 
 
-def _session_id_from_request(request: Request) -> str | None:
-    """Extract the session identifier (SHA-256 of raw cookie token) for CSRF keying."""
-    raw = request.cookies.get("kairo_session")
-    if not raw:
-        return None
-    import hashlib
-    return hashlib.sha256(raw.encode()).hexdigest()
+def _csrf_signature(raw_session: str, nonce: str) -> str:
+    return hmac.new(
+        raw_session.encode(), _CSRF_CONTEXT + nonce.encode(), hashlib.sha256,
+    ).hexdigest()
 
 
 @router.get("/csrf")
@@ -272,24 +280,22 @@ def csrf_token(request: Request) -> dict:
     """Issue a CSRF token bound to the current session cookie."""
     require_user(request)
     _auth_rate_limit(request, _csrf_rules(), ip_kind="auth_csrf_ip")
-    sid = _session_id_from_request(request)
-    if not sid:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    token = secrets.token_urlsafe(32)
-    _csrf_tokens[sid] = token
-    return {"csrf_token": token}
+    nonce = secrets.token_hex(32)
+    signature = _csrf_signature(request.cookies["kairo_session"], nonce)
+    return {"csrf_token": f"{nonce}.{signature}"}
 
 
 def is_valid_csrf_token(token: str, request: Request | None = None) -> bool:
-    if not token:
+    if request is None or not re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f]{64}", token):
         return False
-    if request is not None:
-        sid = _session_id_from_request(request)
-        if sid is None:
-            return False
-        return _csrf_tokens.get(sid) == token
-    # Fallback: accept if the token appears anywhere (for test compatibility).
-    return token in _csrf_tokens.values()
+    raw = request.cookies.get("kairo_session")
+    if not raw:
+        return False
+    nonce, signature = token.split(".")
+    if not hmac.compare_digest(signature, _csrf_signature(raw, nonce)):
+        return False
+    # Logout, expiry and account deletion invalidate every token for the session.
+    return get_session_user(_data_dir(), raw) is not None
 
 
 def verify_csrf(request: Request) -> None:
@@ -297,6 +303,115 @@ def verify_csrf(request: Request) -> None:
     token = request.headers.get("X-CSRF-Token", "")
     if not is_valid_csrf_token(token, request):
         raise HTTPException(status_code=403, detail="Invalid or missing CSRF token")
+
+
+# ── Verification, recovery and multifactor authentication ────────────────────
+
+class EmailRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+
+class TokenPasswordRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=128)
+    password: str = Field(min_length=8, max_length=1024)
+
+
+class FactorRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=1024)
+    code: str = Field(default="", max_length=64)
+
+
+def _mail_ready() -> None:
+    try:
+        mail.configuration()
+    except identity.IdentityUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Account email is temporarily unavailable") from exc
+
+
+def _email_limit(request: Request, email: str) -> None:
+    _auth_rate_limit(request, [RateLimitRule(5, 3600, "email/hour")],
+                     email_bucket(email, "account_email"), ip_kind="account_email_ip")
+
+
+@router.post("/verification/request")
+@router.post("/password/forgot")
+def request_account_link(req: EmailRequest, request: Request, background: BackgroundTasks) -> dict:
+    _mail_ready()
+    _email_limit(request, req.email)
+    purpose = "verify" if request.url.path.endswith("verification/request") else "reset"
+    background.add_task(mail.send_account_link, _data_dir(), req.email, purpose)
+    return {"detail": "If this account is eligible, an email will arrive shortly. Check your inbox and spam folder. You can request another link later."}
+
+
+@router.post("/verification/confirm")
+@router.post("/password/reset")
+def confirm_account_link(req: TokenPasswordRequest, request: Request, response: Response,
+                         background: BackgroundTasks) -> dict:
+    _auth_rate_limit(request, [RateLimitRule(10, 900, "account_token/15m")], ip_kind="account_token_ip")
+    purpose = "verify" if request.url.path.endswith("verification/confirm") else "reset"
+    # Find the notification recipient without ever exposing it to callers.
+    from kairo.storage.user_store import _conn, _hash_token
+    with _conn(_data_dir()) as db:
+        recipient = db.execute("SELECT u.email FROM users u JOIN account_tokens t ON t.user_id = u.id "
+                               "WHERE t.token_hash = ? AND t.purpose = ?", (_hash_token(req.token), purpose)).fetchone()
+    try:
+        identity.change_password_with_token(_data_dir(), req.token, purpose, req.password)
+    except identity.IdentityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _clear_auth_cookie(response)
+    if recipient:
+        background.add_task(mail.send_security_notice, recipient[0],
+                            "Your Kairo password was set. All existing sessions were revoked. "
+                            "If you did not do this, use Forgot password to secure your account. "
+                            "Any enabled authenticator remains required.")
+    return {"detail": "Your password is saved and email verified. Sign in to continue; MFA remains required if enabled."}
+
+
+@router.get("/security")
+def account_security(request: Request) -> dict:
+    user = require_user(request)
+    if user.is_demo:
+        raise HTTPException(status_code=403, detail="Account security is unavailable for temporary demos")
+    return identity.status(_data_dir(), user.id)
+
+
+def _factor_user(request: Request) -> User:
+    user = require_user(request)
+    if user.is_demo:
+        raise HTTPException(status_code=403, detail="Create a real account to use MFA")
+    _auth_rate_limit(request, [RateLimitRule(5, 900, "factor/15m")],
+                     bucket("account_factor", user.id), ip_kind="account_factor_ip")
+    return user
+
+
+@router.post("/mfa/setup")
+def setup_mfa(req: FactorRequest, request: Request) -> dict:
+    user = _factor_user(request)
+    try:
+        return identity.setup_mfa(_data_dir(), user.id, request.cookies["kairo_session"], req.password)
+    except identity.IdentityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except identity.IdentityUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Account security is temporarily unavailable") from exc
+
+
+@router.post("/mfa/enable")
+@router.post("/mfa/disable")
+@router.post("/mfa/recovery")
+def update_mfa(req: FactorRequest, request: Request, background: BackgroundTasks) -> dict:
+    user = _factor_user(request)
+    action = request.url.path.rsplit("/", 1)[-1]
+    try:
+        result = identity.update_mfa(_data_dir(), user.id, request.cookies["kairo_session"],
+                                     req.password, req.code, action)
+    except identity.IdentityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except identity.IdentityUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Account security is temporarily unavailable") from exc
+    background.add_task(mail.send_security_notice, user.email,
+                        "Your Kairo MFA settings or recovery codes changed. Other devices were signed out. "
+                        "If you did not do this, reset your password immediately.")
+    return result
 
 
 # ── Demo account ──────────────────────────────────────────────────────────────

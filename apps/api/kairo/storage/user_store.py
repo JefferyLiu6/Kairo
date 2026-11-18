@@ -86,6 +86,8 @@ CREATE INDEX IF NOT EXISTS idx_chat_threads_user_id     ON chat_threads(user_id)
 def init_users_db(data_dir: str) -> None:
     conn = sqlite3.connect(_users_db_path(data_dir))
     conn.executescript(_SCHEMA)
+    from kairo.storage.identity import SCHEMA as identity_schema
+    conn.executescript(identity_schema)
     # Additive migrations for existing databases.
     for stmt in (
         "ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0",
@@ -240,19 +242,21 @@ def consume_user_credit(data_dir: str, user_id: str) -> int | None:
 SESSION_TTL_DAYS = 30
 
 
-def create_session(data_dir: str, user_id: str) -> str:
+def create_session(data_dir: str, user_id: str, *, db: sqlite3.Connection | None = None) -> str:
     """Create an auth session. Returns the raw (unhashed) token."""
+    if db is None:
+        with _conn(data_dir) as owned_db:
+            return create_session(data_dir, user_id, db=owned_db)
     raw_token = secrets.token_urlsafe(32)
     token_hash = _hash_token(raw_token)
     sid = _new_id()
     now = _now()
     expires = (datetime.now(timezone.utc) + timedelta(days=SESSION_TTL_DAYS)).isoformat()
-    with _conn(data_dir) as db:
-        db.execute(
-            "INSERT INTO auth_sessions (id, user_id, token_hash, created_at, expires_at, last_seen_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (sid, user_id, token_hash, now, expires, now),
-        )
+    db.execute(
+        "INSERT INTO auth_sessions (id, user_id, token_hash, created_at, expires_at, last_seen_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (sid, user_id, token_hash, now, expires, now),
+    )
     return raw_token
 
 
@@ -269,10 +273,14 @@ def get_session_user(data_dir: str, raw_token: str) -> Optional[User]:
             "WHERE s.token_hash = ?",
             (token_hash,),
         ).fetchone()
-        if row is None or row["expires_at"] < now:
+        if row is None or row["expires_at"] <= now:
             return None
+        if not row["is_demo"]:
+            verified = db.execute("SELECT email_verified FROM account_security WHERE user_id = ?", (row["id"],)).fetchone()
+            if verified is None or not verified[0]:
+                return None
         # Expire demo accounts at the user level too (belt-and-suspenders).
-        if row["is_demo"] and row["demo_expires_at"] and row["demo_expires_at"] < now:
+        if row["is_demo"] and row["demo_expires_at"] and row["demo_expires_at"] <= now:
             return None
         db.execute(
             "UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?",
@@ -292,22 +300,28 @@ def delete_session(data_dir: str, raw_token: str) -> None:
 
 # ── Chat thread CRUD ──────────────────────────────────────────────────────────
 
+class ThreadOwnershipError(ValueError):
+    """A client supplied an ID owned by another account."""
+
+
 def ensure_thread(data_dir: str, user_id: str, thread_id: str, title: Optional[str] = None) -> ChatThread:
     """Create thread if it doesn't exist, or touch last_active_at."""
     now = _now()
     with _conn(data_dir) as db:
+        db.execute(
+            "INSERT INTO chat_threads (id, user_id, title, created_at, last_active_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
+            (thread_id, user_id, title, now, now),
+        )
         existing = db.execute(
             "SELECT id, user_id, title, created_at, last_active_at FROM chat_threads WHERE id = ? AND user_id = ?",
             (thread_id, user_id),
         ).fetchone()
         if existing is None:
-            db.execute(
-                "INSERT INTO chat_threads (id, user_id, title, created_at, last_active_at) VALUES (?, ?, ?, ?, ?)",
-                (thread_id, user_id, title, now, now),
-            )
-            return ChatThread(id=thread_id, user_id=user_id, title=title, created_at=now, last_active_at=now)
+            raise ThreadOwnershipError("Session not found")
         db.execute(
-            "UPDATE chat_threads SET last_active_at = ? WHERE id = ?", (now, thread_id)
+            "UPDATE chat_threads SET last_active_at = ? WHERE id = ? AND user_id = ?",
+            (now, thread_id, user_id),
         )
         return ChatThread(
             id=existing["id"], user_id=existing["user_id"], title=existing["title"],

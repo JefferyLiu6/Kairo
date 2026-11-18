@@ -94,3 +94,9 @@ def test_unlisted_origin_not_reflected():
     assert allow_origin != "https://evil.example", (
         "Unlisted origin must not receive Access-Control-Allow-Origin"
     )
+
+
+@pytest.mark.parametrize('raw', ['https://app.example,*', '*,https://app.example', 'https://*.example'])
+def test_wildcards_cannot_be_used_in_credentialed_allowlists(raw):
+    with pytest.raises(ValueError):
+        _cors_config(raw)

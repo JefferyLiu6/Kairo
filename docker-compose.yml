@@ -23,6 +23,16 @@ services:
       # Optional legacy token, used only when ENABLE_DEMO_WEB_ROUTES=1.
       GATEWAY_TOKEN: "${GATEWAY_TOKEN:-}"
 
+      # Account email and encrypted authenticator seeds.
+      AUTH_PUBLIC_URL: "${AUTH_PUBLIC_URL:-}"
+      AUTH_ENCRYPTION_KEY: "${AUTH_ENCRYPTION_KEY:-}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_SECURITY: "${SMTP_SECURITY:-starttls}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      SMTP_USERNAME: "${SMTP_USERNAME:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+
       # ── Abuse controls ────────────────────────────────────────────────────────
       TRUST_PROXY_HEADERS: "${TRUST_PROXY_HEADERS:-false}"
       RATE_LIMIT_RPM: "${RATE_LIMIT_RPM:-60}"

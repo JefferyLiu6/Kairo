@@ -5,6 +5,7 @@ const _API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
 // CSRF token — fetched from /auth/csrf on mount, injected on state-changing requests.
 let _csrfToken = "";
+export const AUTH_REQUIRED_EVENT = "kairo:auth-required";
 
 
 const _CSRF_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
@@ -27,14 +28,19 @@ async function _isCsrfRejection(res: Response): Promise<boolean> {
   return body?.detail === "Invalid or missing CSRF token";
 }
 
-// The backend keeps CSRF tokens in memory, so a redeploy or a free-tier
-// spin-down forgets them. On that rejection, fetch a fresh token and retry once.
+// Never replay a write after a session change: another tab may have signed in
+// as a different person. Return to sign-in instead of writing to that account.
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  const res = await _send(path, init);
   const method = (init?.method ?? "GET").toUpperCase();
-  if (!_CSRF_METHODS.includes(method) || !(await _isCsrfRejection(res))) return res;
-  await authCsrf();
-  return _send(path, init);
+  const preauth = ["/auth/login", "/auth/signup", "/auth/demo", "/auth/verification/request",
+    "/auth/verification/confirm", "/auth/password/forgot", "/auth/password/reset"].includes(path);
+  if (!preauth && _CSRF_METHODS.includes(method) && !_csrfToken) await authCsrf();
+  const res = await _send(path, init);
+  if (!preauth && (res.status === 401 || await _isCsrfRejection(res))) {
+    _csrfToken = "";
+    window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+  }
+  return res;
 }
 
 /** Fire-and-forget ping so a spun-down backend starts waking the moment the page loads. */
@@ -73,10 +79,13 @@ export async function authCsrf(): Promise<void> {
     _API_BASE ? `${_API_BASE}/auth/csrf` : "/auth/csrf",
     { credentials: "include" },
   );
-  if (res.ok) {
-    const data = (await res.json()) as { csrf_token: string };
-    _csrfToken = data.csrf_token;
+  if (!res.ok) {
+    _csrfToken = "";
+    if (res.status === 401) window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+    throw new Error(`${res.status}`);
   }
+  const data = (await res.json()) as { csrf_token: string };
+  _csrfToken = data.csrf_token;
 }
 
 export async function authMe(): Promise<AuthUser> {
@@ -94,10 +103,10 @@ export async function authDemo(): Promise<AuthUser> {
   return _parseUser(await res.json());
 }
 
-export async function authLogin(email: string, password: string): Promise<AuthUser> {
+export async function authLogin(email: string, password: string, code = ""): Promise<AuthUser> {
   const res = await apiFetch("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, code }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText })) as { detail: string };
@@ -122,9 +131,36 @@ export async function authSignup(
 }
 
 export async function authLogout(): Promise<void> {
-  await apiFetch("/auth/logout", { method: "POST" });
+  const res = await apiFetch("/auth/logout", { method: "POST" });
+  if (!res.ok) throw new Error("Sign out failed. Please try again.");
   _csrfToken = "";
 }
+
+async function accountRequest<T>(path: string, payload?: object): Promise<T> {
+  const res = await apiFetch(path, payload === undefined ? undefined : {
+    method: "POST", body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Check your entries and try again.");
+  return body as T;
+}
+
+export function requestAccountEmail(email: string, verification = false) {
+  return accountRequest<{ detail: string }>(verification ? "/auth/verification/request" : "/auth/password/forgot", { email });
+}
+
+export async function confirmAccountEmail(token: string, password: string, verification = false) {
+  const result = await accountRequest<{ detail: string }>(verification ? "/auth/verification/confirm" : "/auth/password/reset", { token, password });
+  _csrfToken = "";
+  window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+  return result;
+}
+
+export type SecurityStatus = { email_verified: boolean; mfa_enabled: boolean; recovery_codes_remaining: number };
+export const fetchSecurity = () => accountRequest<SecurityStatus>("/auth/security");
+export const setupMfa = (password: string) => accountRequest<{ secret: string; otpauth_uri: string }>("/auth/mfa/setup", { password });
+export const updateMfa = (action: "enable" | "disable" | "recovery", password: string, code: string) =>
+  accountRequest<{ mfa_enabled: boolean; recovery_codes: string[] }>(`/auth/mfa/${action}`, { password, code });
 
 export type SessionEntry = {
   sessionId: string;
