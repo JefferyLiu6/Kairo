@@ -3,7 +3,7 @@ WEB_DIR     := apps/web
 PYTHON      := python3
 
 .PHONY: help install dev seed clean \
-        test test-backend test-golden test-evals smoke \
+        test test-backend test-web test-golden test-evals smoke \
         eval eval-report \
         lint lint-py lint-web build-web verify
 
@@ -40,7 +40,7 @@ dev:
 	@(pnpm --dir $(WEB_DIR) dev -- --port 5173) ; \
 	  kill %1 2>/dev/null ; wait
 
-test: test-backend test-evals smoke
+test: test-backend test-web test-evals smoke
 
 # Same clock for the app and the checks (see tests/conftest.py); CI runs in UTC.
 test-evals smoke: export TZ := America/Toronto
@@ -48,6 +48,9 @@ test-evals smoke: export KAIRO_TIMEZONE := America/Toronto
 
 test-backend:
 	cd $(BACKEND_DIR) && uv run pytest
+
+test-web:
+	pnpm --dir $(WEB_DIR) test
 
 test-golden:
 	cd $(BACKEND_DIR) && uv run --extra dev pytest tests/golden -v

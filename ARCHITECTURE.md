@@ -44,7 +44,7 @@ api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 | `kairo/agents/` | Anything that decides what to do with a message | `graph/` (2.0 agent graph), `orchestrator/`, `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
 | `kairo/domains/` | What Kairo can do, declared as typed tools grouped by area | `registry.py`, `tasks.py`, `habits.py`, `journal.py`, `schedule.py`, `memory.py`, `assistant.py`, `checks.py`, `catalog.py` |
 | `kairo/tools/` | Actions the agents can take | `executors/`, `calendar/`, `resolvers/`, `memory/`, `web_search.py` |
-| `kairo/storage/` | All SQLite and file persistence | `control_store.py`, `working_memory.py`, `store.py` |
+| `kairo/storage/` | All SQLite and file persistence | `control_store.py`, `working_memory.py`, `store.py`, `user_store.py`, `identity.py` |
 | `kairo/core/` | Shared foundations, no HTTP and no SQL | `llm.py` (contract gateway), `domain/`, `observability/` |
 | `kairo/utils/` | Small helpers with no app state | `parsing/`, `clock.py`, `formatters.py`, `sensitivity.py` |
 | `evals/` | Eval, judge and monitoring tools, outside the package | `judge_eval.py`, `pm_runner.py` |

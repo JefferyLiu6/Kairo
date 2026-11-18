@@ -1,22 +1,23 @@
 import { useAuth } from "../contexts/AuthContext";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { Navigate } from "react-router-dom";
 
-export function ProtectedRoute({ children }: { children: ReactNode }) {
+export function ProtectedRoute({ children, demo = false }: { children: ReactNode; demo?: boolean }) {
   const { user, loading, tryDemo } = useAuth();
   const [demoStarting, setDemoStarting] = useState(false);
   const [slowStart, setSlowStart] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (loading || user || demoStarting || error) return;
+    if (!demo || loading || user || demoStarting || error) return;
     setDemoStarting(true);
     tryDemo()
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Could not start demo");
       })
       .finally(() => setDemoStarting(false));
-  }, [loading, user, demoStarting, error, tryDemo]);
+  }, [demo, loading, user, demoStarting, error, tryDemo]);
 
   useEffect(() => {
     if (!demoStarting) {
@@ -28,6 +29,8 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   }, [demoStarting]);
 
   if (loading) return <div className="auth-loading" role="status">Loading…</div>;
+  if (!user && !demo) return <Navigate to="/login" replace />;
+  if (user && demo) return <Navigate to="/app" replace />;
   if (!user) {
     return (
       <div className="auth-page">

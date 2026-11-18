@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 type Props = {
   mode?: string;
   onMode?: unknown;
@@ -118,6 +120,9 @@ export function TopNav({
               <span className="sr-only"> remaining</span>
             </span>
             <span className="topnav-user-name" title={user.email}>{user.displayName}</span>
+            <Link to="/account/security" className="topnav-action-btn" title="Account security" aria-label="Account security">
+              <span aria-hidden="true">⚙</span>
+            </Link>
             {onLogout && (
               <button type="button" className="topnav-action-btn topnav-logout-btn" onClick={onLogout} aria-label="Sign out" title="Sign out">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">

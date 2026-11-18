@@ -149,7 +149,7 @@ export function LandingPage() {
     if (!loading && user) navigate("/app", { replace: true });
   }, [user, loading, navigate]);
 
-  const goApp = () => navigate("/app");
+  const goApp = () => navigate("/demo");
 
   return (
     <div className="lp">
@@ -164,6 +164,7 @@ export function LandingPage() {
         <div className="lp-nav-links">
           <a href="#features">Features</a>
           <a href="#how-it-works">How it works</a>
+          <a href="/login">Sign in</a>
         </div>
         <button type="button" className="lp-nav-cta" onClick={goApp}>
           Try the demo

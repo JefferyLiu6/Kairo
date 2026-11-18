@@ -100,7 +100,10 @@ def _cors_config(raw: str = "") -> tuple[list[str], bool]:
     """
     val = raw.strip()
     if val and val != "*":
-        return ([o.strip() for o in val.split(",") if o.strip()], True)
+        origins = [o.strip().rstrip("/") for o in val.split(",") if o.strip()]
+        if any("*" in origin for origin in origins):
+            raise ValueError("CORS_ORIGINS cannot mix wildcard and credentialed origins")
+        return (origins, True)
     return (["*"], False)
 
 
@@ -116,7 +119,10 @@ app.add_middleware(
 )
 
 
-_CSRF_EXEMPT_PATHS = {"/auth/signup", "/auth/login", "/auth/demo"}
+_CSRF_EXEMPT_PATHS = {
+    "/auth/signup", "/auth/login", "/auth/demo", "/auth/verification/request",
+    "/auth/verification/confirm", "/auth/password/forgot", "/auth/password/reset",
+}
 
 app.add_middleware(CalendarTimezoneMiddleware)
 
@@ -126,11 +132,23 @@ async def _csrf_middleware(request: Request, call_next):
     if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         # Signup, login, and demo are pre-auth — no CSRF token exists yet.
         # All other state-changing routes (including /auth/logout) require one.
-        if request.url.path not in _CSRF_EXEMPT_PATHS:
+        if request.url.path in _CSRF_EXEMPT_PATHS:
+            # Pre-auth browser requests cannot supply a session-bound token.
+            # Require JSON (not a simple HTML form) and validate supplied Origin.
+            if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+                return JSONResponse({"detail": "Content-Type must be application/json"}, status_code=415)
+            origin = request.headers.get("origin")
+            allowed = {str(request.base_url).rstrip("/"), *_cors_origins}
+            if origin is not None and (origin == "null" or origin not in allowed):
+                return JSONResponse({"detail": "Untrusted request origin"}, status_code=403)
+        else:
             token = request.headers.get("X-CSRF-Token", "")
             if not is_valid_csrf_token(token, request):
                 return JSONResponse({"detail": "Invalid or missing CSRF token"}, status_code=403)
-    return await call_next(request)
+    response = await call_next(request)
+    if request.url.path.startswith(("/auth/", "/personal-manager/", "/orchestrator/")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 # SQLite-backed limits survive process restarts. A high-scale multi-worker setup
@@ -444,15 +462,18 @@ async def pm_stream(req: PMChatRequest, request: Request):
 async def orchestrator_stream(req: PMChatRequest, request: Request):
     user = require_user(request)
     _rate_limit(request, user)
-    _consume_credit_or_402(user)
     from kairo.agents.graph import astream_graph, graph_enabled
     from kairo.agents.orchestrator.agent import OrchestratorConfig, astream_orchestrator
-    from kairo.storage.user_store import ensure_thread
+    from kairo.storage.user_store import ThreadOwnershipError, ensure_thread
     # Web chat runs on the agent graph. KAIRO_AGENT=legacy switches back to the previous assistant.
     stream_turn = astream_graph if graph_enabled() else astream_orchestrator
     thread_id = normalize_pm_session_id(req.session_id)
     # Register the thread in users.db
-    ensure_thread(_service_data_dir(), user.id, thread_id)
+    try:
+        ensure_thread(_service_data_dir(), user.id, thread_id)
+    except ThreadOwnershipError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _consume_credit_or_402(user)
     env = load_default_llm_from_env()
     config = OrchestratorConfig(
         user_id=user.id,
