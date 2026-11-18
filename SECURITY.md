@@ -77,11 +77,28 @@ protection.
 - Mutating routes require a valid CSRF token.
 - `/auth/logout` also requires CSRF protection.
 - Pre-auth routes `/auth/signup`, `/auth/login`, and `/auth/demo` are exempt
-  because no authenticated CSRF token exists yet.
+  from token validation because no authenticated CSRF token exists yet. They
+  require `Content-Type: application/json`; supplied browser Origins must match
+  the request origin or an explicit `CORS_ORIGINS` entry. Non-browser clients
+  without an Origin header may authenticate using JSON.
 
-CSRF tokens are bound to the current session cookie hash. The in-process token
-store is acceptable for a single-process demo deployment, but multi-worker
-deployments should move CSRF state to a shared store such as Redis or SQLite.
+CSRF tokens contain a random nonce and an HMAC-SHA256 signature, with the
+opaque HttpOnly session cookie as a per-session key and a CSRF-specific domain
+separator. Tokens are compared in constant time and validated against a live
+server session. They work across workers sharing `DATA_DIR`, survive restarts,
+and allow multiple tabs to fetch tokens without invalidating one another.
+Logout, session expiry, and account deletion invalidate them. Signing in replaces
+and revokes the session presented by that browser, leaving other devices signed in.
+
+Authentication and private API responses use `Cache-Control: no-store`. The UI
+only reports a successful logout after the server confirms revocation. Rejected
+sessions return to sign-in, and rejected writes are never automatically replayed
+into a potentially different account. `/app` redirects unauthenticated
+visitors to `/login`; `/demo` is the explicit temporary-account entry point.
+
+Behind a same-origin reverse proxy, preserve the browser Host or configure the
+public frontend origin in `CORS_ORIGINS`. Forwarded headers are not used to invent
+trusted origins. Mixed wildcard/explicit CORS allowlists are rejected.
 
 ## CORS Policy
 
@@ -272,7 +289,16 @@ served from the same origin.
 This project is portfolio/demo software, not a fully hardened production
 multi-tenant service.
 
-- CSRF tokens are process-local.
+- Real accounts require verified email. Verification and password-reset links
+  expire, are single-use, and are stored as hashes. Password recovery revokes all
+  sessions and preserves MFA.
+- Authenticator MFA uses encrypted per-user secrets, atomic replay rejection,
+  and hashed single-use recovery codes. Enrollment requires password re-entry
+  and a valid code; disabling or regenerating recovery codes requires both factors.
+- SMTP delivery runs after the HTTP response; failed delivery is logged without
+  recipients/tokens. Users must resend after an outage; no durable email queue exists.
+- A self-service device/session list is not implemented. See
+  [deployment and recovery details](docs/AUTHENTICATION.md).
 - Rate-limit events are stored in local SQLite for a single backend instance;
   multi-instance deployments need a shared store.
 - Local SQLite files are not encrypted at rest by this project.
