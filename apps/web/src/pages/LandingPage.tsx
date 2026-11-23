@@ -4,7 +4,7 @@ import { EntryBrand } from "./EntryBrand";
 
 export function LandingPage() {
   const { user, loading } = useAuth();
-  if (user && !loading) return <Navigate to="/app" replace />;
+  if (!loading && user && !user.isDemo) return <Navigate to="/app" replace />;
   return <div className="entry-home">
     <header className="entry-nav"><EntryBrand /><nav aria-label="Account">
       <Link to="/login">Sign in</Link><Link className="entry-action" to="/signup">Create account</Link>

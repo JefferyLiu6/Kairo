@@ -44,7 +44,7 @@ export function AuthPage({ signup = false }: { signup?: boolean }) {
   }
 
   if (loading) return <div className="auth-loading" role="status">Loading…</div>;
-  if (user) return <Navigate to="/app" replace />;
+  if (user && !user.isDemo) return <Navigate to="/app" replace />;
 
   return (
     <main className="auth-page entry-auth">
