@@ -24,6 +24,9 @@ services:
       GATEWAY_TOKEN: "${GATEWAY_TOKEN:-}"
 
       # Account email and encrypted authenticator seeds.
+      AUTH_EMAIL_PROVIDER: "${AUTH_EMAIL_PROVIDER:-smtp}"
+      AUTH_EMAIL_FROM: "${AUTH_EMAIL_FROM:-}"
+      BREVO_API_KEY: "${BREVO_API_KEY:-}"
       AUTH_PUBLIC_URL: "${AUTH_PUBLIC_URL:-}"
       AUTH_ENCRYPTION_KEY: "${AUTH_ENCRYPTION_KEY:-}"
       SMTP_HOST: "${SMTP_HOST:-}"

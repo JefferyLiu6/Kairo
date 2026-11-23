@@ -53,6 +53,8 @@ def account_mail(monkeypatch):
     from cryptography.fernet import Fernet
     from kairo.api import account_mail as mail
     monkeypatch.setenv("AUTH_PUBLIC_URL", "https://kairo.example")
+    monkeypatch.setenv("AUTH_EMAIL_PROVIDER", "smtp")
+    monkeypatch.delenv("AUTH_EMAIL_FROM", raising=False)
     monkeypatch.setenv("SMTP_HOST", "smtp.example")
     monkeypatch.setenv("SMTP_FROM", "accounts@kairo.example")
     monkeypatch.setenv("SMTP_SECURITY", "starttls")

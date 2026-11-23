@@ -293,6 +293,8 @@ def test_existing_database_migration_requires_verification(tmp_path):
 
 
 def test_smtp_uses_verified_tls_authentication_and_timeout(monkeypatch):
+    monkeypatch.setenv("AUTH_EMAIL_PROVIDER", "smtp")
+    monkeypatch.delenv("AUTH_EMAIL_FROM", raising=False)
     calls = []
     monkeypatch.setenv("AUTH_PUBLIC_URL", "https://kairo.example")
     monkeypatch.setenv("SMTP_HOST", "smtp.example")

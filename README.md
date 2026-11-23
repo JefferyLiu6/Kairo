@@ -556,7 +556,7 @@ This is still a portfolio demo, not a fully hardened production multi-tenant ser
   Sessions and rate limits still use SQLite: workers must share the same durable
   `DATA_DIR`; independent instances need a shared database.
 - Account verification, password recovery and authenticator MFA are implemented.
-  Configure SMTP and the persistent MFA encryption key before real-user rollout;
+  Configure account email (Brevo HTTPS on Render free, or SMTP elsewhere) and the persistent MFA encryption key before real-user rollout;
   see [account security setup](docs/AUTHENTICATION.md).
 - A self-service device/session list is not implemented; password recovery revokes
   all sessions and MFA changes revoke other sessions.

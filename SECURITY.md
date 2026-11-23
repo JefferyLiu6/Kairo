@@ -295,7 +295,7 @@ multi-tenant service.
 - Authenticator MFA uses encrypted per-user secrets, atomic replay rejection,
   and hashed single-use recovery codes. Enrollment requires password re-entry
   and a valid code; disabling or regenerating recovery codes requires both factors.
-- SMTP delivery runs after the HTTP response; failed delivery is logged without
+- Email delivery (Brevo HTTPS or SMTP) runs after the HTTP response; failed delivery is logged without
   recipients/tokens. Users must resend after an outage; no durable email queue exists.
 - A self-service device/session list is not implemented. See
   [deployment and recovery details](docs/AUTHENTICATION.md).
