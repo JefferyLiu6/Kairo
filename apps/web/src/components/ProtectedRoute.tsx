@@ -1,6 +1,7 @@
 import { useAuth } from "../contexts/AuthContext";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { EntryBrand } from "../pages/EntryBrand";
 import { Navigate } from "react-router-dom";
 
 export function ProtectedRoute({ children, demo = false }: { children: ReactNode; demo?: boolean }) {
@@ -33,12 +34,9 @@ export function ProtectedRoute({ children, demo = false }: { children: ReactNode
   if (user && demo) return <Navigate to="/app" replace />;
   if (!user) {
     return (
-      <div className="auth-page">
+      <div className="auth-page entry-auth">
         <div className="auth-card">
-          <div className="auth-logo">
-            <img src="/kairo-logo.svg" alt="" width={32} height={32} />
-            <span className="auth-logo-name">Kairo</span>
-          </div>
+          <EntryBrand />
           <h1 className="auth-title">
             {error ? "Demo unavailable" : slowStart ? "Waking up the server" : "Setting up demo"}
           </h1>

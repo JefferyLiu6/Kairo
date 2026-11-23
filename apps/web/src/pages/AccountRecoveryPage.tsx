@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { confirmAccountEmail, requestAccountEmail } from "../api";
 
+import { EntryBrand } from "./EntryBrand";
+
 export function AccountRecoveryPage({ mode }: { mode: "forgot" | "resend" | "verify" | "reset" }) {
   const confirm = mode === "verify" || mode === "reset";
   const [token, setToken] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get("token") ?? "");
@@ -31,8 +33,8 @@ export function AccountRecoveryPage({ mode }: { mode: "forgot" | "resend" | "ver
     finally { setBusy(false); }
   }
   const title = { forgot: "Recover your account", resend: "Resend verification email", verify: "Verify email and set password", reset: "Set a new password" }[mode];
-  return <main className="auth-page"><section className="auth-card">
-    <Link to="/" className="auth-logo-name">Kairo</Link>
+  return <main className="auth-page entry-auth"><section className="auth-card">
+    <EntryBrand />
     <h1 className="auth-title">{title}</h1>
     {message ? <p role="status" className="auth-confirm">{message}</p> : confirm && !token ?
       <p role="alert">This page needs the link from your email. Reopen that link or request a new one below.</p> :
