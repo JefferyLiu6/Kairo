@@ -30,6 +30,11 @@ not just fluent chat.
 
 Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 
+**Watch the 2-minute walkthrough** (narrated, with captions): the live demo,
+how the design works, and the eval results.
+
+[![Watch the Kairo walkthrough video](docs/demo/walkthrough-thumbnail.png)](https://kairo-mu-two.vercel.app/kairo-walkthrough.mp4)
+
 > Portfolio demo only. Do not enter real personal data.
 > Use **Try the demo** for a temporary account. Real accounts require durable
 > backend storage; the free deployment does not provide durable SQLite storage.
