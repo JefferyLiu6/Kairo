@@ -125,6 +125,10 @@ web chat back to the previous orchestrator.
 
 ## Deployment
 
+To host the backend for free with storage that survives restarts and
+redeploys, follow [docs/DEPLOY_ORACLE.md](docs/DEPLOY_ORACLE.md) (Oracle Cloud
+Always Free VM, HTTPS through Caddy, frontend stays on Vercel).
+
 The repo includes a Docker Compose setup for a portfolio/demo deployment:
 
 ```bash

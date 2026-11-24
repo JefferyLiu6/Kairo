@@ -1,0 +1,38 @@
+# Backend on an Oracle Cloud Always Free VM, behind Caddy for HTTPS.
+#
+# Layered on the root docker-compose.yml, so the backend's settings live in one place:
+#
+#   docker compose -f docker-compose.yml -f deploy/oracle/compose.yml \
+#     --env-file .env.production up -d --build backend caddy
+#
+# The frontend stays on Vercel, which proxies /api/* here. Only Caddy is reachable
+# from outside; the backend has no published port. Data lives in the pm_data and
+# pm_vault volumes on the VM's disk, so it survives restarts and redeploys.
+
+services:
+  backend:
+    ports: !reset []
+    environment:
+      COOKIE_SAMESITE: "${COOKIE_SAMESITE:-lax}"
+      TRUST_PROXY_HEADERS: "${TRUST_PROXY_HEADERS:-true}"
+
+  caddy:
+    image: caddy:2.10-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_DOMAIN: "${API_DOMAIN:?Set API_DOMAIN, e.g. 203-0-113-7.sslip.io}"
+    volumes:
+      # Paths resolve from the first compose file's folder: the repo root.
+      - ./deploy/oracle/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

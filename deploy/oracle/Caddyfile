@@ -1,0 +1,9 @@
+# Caddy gets and renews the HTTPS certificate for API_DOMAIN by itself.
+{$API_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy backend:8766 {
+		# Send streamed chat replies (server-sent events) to the browser as they arrive.
+		flush_interval -1
+	}
+}
