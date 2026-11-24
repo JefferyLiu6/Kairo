@@ -1,14 +1,5 @@
 import { useState } from "react";
 
-const APPROVAL_RE =
-  /^Approval required \[([a-f0-9]+)\]:\s*(.+?)\s*\nRisk:\s*(\w+)\./is;
-
-export function parseApproval(content: string) {
-  const m = content.match(APPROVAL_RE);
-  if (!m) return null;
-  return { id: m[1], summary: m[2].trim(), risk: m[3].toLowerCase() };
-}
-
 type Props = {
   id: string;
   summary: string;

@@ -1,7 +1,8 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message as MessageType } from "../types";
-import { parseApproval, ApprovalCard } from "./ApprovalCard";
+import { ApprovalCard } from "./ApprovalCard";
+import { parseApproval } from "../approval";
 
 type Props = {
   message: MessageType;
@@ -57,13 +58,26 @@ export function Message({ message, onAction, onSpeak }: Props) {
             <span className="sr-only">Kairo is thinking</span>
           </div>
         ) : approval ? (
-          <ApprovalCard
-            id={approval.id}
-            summary={approval.summary}
-            risk={approval.risk}
-            onAction={onAction ?? (() => {})}
-            disabled={!onAction}
-          />
+          <>
+            {/* Changes that needed no approval were already made; say so above the card. */}
+            {approval.before && (
+              <div className="approval-context">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{approval.before}</ReactMarkdown>
+              </div>
+            )}
+            <ApprovalCard
+              id={approval.id}
+              summary={approval.summary}
+              risk={approval.risk}
+              onAction={onAction ?? (() => {})}
+              disabled={!onAction}
+            />
+            {approval.after && (
+              <div className="approval-context">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{approval.after}</ReactMarkdown>
+              </div>
+            )}
+          </>
         ) : (
           <>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
