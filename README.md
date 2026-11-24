@@ -265,7 +265,8 @@ remembered.
 
 **Approval Gate**
 
-A change to the calendar is paused behind an explicit approval card.
+A change to the calendar is paused behind an explicit approval card, which
+expires if nobody decides on it in time.
 
 ![Approval card for a calendar change](docs/screenshots/approval-gate.png)
 
