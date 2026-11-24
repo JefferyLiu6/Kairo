@@ -1,21 +1,27 @@
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { EntryBrand } from "./EntryBrand";
+import { WalkthroughLink } from "../components/WalkthroughLink";
 
 export function LandingPage() {
   const { user, loading } = useAuth();
   if (!loading && user && !user.isDemo) return <Navigate to="/app" replace />;
   return <div className="entry-home">
     <header className="entry-nav"><EntryBrand /><nav aria-label="Account">
-      <Link to="/login">Sign in</Link><Link className="entry-action" to="/signup">Create account</Link>
+      <Link to="/login">Sign in</Link><Link to="/signup">Create account</Link>
     </nav></header>
     <main className="entry-content">
       <section className="entry-hero">
         <div className="entry-intro">
           <h1>Make room for<br /><em>what matters.</em></h1>
           <p>Plan your day with Kairo. Bring your calendar, tasks, and habits into one conversation.</p>
-          <div className="entry-choices"><Link to="/signup" className="entry-action">Create your account</Link>
-            <Link to="/demo" className="entry-demo">Try the demo <span aria-hidden="true">↗</span></Link></div>
+          <div className="entry-choices">
+            <div className="entry-live-demo">
+              <Link to="/demo" className="entry-action" aria-describedby="demo-signup-note">Try the demo</Link>
+              <span id="demo-signup-note">No signup required</span>
+            </div>
+            <WalkthroughLink />
+          </div>
           <small>The demo opens a temporary workspace with sample data.</small>
         </div>
         <figure className="entry-agenda">

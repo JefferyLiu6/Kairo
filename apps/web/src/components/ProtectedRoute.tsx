@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { EntryBrand } from "../pages/EntryBrand";
 import { Navigate } from "react-router-dom";
+import { WalkthroughLink } from "./WalkthroughLink";
 
 export function ProtectedRoute({ children, demo = false }: { children: ReactNode; demo?: boolean }) {
   const { user, loading, tryDemo } = useAuth();
@@ -29,10 +30,10 @@ export function ProtectedRoute({ children, demo = false }: { children: ReactNode
     return () => clearTimeout(timer);
   }, [demoStarting]);
 
-  if (loading) return <div className="auth-loading" role="status">Loading…</div>;
-  if (!user && !demo) return <Navigate to="/login" replace />;
-  if (user && demo) return <Navigate to="/app" replace />;
-  if (!user) {
+  if (!demo && loading) return <div className="auth-loading" role="status">Loading…</div>;
+  if (!demo && !user) return <Navigate to="/login" replace />;
+  if (demo && !loading && user) return <Navigate to="/app" replace />;
+  if (demo) {
     return (
       <div className="auth-page entry-auth">
         <div className="auth-card">
@@ -44,8 +45,9 @@ export function ProtectedRoute({ children, demo = false }: { children: ReactNode
             {error ||
               (slowStart
                 ? "The server sleeps when idle and can take up to a minute to wake. Hang tight — your demo will start automatically."
-                : "Creating a temporary account with sample data…")}
+                : loading ? "Connecting to your workspace…" : "Creating a temporary account with sample data…")}
           </p>
+          <WalkthroughLink />
           {error && (
             <button
               className="auth-submit"

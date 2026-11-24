@@ -38,6 +38,9 @@
 .entry-intro h1 em { color: var(--entry-teal); }
 .entry-intro > p { margin-block: 22px 28px; font-size: clamp(16px, 1.6vw, 21px); max-width: 38ch; color: #455f55; }
 .entry-choices { justify-content: start; flex-wrap: wrap; gap: 24px; }
+.entry-live-demo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.entry-live-demo span { font-size: 13px; color: #52665e; }
+.entry-demo:hover { text-decoration: underline; }
 .entry-intro small { display: block; margin-top: 14px; color: #52665e; }
 .entry-agenda {
   border: 1px solid #c9d7cb; border-top: 5px solid #d6a650; border-radius: 5px 16px 16px 5px;

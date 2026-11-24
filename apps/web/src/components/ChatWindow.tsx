@@ -1,18 +1,22 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Message } from "./Message";
+import { useAuth } from "../contexts/AuthContext";
 import type { Message as MessageType, Mode } from "../types";
 
-const SUGGESTIONS = [
+const SHARED_SUGGESTIONS = [
   "What's on my schedule today?",
   "Add event: team standup tomorrow at 9am",
   "Add a task: follow up with Alex tomorrow",
-  "What do I have tomorrow?",
 ];
+const DEMO_SUGGESTIONS = ["Move my lunch with Maya to 1 PM.", ...SHARED_SUGGESTIONS];
+const ACCOUNT_SUGGESTIONS = [...SHARED_SUGGESTIONS, "What do I have tomorrow?"];
 
 /** How close to the bottom (px) still counts as "following" the conversation. */
 const STICK_TO_BOTTOM_PX = 80;
 
 function KairoEmptyState({ onAction }: { onAction?: (t: string) => void }) {
+  const { user } = useAuth();
+  const suggestions = user?.isDemo ? DEMO_SUGGESTIONS : ACCOUNT_SUGGESTIONS;
   return (
     <div className="empty-state">
       <div className="empty-logo-mark">
@@ -21,7 +25,7 @@ function KairoEmptyState({ onAction }: { onAction?: (t: string) => void }) {
       <h1 className="empty-title">Ask Kairo to plan, update, or review</h1>
       {onAction && (
         <div className="empty-suggestions" role="group" aria-label="Suggested messages">
-          {SUGGESTIONS.map((s) => (
+          {suggestions.map((s) => (
             <button
               key={s}
               type="button"
