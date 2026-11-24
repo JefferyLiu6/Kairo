@@ -9,7 +9,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-UI-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-1455%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-1555%20passing-2ea44f)
 ![Blind eval](https://img.shields.io/badge/blind%20eval-96%E2%80%9397%25%20right-2ea44f)
 ![Offline evals](https://img.shields.io/badge/offline%20evals-252%2F252-2ea44f)
 
@@ -47,8 +47,8 @@ Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 | -------- | ------ |
 | What is it? | A full-stack Kairo agent for calendar, todos, habits, journal, memory, and Google Calendar sync. |
 | What makes it hard? | Natural-language requests can mutate private personal state, so the system must separate understanding from permission, execution, and auditability. |
-| What did I build? | A React UI, FastAPI backend, an agent graph (coordinator, domain agents, a tool registry, a gate that checks every proposal), approval policy, receipts read back from storage, SQLite persistence, two eval harnesses, security doc, deployment path, and decision-trace panel. |
-| Proof it works | 1455 pytest tests; a blind eval of 127 un-coached messages scored by what ends up stored (96% and 97% right, 0 wrong but reported done, 0 trapped turns in the last two runs, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
+| What did I build? | A React UI, FastAPI backend, an agent graph (coordinator, domain agents, a tool registry, a gate that checks every proposal), approval policy with deadlines, receipts read back from storage, idempotency keys so a resent message runs once, SQLite persistence, two eval harnesses, security doc, deployment path, and decision-trace panel. |
+| Proof it works | 1555 pytest tests; a blind eval of 127 un-coached messages scored by what ends up stored (96% and 97% right, 0 wrong but reported done, 0 trapped turns in the last two runs, against 30% right on the path it replaced); 252/252 cases on the offline suite for the earlier deterministic workflow; adversarial tests; Docker Compose deployment docs. |
 
 ## Highlights
 
@@ -60,7 +60,7 @@ Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 | Safety model | Destructive and privacy-sensitive actions require approval before execution; a sensitive fact is never stored outright |
 | State model | SQLite-backed app state, pending dialogue memory, preference memory, and audit log |
 | Frontend | React 19, TypeScript strict mode, Vite, calendar UI, approval UX, decision trace panel |
-| Verification | `make verify`: 1455 pytest tests, 252/252 offline eval cases, lint, smoke, web build. `make eval-blind path=graph`: the blind eval against the live model |
+| Verification | `make verify`: 1555 pytest tests, 252/252 offline eval cases, lint, smoke, web build. `make eval-blind path=graph`: the blind eval against the live model |
 
 ## Contents
 
@@ -371,6 +371,15 @@ flowchart TD
 - **Several changes, one approval.** "Delete all my todos" or "delete
   everything on my calendar" is asked for once, in a card that lists every item.
   Approving runs each change through the same executors, with a receipt each.
+- **An approval expires.** A request nobody decides on lapses after a day, or
+  sooner if the change is about a time that comes first (moving tomorrow's 9 AM
+  meeting can't wait until after 9 AM). Approving it late changes nothing and
+  says so; the card shows its deadline and the expiry is in the audit log.
+- **A message is carried out once.** Each message carries an idempotency key.
+  If the connection drops and the browser sends it again, the server does not
+  run it twice: a retry during the turn follows the turn already running, and
+  one after it gets the stored reply. A turn cut off partway says so instead of
+  inviting a resend.
 - **A question is asked once.** It is offered to the next message, parked once
   with a reminder if the user moves on, and then dropped.
 - **Domains are data.** Tasks, habits, journal, calendar, memory and the
@@ -438,7 +447,7 @@ written for: 30% right as web chat.
 
 | Metric | Result |
 | ------ | ------ |
-| Unit tests (whole repo) | **1455 passing**, 0 xfail |
+| Unit tests (whole repo) | **1555 passing**, 0 xfail |
 | Adversarial tests | **68 passing** |
 | Current offline eval cases | **252/252 (100%)** |
 | Current offline eval checks | **1518/1518 (100%)** |
@@ -512,7 +521,7 @@ legitimate variant. The hardening cases stay in `adversarial_hardening` after th
 
 Before the hardening pass on the earlier workflow, the offline harness exposed
 approval-safety and adversarial failures. After patching, that suite is green.
-The test count is from that time; the repo has 1455 tests now.
+The test count is from that time; the repo has 1555 tests now.
 
 | Suite | Before | After |
 | ----- | ------ | ----- |
