@@ -18,6 +18,8 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from kairo.utils.clock import CalendarTimezoneMiddleware
+from kairo.api import turns
+from kairo.storage import idempotency
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -473,7 +475,34 @@ async def orchestrator_stream(req: PMChatRequest, request: Request):
         ensure_thread(_service_data_dir(), user.id, thread_id)
     except ThreadOwnershipError:
         raise HTTPException(status_code=404, detail="Session not found")
-    _consume_credit_or_402(user)
+
+    # A message sent again with the same Idempotency-Key (the client's retry after a dropped
+    # connection, a double submit) is carried out once: a retry follows the turn still running,
+    # or gets the stored reply of the one that finished, and uses no credit.
+    key = request.headers.get("Idempotency-Key", "").strip()
+    if key:
+        if not idempotency.valid_key(key):
+            raise HTTPException(status_code=400, detail="Invalid Idempotency-Key.")
+        claimed = idempotency.claim(_service_data_dir(), user.id, key,
+                                    idempotency.fingerprint("orchestrator/stream", thread_id, req.message))
+        if claimed.outcome == "mismatch":
+            raise HTTPException(status_code=422, detail="This Idempotency-Key was already used for a different message.")
+        if claimed.outcome == "running":
+            run = turns.running(user.id, key)
+            if run is not None:
+                return _sse_response(run.follow())
+            # Claimed, but not running here: the server restarted while it ran.
+            idempotency.finish(_service_data_dir(), user.id, key, turns.INTERRUPTED_REPLY)
+            return _sse_response(turns.replay(turns.INTERRUPTED_REPLY))
+        if claimed.outcome == "done":
+            return _sse_response(turns.replay(claimed.response or ""))
+        try:
+            _consume_credit_or_402(user)
+        except HTTPException:
+            idempotency.release(_service_data_dir(), user.id, key)
+            raise
+    else:
+        _consume_credit_or_402(user)
     env = load_default_llm_from_env()
     config = OrchestratorConfig(
         user_id=user.id,
@@ -489,23 +518,33 @@ async def orchestrator_stream(req: PMChatRequest, request: Request):
         pm_base_url=env.get("base_url") or req.base_url,
     )
 
+    async def _turn_events():
+        """(stream line, reply text it adds) for each event of the turn."""
+        async for kind, value in stream_turn(req.message, config):
+            if kind == "progress":
+                yield turns.sse({"progress": value}), ""
+            elif kind == "token":
+                yield turns.sse({"token": value}), value
+
+    if key:
+        run = turns.start(user.id, key, _turn_events(),
+                          lambda reply: idempotency.finish(_service_data_dir(), user.id, key, reply))
+        return _sse_response(run.follow())
+
     async def _event_stream():
         try:
-            async for kind, value in stream_turn(req.message, config):
-                if kind == "progress":
-                    payload = json.dumps({"progress": value}, ensure_ascii=False)
-                elif kind == "token":
-                    payload = json.dumps({"token": value}, ensure_ascii=False)
-                else:
-                    continue
-                yield f"data: {payload}\n\n"
+            async for line, _text in _turn_events():
+                yield line
         except Exception:
             _log.exception("orchestrator_stream error for user %s", user.id)
-            payload = json.dumps({"type": "error", "data": "An internal error occurred."}, ensure_ascii=False)
-            yield f"data: {payload}\n\n"
-        yield "data: [DONE]\n\n"
+            yield turns.sse({"type": "error", "data": "An internal error occurred."})
+        yield turns.DONE
 
-    return StreamingResponse(_event_stream(), media_type="text/event-stream",
+    return _sse_response(_event_stream())
+
+
+def _sse_response(lines) -> StreamingResponse:
+    return StreamingResponse(lines, media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 

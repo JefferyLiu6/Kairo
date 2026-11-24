@@ -182,6 +182,14 @@ export type ServerMessage = {
  * replay a completed-but-not-delivered reply without re-running the agent.
  * onRetry is called before the retry so the UI can reset the partial message.
  */
+/** A random key that names one message, however many times it is sent. */
+export function newIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function streamChat(
   message: string,
   sessionId: string,
@@ -195,6 +203,9 @@ export async function streamChat(
 ): Promise<string> {
   const MAX_RETRIES = 1;
   let lastEventId = "";
+  // One key per message, sent again on the retry: the server then carries the message out once,
+  // and a retry after a dropped connection follows or replays it instead of running it again.
+  const idempotencyKey = newIdempotencyKey();
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -204,7 +215,10 @@ export async function streamChat(
       await new Promise((r) => setTimeout(r, 800));
     }
 
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    };
     if (attempt > 0 && lastEventId) {
       headers["Last-Event-ID"] = lastEventId;
     }
