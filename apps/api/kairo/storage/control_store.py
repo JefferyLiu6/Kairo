@@ -6,20 +6,21 @@ import os
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from kairo.storage.store import _pm_dir
 
 
-APPROVAL_STATUSES = {"pending", "executing", "approved", "rejected", "executed", "failed"}
+APPROVAL_STATUSES = {"pending", "executing", "approved", "rejected", "executed", "failed", "expired"}
 
 # The only status changes an approval may make. Everything else is refused.
 #   pending ──claim──▶ executing ──▶ executed | failed
 #   pending ──reject─▶ rejected
+#   pending ──no decision by its deadline──▶ expired
 # "approved" is never written; it only exists in rows from older versions.
 APPROVAL_TRANSITIONS: dict[str, frozenset[str]] = {
-    "pending": frozenset({"executing", "rejected"}),
+    "pending": frozenset({"executing", "rejected", "expired"}),
     "executing": frozenset({"executed", "failed"}),
 }
 
@@ -40,6 +41,8 @@ class ApprovalRecord:
     created_at: str
     decided_at: Optional[str]
     result: Optional[dict[str, Any]]
+    # When a pending approval stops being approvable (UTC ISO time). See expire_due_approvals.
+    expires_at: Optional[str] = None
 
     def model_dump(self) -> dict[str, Any]:
         return {
@@ -53,6 +56,7 @@ class ApprovalRecord:
             "createdAt": self.created_at,
             "decidedAt": self.decided_at,
             "result": self.result,
+            "expiresAt": self.expires_at,
         }
 
 
@@ -92,7 +96,8 @@ def init_control_store(session_id: str, data_dir: str, *, user_id: str = "") -> 
                 status       TEXT NOT NULL,
                 created_at   TEXT NOT NULL,
                 decided_at   TEXT,
-                result_json  TEXT
+                result_json  TEXT,
+                expires_at   TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_approval_session_status
                 ON approval_requests(session_id, status, created_at DESC);
@@ -141,6 +146,33 @@ def init_control_store(session_id: str, data_dir: str, *, user_id: str = "") -> 
             );
             """
         )
+        _add_approval_deadlines(conn)
+
+
+# A pending approval nobody decides on stops being approvable after this long, or sooner when the
+# change it holds is about a time that comes first (see approval_flow's deadline).
+APPROVAL_TTL = timedelta(hours=24)
+EXPIRED_MESSAGE = "That request expired before it was approved, so nothing was changed. Ask again if you still want it."
+
+
+def _add_approval_deadlines(conn: sqlite3.Connection) -> None:
+    """Databases from before approvals expired: add the column, and give each old row the default deadline."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(approval_requests)")}
+    if "expires_at" in columns:
+        return
+    conn.execute("ALTER TABLE approval_requests ADD COLUMN expires_at TEXT")
+    for row in conn.execute("SELECT id, created_at FROM approval_requests").fetchall():
+        conn.execute("UPDATE approval_requests SET expires_at = ? WHERE id = ?",
+                     ((_parse_time(row["created_at"]) + APPROVAL_TTL).isoformat(), row["id"]))
+
+
+def _deadline(expires_at: Optional[str], created_at: str) -> datetime:
+    return _parse_time(expires_at) if expires_at else _parse_time(created_at) + APPROVAL_TTL
+
+
+def _parse_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _row_to_approval(row: sqlite3.Row) -> ApprovalRecord:
@@ -156,6 +188,7 @@ def _row_to_approval(row: sqlite3.Row) -> ApprovalRecord:
         created_at=row["created_at"],
         decided_at=row["decided_at"],
         result=json.loads(result_raw) if result_raw else None,
+        expires_at=row["expires_at"] if "expires_at" in row.keys() else None,
     )
 
 
@@ -167,17 +200,21 @@ def create_approval_request(
     payload: dict[str, Any],
     summary: str,
     risk_level: str,
+    expires_at: Optional[datetime] = None,
 ) -> ApprovalRecord:
+    """Queue an approval. It stays approvable until `expires_at`, by default APPROVAL_TTL from now."""
     init_control_store(session_id, data_dir)
     approval_id = uuid.uuid4().hex[:8]
+    created = datetime.now(timezone.utc)
+    deadline = (expires_at or created + APPROVAL_TTL).astimezone(timezone.utc)
     with _conn(pm_db_path(session_id, data_dir)) as conn:
         conn.execute(
             """
             INSERT INTO approval_requests (
                 id, session_id, action_type, payload_json, summary, risk_level,
-                status, created_at
+                status, created_at, expires_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
             """,
             (
                 approval_id,
@@ -186,7 +223,8 @@ def create_approval_request(
                 json.dumps(payload, ensure_ascii=False, default=str),
                 summary,
                 risk_level,
-                _now(),
+                created.isoformat(),
+                deadline.isoformat(),
             ),
         )
     found = get_approval_request(session_id, data_dir, approval_id)
@@ -295,13 +333,53 @@ def _transition(
     )
 
 
+def expire_due_approvals(session_id: str, data_dir: str) -> list[ApprovalRecord]:
+    """Move every pending approval whose deadline has passed to "expired", and log each in the audit trail.
+
+    Called wherever an approval is about to be acted on or shown, so an approval nobody decided on
+    can never be approved late. Returns the approvals it expired.
+    """
+    init_control_store(session_id, data_dir)
+    db_path = pm_db_path(session_id, data_dir)
+    now = datetime.now(timezone.utc)
+    with _conn(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, expires_at, created_at FROM approval_requests WHERE session_id = ? AND status = 'pending'",
+            (session_id,),
+        ).fetchall()
+    due = [row["id"] for row in rows if _deadline(row["expires_at"], row["created_at"]) <= now]
+    expired: list[ApprovalRecord] = []
+    for approval_id in due:
+        record = _transition_in_db(db_path, approval_id, "expired", session_id=session_id,
+                                   result={"ok": False, "message": EXPIRED_MESSAGE})
+        if record is None:      # decided on in the meantime
+            continue
+        expired.append(record)
+        thread_id = str(record.payload.get("_thread_id") or session_id)
+        record_audit_event(
+            thread_id,
+            data_dir,
+            user_id=session_id if thread_id != session_id else "",
+            event_type="approval_expired",
+            action_type=record.action_type,
+            payload_summary=record.summary,
+            result_summary=f"No decision by {record.expires_at}; expired.",
+            approval_id=approval_id,
+        )
+    return expired
+
+
 def claim_approval_request(
     data_dir: str,
     approval_id: str,
     *,
     session_id: str,
 ) -> Optional[ApprovalRecord]:
-    """Atomically claim a pending approval for execution (pending → executing)."""
+    """Atomically claim a pending approval for execution (pending → executing).
+
+    An approval past its deadline is expired first, so it can no longer be claimed.
+    """
+    expire_due_approvals(session_id, data_dir)
     return _transition(data_dir, approval_id, "executing", session_id=session_id)
 
 
@@ -312,6 +390,7 @@ def reject_approval_request(
     session_id: str,
 ) -> Optional[ApprovalRecord]:
     """Atomically reject a pending approval without racing an execution claim."""
+    expire_due_approvals(session_id, data_dir)
     return _transition(data_dir, approval_id, "rejected", session_id=session_id)
 
 

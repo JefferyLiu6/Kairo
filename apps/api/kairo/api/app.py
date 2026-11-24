@@ -28,7 +28,7 @@ from kairo.agents.personal_manager.presentation.approval_preview import approval
 from kairo.tools.calendar.google import GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_READONLY_SCOPE
 from kairo.tools.calendar.service import CalendarService, CalendarWriteUnavailableError
 from kairo.storage.calendar_store import disconnect_calendar_account, list_calendar_accounts, upsert_calendar_account
-from kairo.storage.control_store import get_approval_request, list_approval_requests, list_audit_events, list_all_audit_events
+from kairo.storage.control_store import expire_due_approvals, get_approval_request, list_approval_requests, list_audit_events, list_all_audit_events
 from kairo.storage.decision_log import list_turn_decisions, list_all_turn_decisions
 from kairo.storage.store import ScheduleData, get_upcoming_events, load_schedule as _load_schedule, load_todos as _load_todos, save_schedule as _save_schedule
 from kairo.agents.personal_manager.workflow import approve_pm_request, normalize_pm_session_id, reject_pm_request
@@ -751,6 +751,7 @@ def disconnect_google_calendar_account(account_id: str, request: Request) -> dic
 def get_pm_approvals(request: Request) -> dict:
     user = require_user(request)
     data_dir = _service_data_dir()
+    expire_due_approvals(user.id, data_dir)
     approvals = list_approval_requests(user.id, data_dir, limit=50)
     return {"approvals": [approval_response(a, data_dir) for a in approvals]}
 
@@ -759,6 +760,7 @@ def get_pm_approvals(request: Request) -> dict:
 def get_pm_approval_detail(approval_id: str, request: Request) -> dict:
     user = require_user(request)
     data_dir = _service_data_dir()
+    expire_due_approvals(user.id, data_dir)
     approval = get_approval_request(user.id, data_dir, approval_id)
     if approval is None:
         raise HTTPException(status_code=404, detail="Approval not found")
@@ -769,14 +771,14 @@ def get_pm_approval_detail(approval_id: str, request: Request) -> dict:
 def approve_pm_approval_route(approval_id: str, request: Request) -> dict:
     user = require_user(request)
     result = approve_pm_request(approval_id, _service_data_dir(), user_id=user.id)
-    return {"ok": not result.lower().startswith(("error:", "no approval")), "reply": result}
+    return {"ok": not result.lower().startswith(("error:", "no approval", "that request expired")), "reply": result}
 
 
 @app.post("/personal-manager/approvals/{approval_id}/reject")
 def reject_pm_approval_route(approval_id: str, request: Request) -> dict:
     user = require_user(request)
     result = reject_pm_request(approval_id, _service_data_dir(), user_id=user.id)
-    return {"ok": not result.lower().startswith("no approval"), "reply": result}
+    return {"ok": not result.lower().startswith(("no approval", "that request expired")), "reply": result}
 
 
 @app.get("/personal-manager/audit")

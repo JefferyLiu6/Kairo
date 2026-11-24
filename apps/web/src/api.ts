@@ -293,6 +293,24 @@ export async function fetchPmPet(): Promise<PetState | null> {
   }
 }
 
+export type ApprovalStatus = {
+  status: "pending" | "executing" | "approved" | "executed" | "rejected" | "failed" | "expired";
+  expiresAt: string | null;
+};
+
+/** Where an approval stands now (it may have been decided, or expired, since its card was shown). */
+export async function fetchApprovalStatus(approvalId: string): Promise<ApprovalStatus | null> {
+  try {
+    const res = await apiFetch(`/personal-manager/approvals/${encodeURIComponent(approvalId)}`);
+    if (!res.ok) return null;
+    const body = (await res.json()) as { status?: string; expiresAt?: string | null };
+    if (!body.status) return null;
+    return { status: body.status as ApprovalStatus["status"], expiresAt: body.expiresAt ?? null };
+  } catch {
+    return null;
+  }
+}
+
 /** Persist the Kairo pet state for the current user. */
 export async function savePmPet(state: PetState): Promise<void> {
   await apiFetch("/personal-manager/pet", {

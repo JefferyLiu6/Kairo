@@ -43,7 +43,7 @@ from kairo.core.prompt import Prompt, prompts_used, record_prompt
 from kairo.domains.catalog import DOMAINS
 from kairo.domains.checks import calendar_hint, named_in
 from kairo.domains.registry import Answer, DomainSpec, NotThisDomain, Proposed, ToolContext
-from kairo.storage.control_store import append_conversation_turn, list_approval_requests
+from kairo.storage.control_store import append_conversation_turn, expire_due_approvals, list_approval_requests
 from kairo.storage.decision_log import log_orchestrator_turn
 from kairo.storage.working_memory import clear_active_working_memory, load_active_working_memory, save_working_memory
 from kairo.tools.receipts import collecting, read_back_reply
@@ -336,6 +336,7 @@ def _approval_on_offer(cfg: OrchestratorConfig, history: list[tuple[str, str]]) 
     if not history or history[-1][0] != "assistant":
         return None
     user, thread = _ids(cfg)
+    expire_due_approvals(user, cfg.data_dir)      # an expired prompt is no longer on offer
     asked = [a for a in list_approval_requests(user, cfg.data_dir, status="pending", limit=20)
              if a.payload.get("_thread_id") == thread and f"[{a.id}]" in history[-1][1]]
     return {"id": asked[0].id, "summary": asked[0].summary} if len(asked) == 1 else None

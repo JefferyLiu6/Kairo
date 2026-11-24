@@ -10,11 +10,12 @@ from typing import Any, Optional
 
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.domain.types import PMAction
+from kairo.agents.personal_manager.application.approval_expiry import approval_deadline
 from kairo.agents.personal_manager.application.approval_policy import apply_approval_policy
 from kairo.tools.executors.dispatcher import execute_pm_action
 from kairo.tools.receipts import collecting, read_back_reply, record as record_receipt
 from kairo.utils.parsing.text import _extract_id
-from kairo.storage.control_store import ApprovalRecord, claim_approval_request, create_approval_request, find_approval_request, finish_approval, list_approval_requests, record_audit_event, reject_approval_request
+from kairo.storage.control_store import EXPIRED_MESSAGE, ApprovalRecord, claim_approval_request, create_approval_request, expire_due_approvals, find_approval_request, finish_approval, list_approval_requests, record_audit_event, reject_approval_request
 
 
 class _ApprovalConfig:
@@ -50,6 +51,7 @@ def submit_action(
             payload={**guarded.payload, "_thread_id": tid},
             summary=summary,
             risk_level=guarded.risk_level,
+            expires_at=approval_deadline([(guarded.action_type, guarded.payload)]),
         )
         record_audit_event(
             tid,
@@ -131,6 +133,7 @@ def queue_for_approval(
                               "risk_level": a.risk_level} for a in waiting], "_thread_id": tid},
         summary=summary,
         risk_level=max((a.risk_level for a in waiting), key=_RISK_ORDER.index),
+        expires_at=approval_deadline((a.action_type, a.payload) for a in waiting),
     )
     record_audit_event(tid, config.data_dir, user_id=session_id if thread_id else "", event_type="approval_created",
                        intent=intent, action_type=BATCH, payload_summary=summary, approval_id=approval.id)
@@ -227,11 +230,9 @@ def approve_from_chat(message: str, config: Any) -> str:
     thread_id = normalize_pm_session_id(config.session_id)
     approval_id = _extract_id(message)
     if not approval_id:
-        pending = list_approval_requests(sid, config.data_dir, status="pending", limit=10)
-        # Scope generic approval to the current thread only.
-        thread_pending = [a for a in pending if a.payload.get("_thread_id") == thread_id]
+        thread_pending = _thread_pending(sid, thread_id, config.data_dir)
         if not thread_pending:
-            return "You don't have any pending approvals right now."
+            return _nothing_pending_message(sid, thread_id, config.data_dir)
         if len(thread_pending) > 1:
             return _format_pending_choices("approve", thread_pending)
         approval_id = thread_pending[0].id
@@ -253,11 +254,9 @@ def reject_from_chat(message: str, config: Any) -> str:
     thread_id = normalize_pm_session_id(config.session_id)
     approval_id = _extract_id(message)
     if not approval_id:
-        pending = list_approval_requests(sid, config.data_dir, status="pending", limit=10)
-        # Scope generic rejection to the current thread only.
-        thread_pending = [a for a in pending if a.payload.get("_thread_id") == thread_id]
+        thread_pending = _thread_pending(sid, thread_id, config.data_dir)
         if not thread_pending:
-            return "You don't have any pending approvals right now."
+            return _nothing_pending_message(sid, thread_id, config.data_dir)
         if len(thread_pending) > 1:
             return _format_pending_choices("reject", thread_pending)
         approval_id = thread_pending[0].id
@@ -267,6 +266,21 @@ def reject_from_chat(message: str, config: Any) -> str:
         if record is None or record.payload.get("_thread_id") != thread_id:
             return f"No approval request found for id {approval_id}."
     return reject_pm_request(approval_id, config.data_dir, session_id=sid)
+
+
+def _thread_pending(sid: str, thread_id: str, data_dir: str) -> list[ApprovalRecord]:
+    """This thread's approvals that can still be decided on; any past their deadline are expired first."""
+    expire_due_approvals(sid, data_dir)
+    pending = list_approval_requests(sid, data_dir, status="pending", limit=10)
+    return [a for a in pending if a.payload.get("_thread_id") == thread_id]
+
+
+def _nothing_pending_message(sid: str, thread_id: str, data_dir: str) -> str:
+    """A bare approve/reject with nothing pending: say so, or that the last request here expired."""
+    recent = [a for a in list_approval_requests(sid, data_dir, limit=10) if a.payload.get("_thread_id") == thread_id]
+    if recent and recent[0].status == "expired":
+        return EXPIRED_MESSAGE
+    return "You don't have any pending approvals right now."
 
 
 def _format_approval_prompt(approval: ApprovalRecord) -> str:
@@ -292,6 +306,8 @@ def _approval_not_claimed_message(approval_id: str, record: Optional[ApprovalRec
         return str(result.get("message") or f"Approval {approval_id} was already executed.")
     if record.status == "rejected":
         return f"Approval {approval_id} was already rejected."
+    if record.status == "expired":
+        return EXPIRED_MESSAGE
     if record.status == "failed":
         result = record.result or {}
         return str(result.get("message") or f"Approval {approval_id} already failed.")

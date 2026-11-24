@@ -290,8 +290,10 @@ def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, thread_id: str
     # generic clarifier on the second task.
     if plan.tasks and plan.tasks[0].intent in {PMIntent.APPROVE_ACTION, PMIntent.REJECT_ACTION}:
         from kairo.utils.parsing.text import _extract_id as _extract_approval_id
+        from kairo.storage.control_store import expire_due_approvals as _expire_due_approvals
         from kairo.storage.control_store import list_approval_requests as _list_approval_requests
         has_explicit_id = bool(_extract_approval_id(message))
+        _expire_due_approvals(sid, config.data_dir)
         _all_pending = _list_approval_requests(sid, config.data_dir, status="pending", limit=10)
         has_control_store_approval = any(
             a.payload.get("_thread_id") == thread_id for a in _all_pending
