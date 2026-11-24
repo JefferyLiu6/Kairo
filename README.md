@@ -30,10 +30,10 @@ not just fluent chat.
 
 Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 
-**Watch the 2-minute walkthrough** (narrated, with captions): the live demo,
-how the design works, and the eval results.
+[![Kairo walkthrough preview: moving lunch behind an approval card, a suggested rehearsal time landing on the calendar, and the decision trace](docs/demo/walkthrough-preview.gif)](https://kairo-mu-two.vercel.app/kairo-walkthrough.mp4)
 
-[![Watch the Kairo walkthrough video](docs/demo/walkthrough-thumbnail.png)](https://kairo-mu-two.vercel.app/kairo-walkthrough.mp4)
+▶ **[Watch the full 2-minute walkthrough](https://kairo-mu-two.vercel.app/kairo-walkthrough.mp4)**
+(narrated, with captions): the live demo, how the design works, and the eval results.
 
 > Portfolio demo only. Do not enter real personal data.
 > Use **Try the demo** for a temporary account. Real accounts require durable
