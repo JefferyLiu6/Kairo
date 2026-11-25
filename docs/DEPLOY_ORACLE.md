@@ -23,7 +23,8 @@ right files).
    carefully; Always Free resources only live there. Oracle asks for a card to
    verify you; Always Free resources are not charged.
 2. **Compute → Instances → Create instance**.
-   - **Image**: Canonical Ubuntu 24.04.
+   - **Image**: the default Oracle Linux 9 or Canonical Ubuntu 24.04; `setup.sh`
+     handles both. You log in as `opc` on Oracle Linux and as `ubuntu` on Ubuntu.
    - **Shape**: Ampere `VM.Standard.A1.Flex`, 2 OCPUs and 12 GB memory (the free
      allowance is 4 OCPUs and 24 GB in total).
    - **Networking**: keep the default new VCN and public subnet, with
@@ -43,24 +44,29 @@ Security List → Add Ingress Rules**:
 | ----------- | ----------- | ---------------- |
 | `0.0.0.0/0` | TCP | `80,443` |
 
-(The VM also has its own firewall; `setup.sh` opens the same ports there.)
+(The VM also has its own firewall, firewalld on Oracle Linux and iptables on
+Ubuntu; `setup.sh` opens the same ports there.)
 
 ## 3. Install and configure
 
+If Oracle generated the SSH key, keep it private first:
+`chmod 600 <the downloaded .key file>`, and add `-i <that file>` to every `ssh`
+below. Use `opc@` on Oracle Linux and `ubuntu@` on Ubuntu.
+
+From your own machine, in a clone of this repo:
+
 ```bash
-ssh ubuntu@<PUBLIC_IP>
-sudo apt-get update && sudo apt-get install -y git
-git clone https://github.com/JefferyLiu6/Kairo.git ~/kairo
-bash ~/kairo/deploy/oracle/setup.sh <PUBLIC_IP>
-exit   # log back in so your user can run docker
+ssh opc@<PUBLIC_IP> 'bash -s <PUBLIC_IP>' < deploy/oracle/setup.sh
 ```
 
-`setup.sh` installs Docker, opens the firewall, and creates
+`setup.sh` installs Docker and git, opens the firewall, clones the repo to
+`~/kairo`, and creates
 `~/kairo/.env.production` with `API_DOMAIN` and `PUBLIC_URL` already set to
 `https://<ip-with-dashes>.sslip.io`.
 
 Fill in the rest of `~/kairo/.env.production` (`nano ~/kairo/.env.production`)
-by copying each value from the Render backend's **Environment** page. In
+by copying each value from the Render backend's **Environment** page
+(`ssh opc@<PUBLIC_IP>` first). In
 particular:
 
 | Variable | Value |
@@ -76,7 +82,7 @@ particular:
 ## 4. Start it
 
 ```bash
-ssh ubuntu@<PUBLIC_IP>
+ssh opc@<PUBLIC_IP>
 cd ~/kairo && bash deploy/oracle/deploy.sh
 ```
 
