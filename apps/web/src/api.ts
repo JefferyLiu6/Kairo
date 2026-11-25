@@ -10,8 +10,13 @@ export const AUTH_REQUIRED_EVENT = "kairo:auth-required";
 
 const _CSRF_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
 
+/** The address of an API path, for links the browser opens itself instead of fetching. */
+export function apiUrl(path: string): string {
+  return _API_BASE ? `${_API_BASE}${path}` : path;
+}
+
 function _send(path: string, init?: RequestInit): Promise<Response> {
-  const url = _API_BASE ? `${_API_BASE}${path}` : path;
+  const url = apiUrl(path);
   const merged = new Headers(init?.headers);
   merged.set("X-Timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
   merged.set("Content-Type", merged.get("Content-Type") ?? "application/json");

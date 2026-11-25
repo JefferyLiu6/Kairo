@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
+  apiUrl,
   autoSyncGoogleCalendar,
   createGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
@@ -238,7 +239,7 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
 
   const connectGoogle = useCallback(() => {
     window.open(
-      `/personal-manager/google-calendar/connect?sessionId=${encodeURIComponent(sessionId)}`,
+      apiUrl(`/personal-manager/google-calendar/connect?sessionId=${encodeURIComponent(sessionId)}`),
       "_blank",
       "noopener,noreferrer",
     );

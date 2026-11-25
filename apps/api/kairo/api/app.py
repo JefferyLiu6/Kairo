@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from kairo.utils.clock import CalendarTimezoneMiddleware
 from kairo.api import turns
 from kairo.storage import idempotency
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from kairo.api.rate_limit import RateLimitRule, enforce_rate_limit, env_limit, request_ip_bucket, user_bucket
@@ -657,6 +657,17 @@ def put_pm_schedule(session_id: str, body: ScheduleData, request: Request):
     return {"ok": True}
 
 
+_GOOGLE_CONNECTED_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Google Calendar connected</title>
+<style>body{{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;
+background:#f7f8f7;color:#1c2421}}main{{text-align:center;padding:24px}}h1{{font-size:20px;margin:0 0 8px}}
+p{{margin:0;color:#56615c}}</style></head>
+<body><main><h1>Google Calendar connected</h1>
+<p>{detail} You can close this tab and go back to Kairo.</p></main></body></html>"""
+
+
 @app.get("/personal-manager/google-calendar/connect")
 def connect_google_calendar(request: Request, sessionId: str = "default"):
     user = require_user(request)
@@ -672,7 +683,7 @@ def connect_google_calendar(request: Request, sessionId: str = "default"):
 
 
 @app.get("/personal-manager/google-calendar/callback")
-def google_calendar_callback(request: Request) -> dict:
+def google_calendar_callback(request: Request) -> HTMLResponse:
     state = request.query_params.get("state", "")
     if not state:
         raise HTTPException(status_code=400, detail="Missing OAuth state")
@@ -693,9 +704,15 @@ def google_calendar_callback(request: Request) -> dict:
         token_expiry=credentials.expiry.isoformat() if credentials.expiry else None,
         scopes=list(credentials.scopes or scopes),
     )
-    results = CalendarService(user_id, _service_data_dir()).sync_google_accounts()
-    return {"ok": True, "account": account.model_dump(),
-            "sync": [_sync_result_response(r) for r in results]}
+    try:
+        results = CalendarService(user_id, _service_data_dir()).sync_google_accounts()
+        synced = sum(r.synced for r in results)
+        detail = f"{synced} event{'' if synced == 1 else 's'} synced."
+    except Exception:
+        # The account is saved; the background sync will try again.
+        _log.exception("First Google Calendar sync failed for account %s", account.id)
+        detail = "The first sync did not finish. Kairo will try again shortly."
+    return HTMLResponse(_GOOGLE_CONNECTED_PAGE.format(detail=detail))
 
 
 @app.get("/personal-manager/google-calendar/accounts")
