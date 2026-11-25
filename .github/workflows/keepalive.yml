@@ -1,11 +1,11 @@
-name: Keep backend warm
+name: Backend health check
 
-# Render's free tier spins the service down after ~15 minutes of inactivity,
-# making the next visitor wait 30-60s for a cold start. Pinging /health every
-# 10 minutes keeps the instance warm during the day.
+# The backend runs on an Oracle Cloud VM that never sleeps (docs/DEPLOY_ORACLE.md).
+# This checks /health every hour, so a failed run (and GitHub's email about it)
+# says the backend is down.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch: {}
 
 jobs:
@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Ping backend health endpoint
+      - name: Check backend health endpoint
         run: |
-          curl -sS --max-time 90 --retry 2 --retry-delay 5 \
+          curl -fsS --max-time 30 --retry 2 --retry-delay 5 \
             -o /dev/null -w "status=%{http_code} time=%{time_total}s\n" \
-            https://kairo-backend-wccw.onrender.com/health
+            https://40-233-90-252.sslip.io/health

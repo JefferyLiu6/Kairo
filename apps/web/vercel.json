@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://kairo-backend-wccw.onrender.com/:path*"
+      "destination": "https://40-233-90-252.sslip.io/:path*"
     },
     {
       "source": "/((?!api/).*)",
