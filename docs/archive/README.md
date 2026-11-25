@@ -16,3 +16,4 @@ was when each was written. For how Kairo works now, start from the
 | [CAPTURE_FAILURE_CASE.md](CAPTURE_FAILURE_CASE.md), [HUMANIZER_GROUNDING_FIX.md](HUMANIZER_GROUNDING_FIX.md), [TARGET_RESOLUTION.md](TARGET_RESOLUTION.md), [TOMORROW_CLAIM_GUARD.md](TOMORROW_CLAIM_GUARD.md), [RECOVERY.md](RECOVERY.md) | Write-ups of individual failures on the previous orchestrator and how each was fixed |
 | [END_TO_END_DEMO_20260915.md](END_TO_END_DEMO_20260915.md), [INTERVIEW_DEMO.md](INTERVIEW_DEMO.md) | Recorded demo walkthroughs |
 | [security-review-report.md](security-review-report.md) | A one-time security review. The current policy is [SECURITY.md](../../SECURITY.md) |
+| [OFFLINE_EVAL.md](OFFLINE_EVAL.md) | The offline 252-case suite, its method, and the hardening results for the previous workflow, moved from the top-level README |

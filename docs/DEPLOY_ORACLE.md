@@ -135,3 +135,76 @@ Once that works, suspend the Render service (Render dashboard â†’ the service â†
 - **The IP is the address**: if you delete and recreate the VM, its IP and so
   its `sslip.io` hostname change; update `API_DOMAIN`, `PUBLIC_URL` and
   `vercel.json` to match.
+
+## Reference: Docker Compose, environment variables, and data
+
+The repo includes a Docker Compose setup for a portfolio/demo deployment:
+
+```bash
+cp .env.production.example .env.production
+# Fill in .env.production, then:
+docker compose --env-file .env.production up --build
+```
+
+Compose starts:
+
+- `backend` on `${AGENT_PORT:-8766}` with FastAPI, the agent graph, SQLite state,
+  audit logs, approvals, and optional Google Calendar sync.
+- `frontend` on port `80`, served by nginx from the Vite production build.
+
+Required production/demo env vars:
+
+| Variable | Purpose |
+| -------- | ------- |
+| `PUBLIC_URL` | Public backend origin, used for Google OAuth redirect derivation |
+| `SESSION_SECRET` | Secret used to sign Google OAuth state |
+| `COOKIE_SECURE` | Set to `true` for production HTTPS cookies |
+| `COOKIE_SAMESITE` | Use `lax` when Vercel proxies `/api` to the backend; use `none` only for direct cross-origin API calls |
+| `CORS_ORIGINS` | Explicit comma-separated frontend origins allowed to call the backend with cookies |
+| `VITE_API_BASE` | Browser-facing API base. Use `/api` with the Vercel rewrite. |
+| `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Live model provider for web chat |
+
+Optional deploy flags:
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `MODEL` | provider default | The model web chat runs on (measured on `gpt-4o-mini`) |
+| `KAIRO_AGENT` | unset | Set to `legacy` to switch web chat back to the previous orchestrator |
+| `PM_MODEL` | `MODEL` fallback | The small model. On the agent graph it rewords each reply so it sounds like an assistant; on the previous orchestrator it is the delegated model |
+| `KAIRO_VOICE` | unset | Set to `off` to send replies as the records give them, without the rewording call |
+| `RATE_LIMIT_RPM` | `60` | Per-IP and per-user PM requests per minute; `0` disables this limiter |
+| `PM_DEMO_RATE_LIMIT_RPM` / `PM_DEMO_RATE_LIMIT_DAILY` | `20` / `100` | Stricter PM chat limits for temporary demo users |
+| `AUTH_DEMO_RATE_LIMIT_RPM` / `AUTH_DEMO_RATE_LIMIT_DAILY` | `2` / `25` | Public demo-account creation limits by IP |
+| `AUTH_LOGIN_EMAIL_LIMIT_15M` | `5` | Login attempts per email hash per 15 minutes |
+| `TRUST_PROXY_HEADERS` | `false` | Trust `CF-Connecting-IP` / `X-Forwarded-For` only behind a trusted proxy |
+| `ENABLE_DEMO_WEB_ROUTES` | `0` | Enables legacy local workspace/terminal demo routes only when explicitly set |
+| `GATEWAY_TOKEN` | unset | Required only if legacy demo web routes are enabled |
+| `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` | unset | Enables Google Calendar OAuth |
+| `GOOGLE_CALENDAR_REDIRECT_URI` | derived from `PUBLIC_URL` | Override OAuth callback URL |
+
+Data storage:
+
+- Docker uses named volumes: `pm_data` mounted at `/data` and `pm_vault` at `/vault`.
+- `/data/users.db` stores account, auth-session, and chat-thread metadata.
+- `/data/users/<user_id>/` contains each user's PM SQLite files, profile, decision
+  traces, audit events, approvals, conversation logs, calendar mirrors, and
+  fallback logs.
+- New accounts start with 10 credits. Demo accounts start with 5 credits. Each
+  accepted chat turn consumes one account credit.
+- The Vercel deployment proxies `/api/*` to the backend through
+  `apps/web/vercel.json`. This keeps auth cookies first-party on mobile browsers.
+- Workspace file editing/running endpoints are legacy local-development routes.
+  Keep `ENABLE_DEMO_WEB_ROUTES=0` for an internet-facing portfolio demo.
+- These stores are intentionally gitignored and should be backed up or destroyed
+  according to the sensitivity of the demo data.
+
+Do not expose publicly:
+
+- Do not commit `.env`, `.env.production`, provider keys, Google OAuth secrets, or
+  populated `data/`, `apps/api/data/`, `vault/`, `apps/api/vault/`, or workspace volumes.
+- Do not put backend secrets in `VITE_*` variables. Vite variables are embedded
+  into browser JavaScript.
+- Do not enable legacy workspace/terminal routes or mount a writable workspace on
+  a public demo.
+- Do not deploy credentialed wildcard CORS. Prefer same-origin `/api` proxying;
+  direct cross-origin cookies require an explicit `CORS_ORIGINS` value.
