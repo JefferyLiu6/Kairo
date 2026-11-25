@@ -12,6 +12,10 @@
 services:
   backend:
     ports: !reset []
+    # Every setting in .env.production reaches the app, including ones the root file
+    # doesn't list (OPENAI_BASE_URL, TAVILY_API_KEY, LANGSMITH_*). The environment
+    # entries still win where both set one.
+    env_file: .env.production
     environment:
       COOKIE_SAMESITE: "${COOKIE_SAMESITE:-lax}"
       TRUST_PROXY_HEADERS: "${TRUST_PROXY_HEADERS:-true}"
