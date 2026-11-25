@@ -3,13 +3,14 @@
 Real accounts must verify their email before Kairo issues a session. Temporary
 demo accounts remain separate and cannot enroll an authenticator.
 
-## Online version: Render + Brevo HTTPS
+## Online version: Oracle Cloud VM + Brevo HTTPS
 
-The frontend at `https://kairo-mu-two.vercel.app` proxies `/api` to
-`https://kairo-backend-wccw.onrender.com`. Email configuration belongs on the
-**Render backend service**, not in Vercel frontend variables or your local `.env`.
+The frontend at `https://kairo-mu-two.vercel.app` proxies `/api` to the backend
+on an Oracle Cloud VM ([deploy guide](DEPLOY_ORACLE.md)). Email configuration
+belongs in the VM's `~/kairo/.env.production`, not in Vercel frontend variables
+or your local `.env`.
 
-Render free web services block standard SMTP ports (25, 465 and 587). Use Brevo's
+Free cloud hosts often block outbound SMTP ports (25, 465 and 587). Use Brevo's
 HTTPS API on port 443; this implementation sends directly to its fixed API endpoint.
 Do not enter SMTP credentials when choosing the Brevo provider.
 
@@ -21,10 +22,9 @@ Do not enter SMTP credentials when choosing the Brevo provider.
    Authenticate your own sending domain for reliable public delivery; a verified
    free-mail address may have provider restrictions or sender rewriting.
 3. In Brevo's **Settings → SMTP & API → API Keys & MCP**, generate an **API key**, not an SMTP key.
-   Put the key directly in Render's environment settings; do not commit it or paste
+   Put the key directly in the backend's `.env.production` on the VM; do not commit it or paste
    it into chat or frontend variables.
-4. Deploy the code containing Brevo support, then open the Render backend service's
-   **Environment** settings and add:
+4. On the VM, open `~/kairo/.env.production` and set:
 
    | Key | Value |
    | --- | --- |
@@ -34,20 +34,19 @@ Do not enter SMTP credentials when choosing the Brevo provider.
    | `BREVO_API_KEY` | Your private Brevo API key |
    | `AUTH_ENCRYPTION_KEY` | Persistent Fernet key; retain the existing value if MFA is already enrolled |
 
-5. Save the environment changes and redeploy/restart the **backend**. The code
-   defaults to SMTP for backward compatibility, so `AUTH_EMAIL_PROVIDER=brevo` must
-   be set explicitly. A local `.env` does not update Render.
+5. Save, then restart the backend: `bash ~/kairo/deploy/oracle/dc.sh up -d backend`.
+   The code defaults to SMTP for backward compatibility, so `AUTH_EMAIL_PROVIDER=brevo`
+   must be set explicitly. A local `.env` does not update the server.
 6. Test signup with an inbox you control. Open the verification link, set a password,
    and sign in. If no email arrives, check Brevo's transactional email logs, account
-   activation/sender approval, daily quota, and Render's generic delivery-error logs.
+   activation/sender approval, daily quota, and the backend's generic delivery-error logs
+   (`bash ~/kairo/deploy/oracle/dc.sh logs backend`).
    The HTTP response is deliberately generic and is not proof of inbox delivery.
 
-This code change does not create a Brevo account, deploy new code, or change Render
-secrets. All three must be completed before the live error is resolved. Preserve
-email verification rather than bypassing it to make the error disappear.
+Preserve email verification rather than bypassing it to make a delivery error
+disappear.
 
 Provider references:
-- <https://render.com/docs/free>
 - <https://developers.brevo.com/reference/send-transac-email>
 - <https://help.brevo.com/hc/en-us/articles/208580669-FAQs-What-are-the-limits-of-the-Free-plan>
 - <https://help.brevo.com/hc/en-us/articles/208836149-Create-a-new-sender-From-name-and-From-email>

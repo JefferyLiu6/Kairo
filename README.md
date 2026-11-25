@@ -36,8 +36,9 @@ Live app: [kairo-mu-two.vercel.app](https://kairo-mu-two.vercel.app)
 (narrated, with captions): the live demo, how the design works, and the eval results.
 
 > Portfolio demo only. Do not enter real personal data.
-> Use **Try the demo** for a temporary account. Real accounts require durable
-> backend storage; the free deployment does not provide durable SQLite storage.
+> Use **Try the demo** for a temporary account; demo data resets after 24 hours.
+> The backend runs on an Oracle Cloud VM with its data on disk, so accounts and
+> their data survive restarts and redeploys.
 
 ![Kairo demo: a calendar change behind an approval, a suggested time and a batch approval, the decision trace, the task list, About me, and the mobile calendar](docs/demo/kairo-demo.gif)
 
@@ -125,9 +126,9 @@ web chat back to the previous orchestrator.
 
 ## Deployment
 
-To host the backend for free with storage that survives restarts and
-redeploys, follow [docs/DEPLOY_ORACLE.md](docs/DEPLOY_ORACLE.md) (Oracle Cloud
-Always Free VM, HTTPS through Caddy, frontend stays on Vercel).
+The live backend runs on an Oracle Cloud Always Free VM, with HTTPS through
+Caddy and its data in Docker volumes on the VM's disk; the frontend is on Vercel.
+To host it the same way, follow [docs/DEPLOY_ORACLE.md](docs/DEPLOY_ORACLE.md).
 
 The repo includes a Docker Compose setup for a portfolio/demo deployment:
 
@@ -182,7 +183,7 @@ Data storage:
   fallback logs.
 - New accounts start with 10 credits. Demo accounts start with 5 credits. Each
   accepted chat turn consumes one account credit.
-- The Vercel deployment should proxy `/api/*` to the Render backend through
+- The Vercel deployment proxies `/api/*` to the backend through
   `apps/web/vercel.json`. This keeps auth cookies first-party on mobile browsers.
 - Workspace file editing/running endpoints are legacy local-development routes.
   Keep `ENABLE_DEMO_WEB_ROUTES=0` for an internet-facing portfolio demo.
@@ -575,7 +576,7 @@ This is still a portfolio demo, not a fully hardened production multi-tenant ser
   Sessions and rate limits still use SQLite: workers must share the same durable
   `DATA_DIR`; independent instances need a shared database.
 - Account verification, password recovery and authenticator MFA are implemented.
-  Configure account email (Brevo HTTPS on Render free, or SMTP elsewhere) and the persistent MFA encryption key before real-user rollout;
+  Configure account email (Brevo over HTTPS, or SMTP) and the persistent MFA encryption key before real-user rollout;
   see [account security setup](docs/AUTHENTICATION.md).
 - A self-service device/session list is not implemented; password recovery revokes
   all sessions and MFA changes revoke other sessions.
