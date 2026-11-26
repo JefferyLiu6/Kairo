@@ -231,8 +231,8 @@ def _humanize(
     if not clean_output:
         # Existing orchestrator recovery handles this without replaying a write.
         raise ValueError("No readable PM result to humanize")
-    from kairo.storage.store import _pm_dir
-    profile = load_profile(_pm_dir(config.user_id, config.data_dir))
+    from kairo.storage.store import pm_dir
+    profile = load_profile(pm_dir(config.user_id, config.data_dir))
     wm = get_working_memory(config.user_id, config.session_id, config.data_dir)
     # Do not parse role prefixes from a flattened transcript or recycle assistant
     # personalization as evidence. Keep only actual user-role records.
@@ -322,8 +322,8 @@ async def _astream_orchestrator(
     _turn_start = time.monotonic()
     wm = get_working_memory(config.user_id, config.session_id, config.data_dir)
     # Per-user profile lives at data/users/<user_id>/PROFILE.md
-    from kairo.storage.store import _pm_dir
-    user_data_dir = _pm_dir(config.user_id, config.data_dir)
+    from kairo.storage.store import pm_dir
+    user_data_dir = pm_dir(config.user_id, config.data_dir)
     memory_ctx = build_memory_context(config.user_id, config.session_id, user_data_dir, config.data_dir)
     profile = load_profile(user_data_dir)
 

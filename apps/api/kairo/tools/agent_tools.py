@@ -10,7 +10,7 @@ from langchain_core.tools import tool
 from kairo.tools.web_search import web_search as _web_search
 from kairo.storage.habits import habit_add, habit_checkin, habit_list, habit_remove, habit_streak
 from kairo.storage.journal import journal_append, journal_read, journal_search
-from kairo.storage.store import _pm_dir, private_export, private_patch, private_read, schedule_add, schedule_add_exception, schedule_add_override, schedule_cancel_series_from, schedule_read, schedule_remove, schedule_replace, schedule_update, todo_add, todo_complete, todo_list, todo_remove
+from kairo.storage.store import pm_dir, private_export, private_patch, private_read, schedule_add, schedule_add_exception, schedule_add_override, schedule_cancel_series_from, schedule_read, schedule_remove, schedule_replace, schedule_update, todo_add, todo_complete, todo_list, todo_remove
 
 
 def _schedule_data_arg_to_str(data: Any) -> str:
@@ -39,7 +39,7 @@ def _build_tools(config: Any) -> list[Any]:
     sid = getattr(config, "user_id", "") or config.session_id  # user_id for path/storage
     data_dir = config.data_dir
     vault = config.vault_dir
-    pm_db = os.path.join(_pm_dir(sid, data_dir), "pm.db")
+    pm_db = os.path.join(pm_dir(sid, data_dir), "pm.db")
 
     @tool
     def manager_private(operation: str, key: str = "", value: Any = "") -> str:

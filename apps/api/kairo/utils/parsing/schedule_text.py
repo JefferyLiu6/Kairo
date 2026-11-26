@@ -5,7 +5,7 @@ import re
 import uuid
 from typing import Any, Optional
 
-from kairo.utils.parsing.recurrence import _OLD_WD_TO_BY_DAY, _extract_recurring_weekdays, _parse_recurrence_start_date, _parse_until_date
+from kairo.utils.parsing.recurrence import WEEKDAY_TO_BY_DAY, _extract_recurring_weekdays, _parse_recurrence_start_date, _parse_until_date
 from kairo.utils.parsing.cleanup import _clean_schedule_title
 from kairo.utils.parsing.datetime import _date_mention_count, _has_explicit_time_signal, _parse_date, _parse_time, _smart_end_time
 from kairo.utils.parsing.text import _norm
@@ -127,7 +127,7 @@ def _parse_schedule_entries(text: str) -> list[dict[str, Any]]:
                 flags=re.IGNORECASE,
             )
         )
-        by_day = [] if is_daily else [_OLD_WD_TO_BY_DAY[wd] for wd in recurring if wd in _OLD_WD_TO_BY_DAY]
+        by_day = [] if is_daily else [WEEKDAY_TO_BY_DAY[wd] for wd in recurring if wd in WEEKDAY_TO_BY_DAY]
         return [{
             "title": title,
             "date": start_date or "",

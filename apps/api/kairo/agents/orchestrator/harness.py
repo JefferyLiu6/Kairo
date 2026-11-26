@@ -174,8 +174,8 @@ def log_fallback(
 ) -> None:
     """Rule 5 — log every fallback to fallback_log.jsonl. Never raises."""
     try:
-        from kairo.storage.store import _pm_dir  # type: ignore
-        log_dir = _pm_dir(session_id, data_dir)
+        from kairo.storage.store import pm_dir
+        log_dir = pm_dir(session_id, data_dir)
         os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, "fallback_log.jsonl")
         entry: dict[str, Any] = {

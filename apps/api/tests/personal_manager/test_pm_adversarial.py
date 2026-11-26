@@ -12,10 +12,7 @@ Each test pins a *safe* behavior for a known PM failure surface. Categories:
 4. Memory safety — watch-only / past-tense / third-person / dislike /
    aspirational activity disclosures must NOT create a scheduling preference.
 
-Tests assert the SAFE outcome. Where current code has not yet been verified
-against a scenario, the test is marked ``xfail(strict=False)`` so it
-documents the target without breaking CI; remove the marker once the
-behavior is confirmed.
+Tests assert the SAFE outcome.
 """
 from __future__ import annotations
 

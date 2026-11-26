@@ -2526,9 +2526,6 @@ body {
   border-color: transparent;
 }
 
-/* legacy aliases — keep for any old references */
-.sch-google-title { display: none; }
-
 /* Today's Agenda strip */
 .sch-agenda-strip {
   display: flex;

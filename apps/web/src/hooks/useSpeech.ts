@@ -1,14 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const SpeechRecognitionAPI =
-  (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+/** The parts of the browser's speech recognition this hook uses. TypeScript's DOM types do not cover it. */
+type SpeechRecognizer = {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  continuous: boolean;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+};
+
+type SpeechWindow = {
+  SpeechRecognition?: new () => SpeechRecognizer;
+  webkitSpeechRecognition?: new () => SpeechRecognizer;   // Safari and older Chrome
+};
+
+const speechWindow = window as unknown as SpeechWindow;
+const SpeechRecognitionAPI = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
 
 export function useSpeech() {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
 
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognizer | null>(null);
   const synth = window.speechSynthesis;
   // Always-current refs — no stale closure issues
   const voiceEnabledRef = useRef(false);
@@ -39,7 +58,7 @@ export function useSpeech() {
     rec.interimResults = false;
     rec.maxAlternatives = 1;
     rec.continuous = false;
-    rec.onresult = (e: any) => onResult(e.results[0][0].transcript);
+    rec.onresult = (e) => onResult(e.results[0][0].transcript);
     rec.onend = () => setIsListening(false);
     rec.onerror = () => setIsListening(false);
     recognitionRef.current = rec;

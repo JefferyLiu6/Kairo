@@ -5,7 +5,6 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta, timezone
-from pathlib import Path
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -17,7 +16,7 @@ from kairo.agents.personal_manager.agent import PMConfig, run_pm
 from kairo.tools.memory.semantic import SemanticMemoryCandidate
 from kairo.storage.control_store import create_approval_request, list_approval_requests, list_audit_events
 from kairo.core.domain.commands import validate_action_payload
-from kairo.agents.personal_manager.application.clarification import _load_pending, _pending_path
+from kairo.agents.personal_manager.application.clarification import _load_pending
 from kairo.storage.journal import journal_read
 from kairo.storage.personalization import list_field_choices, list_behavioral_patterns, list_user_preferences, promote_patterns_from_choice_memory, record_choice_selected, upsert_user_preference
 from kairo.storage.recent_context import list_recent_context, save_recent_context
@@ -809,30 +808,6 @@ def test_expired_working_memory_is_ignored(tmp_path):
     assert [item.title for item in todos.items] == ["pay rent"]
     statuses = {record.status for record in list_working_memory("pm-demo", str(tmp_path))}
     assert "expired" in statuses
-
-
-def test_legacy_pending_json_migrates_and_resolves(tmp_path):
-    cfg = _cfg(tmp_path)
-    path = Path(_pending_path("pm-demo", str(tmp_path)))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "intent": "CREATE_SCHEDULE_EVENT",
-                "entities": {"title": "dentist"},
-                "missing": ["date", "start"],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    reply = run_pm("tomorrow at 9am", cfg)
-
-    schedule = load_schedule("pm-demo", str(tmp_path))
-    assert reply.startswith("Done! Added 'dentist'")
-    assert [(entry.title, entry.start) for entry in schedule.entries] == [("dentist", "09:00")]
-    assert not path.exists()
-    assert list_working_memory("pm-demo", str(tmp_path))[0].status == "resolved"
 
 
 def test_activity_self_disclosure_writes_profile_preference_and_context(tmp_path):

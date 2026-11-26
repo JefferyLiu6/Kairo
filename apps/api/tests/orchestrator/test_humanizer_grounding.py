@@ -5,7 +5,7 @@ import pytest
 
 from kairo.agents.orchestrator import agent
 from kairo.agents.orchestrator import memory
-from kairo.storage.store import _pm_dir
+from kairo.storage.store import pm_dir
 from pathlib import Path
 
 
@@ -38,7 +38,7 @@ def test_empty_profile_does_not_receive_flattened_assistant_preference(setup):
 
 def test_explicit_profile_and_user_statements_remain_available(setup):
     config, payloads = setup
-    directory = Path(_pm_dir(config.user_id, config.data_dir))
+    directory = Path(pm_dir(config.user_id, config.data_dir))
     directory.mkdir(parents=True, exist_ok=True)
     (directory/'PROFILE.md').write_text('Prefers concise replies.')
     wm = memory.get_working_memory(config.user_id, config.session_id, config.data_dir)

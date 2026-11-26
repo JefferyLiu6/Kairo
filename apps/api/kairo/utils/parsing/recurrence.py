@@ -8,8 +8,8 @@ from typing import Optional
 
 from kairo.utils.parsing.datetime import _parse_date
 
-# Legacy internal encoding: 0=Sun … 6=Sat
-_OLD_WD_TO_BY_DAY: dict[int, str] = {
+# Weekday index (0=Sun … 6=Sat) to its recurrence day code.
+WEEKDAY_TO_BY_DAY: dict[int, str] = {
     0: "SU", 1: "MO", 2: "TU", 3: "WE", 4: "TH", 5: "FR", 6: "SA",
 }
 

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from kairo.storage.store import _pm_dir
+from kairo.storage.store import pm_dir
 
 
 APPROVAL_STATUSES = {"pending", "executing", "approved", "rejected", "executed", "failed", "expired"}
@@ -67,7 +67,7 @@ def pm_db_path(session_id: str, data_dir: str, *, user_id: str = "") -> str:
     operations where ``session_id`` is a thread_id, not the user_id).
     """
     key = user_id or session_id
-    return os.path.join(_pm_dir(key, data_dir), "pm.db")
+    return os.path.join(pm_dir(key, data_dir), "pm.db")
 
 
 def _now() -> str:

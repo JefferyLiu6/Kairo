@@ -30,3 +30,4 @@ apps/web/tsconfig.tsbuildinfo
 apps/web/package-lock.json
 
 artifacts/
+.claude/settings.local.json

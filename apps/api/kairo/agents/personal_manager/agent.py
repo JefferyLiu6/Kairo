@@ -50,7 +50,7 @@ from kairo.tools.calendar.service import format_google_calendar_for_context
 from kairo.tools.calendar.service import CalendarService
 from kairo.storage.habits import format_habits_for_context
 from kairo.storage.profile import read_profile
-from kairo.storage.store import _pm_dir, format_schedule_for_context, format_todos_for_context, load_private
+from kairo.storage.store import pm_dir, format_schedule_for_context, format_todos_for_context, load_private
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.storage.control_store import append_conversation_turn, list_conversation_turns
 from kairo.storage.decision_log import TurnDecision
@@ -100,11 +100,11 @@ class PMConfig:
 # ── Path helpers ───────────────────────────────────────────────────────────────
 
 def _pm_db_path(user_id: str, data_dir: str) -> str:
-    return os.path.join(_pm_dir(user_id, data_dir), "pm.db")
+    return os.path.join(pm_dir(user_id, data_dir), "pm.db")
 
 
 def _checkpoints_db_path(user_id: str, data_dir: str) -> str:
-    path = os.path.join(_pm_dir(user_id, data_dir), "checkpoints.db")
+    path = os.path.join(pm_dir(user_id, data_dir), "checkpoints.db")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return path
 
@@ -175,7 +175,7 @@ def _build_context_block(config: PMConfig) -> str:
     habits_ctx = format_habits_for_context(_pm_db_path(uid, config.data_dir))
     profile_ctx = ""
     # Per-user profile stored at data/users/<user_id>/PROFILE.md
-    user_data_dir = _pm_dir(uid, config.data_dir)
+    user_data_dir = pm_dir(uid, config.data_dir)
     raw_profile = read_profile(user_data_dir).strip()
     if not raw_profile and config.vault_dir:
         raw_profile = read_profile(config.vault_dir).strip()

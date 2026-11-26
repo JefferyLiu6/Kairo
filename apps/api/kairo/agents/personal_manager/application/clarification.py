@@ -1,9 +1,7 @@
 """Pending clarification state and plan-blocker logic."""
 from __future__ import annotations
 
-import json
 import logging
-import os
 import re
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -15,7 +13,6 @@ from kairo.core.domain.types import PMExtraction, PMIntent, PMPlanExtraction, PM
 from kairo.utils.parsing.cleanup import _clean_lookup_query, _clean_schedule_title, _clean_todo_title, _strip_leading_phrases
 from kairo.utils.parsing.datetime import _default_end_time, _parse_date, _parse_time
 from kairo.utils.parsing.text import _extract_id
-from kairo.storage.control_store import pm_db_path
 from kairo.storage.personalization import promote_patterns_from_choice_memory, promote_preference_from_repeat_selects, record_choice_selected
 from kairo.storage.working_memory import WorkingMemoryRecord, clear_active_working_memory, load_active_working_memory, save_working_memory, working_memory_is_stale
 from kairo.agents.personal_manager.application.extraction import _DETERMINISTIC_EXTRACTION_SOURCE, _normalize_plan_extraction
@@ -43,10 +40,6 @@ class ConfirmationResolution:
 # ── Pending clarification state ───────────────────────────────────────────────
 
 logger = logging.getLogger(__name__)
-
-
-def _pending_path(session_id: str, data_dir: str) -> str:
-    return os.path.join(os.path.dirname(pm_db_path(session_id, data_dir)), "pending.json")
 
 
 def _store_pending(
@@ -170,8 +163,6 @@ def _load_pending(session_id: str, data_dir: str, *, user_id: str = "") -> dict[
     """
     record = load_active_working_memory(session_id, data_dir, user_id=user_id)
     if record is None:
-        record = _migrate_pending_file(session_id, data_dir, user_id=user_id)
-    if record is None:
         return None
     try:
         pending = parse_pending(record.payload)
@@ -182,29 +173,8 @@ def _load_pending(session_id: str, data_dir: str, *, user_id: str = "") -> dict[
     return _pending_payload_from_working_memory(record, pending)
 
 
-def _migrate_pending_file(session_id: str, data_dir: str, *, user_id: str = "") -> WorkingMemoryRecord | None:
-    """One-time move of a pre-working-memory pending.json into working memory."""
-    try:
-        with open(_pending_path(session_id, data_dir), encoding="utf-8") as f:
-            legacy = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
-    if not isinstance(legacy, dict):
-        return None
-    migrated = _save_legacy_pending_as_working_memory(session_id, data_dir, legacy, user_id=user_id)
-    try:
-        os.remove(_pending_path(session_id, data_dir))
-    except FileNotFoundError:
-        pass
-    return migrated
-
-
 def _clear_pending(session_id: str, data_dir: str, *, user_id: str = "", status: str = "resolved") -> None:
     clear_active_working_memory(session_id, data_dir, user_id=user_id, status=status)
-    try:
-        os.remove(_pending_path(session_id, data_dir))
-    except FileNotFoundError:
-        pass
 
 
 def _pending_payload_from_working_memory(record: WorkingMemoryRecord, pending: Pending) -> dict[str, Any]:
@@ -219,28 +189,6 @@ def _pending_payload_from_working_memory(record: WorkingMemoryRecord, pending: P
         "stale": working_memory_is_stale(record),
     }
     return payload
-
-
-def _save_legacy_pending_as_working_memory(
-    session_id: str,
-    data_dir: str,
-    payload: dict[str, Any],
-    *,
-    user_id: str = "",
-) -> WorkingMemoryRecord:
-    pending_type = payload.get("type") or "freeform"
-    mode, expected_reply = PENDING_MODES.get(pending_type, PENDING_MODES["freeform"])
-    source = {"field_choices": "field_completion", "plan": "plan_clarification"}.get(pending_type, "legacy_pending")
-    return save_working_memory(
-        session_id,
-        data_dir,
-        user_id=user_id,
-        mode=mode,
-        source=source,
-        expected_reply=expected_reply,
-        payload=payload,
-        summary="Migrated legacy pending state",
-    )
 
 
 def _pending_choice_source(plan: PMPlanExtraction, choices: list[dict[str, Any]]) -> str:

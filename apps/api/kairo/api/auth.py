@@ -423,7 +423,7 @@ def _seed_demo_user(user_id: str, data_dir: str) -> None:
     from kairo.storage.store import ScheduleData, ScheduleEntry, RecurrenceRule, TodoData, TodoItem, save_schedule, save_todos
     from kairo.storage.habits import habit_add, habit_checkin, _init as _init_habits
     from kairo.storage.journal import journal_append, _init as _init_journal
-    from kairo.storage.store import _pm_dir
+    from kairo.storage.store import pm_dir
     from kairo.storage.control_store import pm_db_path
 
     today = local_today()
@@ -495,7 +495,7 @@ def _seed_demo_user(user_id: str, data_dir: str) -> None:
         db_path,
     )
 
-    user_dir = _pm_dir(user_id, data_dir)
+    user_dir = pm_dir(user_id, data_dir)
     os.makedirs(user_dir, exist_ok=True)
     profile_path = os.path.join(user_dir, "PROFILE.md")
     with open(profile_path, "w", encoding="utf-8") as f:
@@ -528,8 +528,8 @@ def _seed_demo_user(user_id: str, data_dir: str) -> None:
 
 def _cleanup_demo_data(data_dir: str, user_id: str) -> None:
     """Remove a demo user's data directory."""
-    from kairo.storage.store import _pm_dir
-    user_dir = _pm_dir(user_id, data_dir)
+    from kairo.storage.store import pm_dir
+    user_dir = pm_dir(user_id, data_dir)
     try:
         shutil.rmtree(user_dir, ignore_errors=True)
     except Exception:

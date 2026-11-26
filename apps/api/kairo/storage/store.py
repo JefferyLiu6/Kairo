@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
-from kairo.utils.parsing.recurrence import _OLD_WD_TO_BY_DAY
+from kairo.utils.parsing.recurrence import WEEKDAY_TO_BY_DAY
 
 
 # ── Schedule ───────────────────────────────────────────────────────────────────
@@ -109,17 +109,17 @@ class PrivateMetadata(BaseModel):
 
 # ── Path helpers ───────────────────────────────────────────────────────────────
 
-def _pm_dir(user_id: str, data_dir: str) -> str:
+def pm_dir(user_id: str, data_dir: str) -> str:
     """Return the per-user data directory: data/users/<user_id>/"""
     return os.path.join(data_dir, "users", user_id)
 
 
 def _schedule_path(session_id: str, data_dir: str) -> str:
-    return os.path.join(_pm_dir(session_id, data_dir), "schedule.json")
+    return os.path.join(pm_dir(session_id, data_dir), "schedule.json")
 
 
 def _private_path(session_id: str, data_dir: str) -> str:
-    return os.path.join(_pm_dir(session_id, data_dir), "private.json")
+    return os.path.join(pm_dir(session_id, data_dir), "private.json")
 
 
 # ── Schedule I/O ───────────────────────────────────────────────────────────────
@@ -233,7 +233,7 @@ def _entry_recurrence(entry: ScheduleEntry) -> Optional[RecurrenceRule]:
     if entry.recurrence:
         return entry.recurrence
     if entry.weekday is not None:
-        code = _OLD_WD_TO_BY_DAY.get(entry.weekday)
+        code = WEEKDAY_TO_BY_DAY.get(entry.weekday)
         if code:
             return RecurrenceRule(freq="weekly", by_day=[code])
     return None
@@ -456,7 +456,7 @@ class TodoData(BaseModel):
 
 
 def _todos_path(session_id: str, data_dir: str) -> str:
-    return os.path.join(_pm_dir(session_id, data_dir), "todos.json")
+    return os.path.join(pm_dir(session_id, data_dir), "todos.json")
 
 
 def load_todos(session_id: str, data_dir: str) -> TodoData:
