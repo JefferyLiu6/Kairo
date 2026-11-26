@@ -527,6 +527,8 @@ async def orchestrator_stream(req: PMChatRequest, request: Request):
                 yield turns.sse({"progress": value}), ""
             elif kind == "token":
                 yield turns.sse({"token": value}), value
+            elif kind == "outcome":
+                yield turns.sse({"outcome": value}), ""
 
     if key:
         run = turns.start(user.id, key, _turn_events(),

@@ -1,13 +1,17 @@
 """The agent graph, one turn at a time: a coordinator that only proposes, and code that checks and stores."""
 from __future__ import annotations
 
-import pytest
+import asyncio
 
+import pytest
+import time_machine
+
+from kairo.agents.graph import astream_graph
 from kairo.agents.graph.prompts import COORDINATOR
 from kairo.storage.control_store import list_approval_requests
 from kairo.storage.decision_log import list_turn_decisions
 
-from tests.graph.conftest import THREAD, USER, call, item, say, seed, todos
+from tests.graph.conftest import THREAD, THURSDAY, USER, call, item, say, seed, todos
 
 
 # ── Adding tasks ──────────────────────────────────────────────────────────────
@@ -145,6 +149,26 @@ def test_removing_a_task_waits_for_approval_and_approving_needs_no_model(chat):
 
     assert chat("approve") == "Removed task: rotate API keys."
     assert todos(chat) == [] and len(chat.asked) == 1
+
+
+def test_a_turn_reports_that_it_acted_only_when_something_was_carried_out(chat):
+    def outcome(message):
+        async def events():
+            return [value async for kind, value in astream_graph(message, chat.config) if kind == "outcome"]
+        with time_machine.travel(THURSDAY, tick=True):
+            return asyncio.run(events())
+
+    seed(chat, "rotate API keys")
+    chat.model.append(call("add_todos", items=[item("renew passport")]))
+    assert outcome("add todo renew passport") == ["acted"]
+
+    chat.model.append(say("You have two tasks."))
+    assert outcome("how many tasks do i have") == ["none"]
+
+    chat.model.append(call("remove_todos", task_ids=["t1"]))
+    assert outcome("delete the rotate api keys todo") == ["none"]      # waiting for approval: not done yet
+    assert outcome("approve") == ["acted"]
+    assert [title for title, _due, _done in todos(chat)] == ["renew passport"]
 
 
 def test_a_question_about_the_list_is_answered_from_the_list(chat):

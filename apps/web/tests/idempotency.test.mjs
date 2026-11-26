@@ -26,7 +26,7 @@ test('a retry after a dropped stream sends the same idempotency key, and the nex
     return call === 1 ? sse('{"token":"Added "}') : sse('{"token":"Added task."}', '[DONE]');
   });
 
-  const reply = await api.streamChat('buy milk', 'pm-1', () => {});
+  const { reply } = await api.streamChat('buy milk', 'pm-1', () => {});
   assert.equal(reply, 'Added task.');
   assert.equal(keys.length, 2);
   assert.ok(keys[0] && keys[0].length >= 32);
@@ -34,6 +34,24 @@ test('a retry after a dropped stream sends the same idempotency key, and the nex
 
   await api.streamChat('call mom', 'pm-1', () => {});
   assert.notEqual(keys[2], keys[0]);
+});
+
+test('a turn counts as acted only when the server says it carried something out', async (t) => {
+  const streams = [
+    sse('{"token":"Added task."}', '{"outcome":"acted"}', '[DONE]'),
+    sse('{"token":"Could you say it another way?"}', '{"outcome":"none"}', '[DONE]'),
+    sse('{"token":"A reply stored from an earlier connection."}', '[DONE]'),
+  ];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (url === '/auth/csrf') {
+      return new Response(JSON.stringify({ csrf_token: 'token' }), { headers: { 'Content-Type': 'application/json' } });
+    }
+    return streams.shift();
+  });
+
+  assert.equal((await api.streamChat('buy milk', 'pm-1', () => {})).acted, true);
+  assert.equal((await api.streamChat('asdf', 'pm-1', () => {})).acted, false);
+  assert.equal((await api.streamChat('buy milk', 'pm-1', () => {})).acted, false);
 });
 
 test('keys do not repeat', () => {

@@ -13,6 +13,7 @@ import kairo.storage.user_store as user_store
 def chat(authed_client, monkeypatch):
     async def graph(message, _config):
         yield ("token", f"graph: {message}")
+        yield ("outcome", "acted")
 
     async def previous_assistant(message, _config):
         yield ("token", f"assistant: {message}")
@@ -43,3 +44,8 @@ def test_web_chat_runs_on_the_agent_graph_by_default(chat, monkeypatch):
 def test_the_previous_assistant_is_one_setting_away(chat, monkeypatch):
     monkeypatch.setenv("KAIRO_AGENT", "Legacy ")   # case and stray spaces do not matter
     assert "assistant: add milk" in chat("add milk")
+
+
+def test_the_stream_says_whether_the_turn_carried_anything_out(chat, monkeypatch):
+    monkeypatch.delenv("KAIRO_AGENT", raising=False)
+    assert 'data: {"outcome": "acted"}' in chat("add milk")

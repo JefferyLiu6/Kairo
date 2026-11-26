@@ -195,6 +195,9 @@ export function newIdempotencyKey(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** A finished chat turn: the reply, and whether the server said it carried anything out. */
+export type ChatTurn = { reply: string; acted: boolean };
+
 export async function streamChat(
   message: string,
   sessionId: string,
@@ -203,7 +206,7 @@ export async function streamChat(
   onProgress?: (status: string) => void,
   /** Called before a retry attempt so the UI can clear any partial content. */
   onRetry?: () => void,
-): Promise<string> {
+): Promise<ChatTurn> {
   const MAX_RETRIES = 1;
   let lastEventId = "";
   // One key per message, sent again on the retry: the server then carries the message out once,
@@ -247,6 +250,7 @@ export async function streamChat(
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let full = "";
+      let acted = false;
       let buf = "";
 
       try {
@@ -265,9 +269,10 @@ export async function streamChat(
             }
             if (!line.startsWith("data: ")) continue;
             const data = line.slice(6);
-            if (data === "[DONE]") return full;
+            if (data === "[DONE]") return { reply: full, acted };
             try {
-              const parsed = JSON.parse(data) as { token?: string; progress?: string };
+              const parsed = JSON.parse(data) as { token?: string; progress?: string; outcome?: string };
+              if (parsed.outcome === "acted") acted = true;
               if (typeof parsed.progress === "string" && onProgress) {
                 onProgress(parsed.progress);
               }
@@ -293,7 +298,7 @@ export async function streamChat(
     if (attempt >= MAX_RETRIES) throw caughtError;
   }
 
-  return ""; // unreachable
+  return { reply: "", acted: false }; // unreachable
 }
 
 export type PetState = { xp: number; energy: number; bond: number; focusStreak: number };

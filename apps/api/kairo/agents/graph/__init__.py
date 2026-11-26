@@ -93,7 +93,8 @@ def graph_enabled() -> bool:
 
 
 async def astream_graph(message: str, config: OrchestratorConfig) -> AsyncIterator[tuple[str, str]]:
-    """One turn. Yields the same ("progress" | "token" | "done", text) events as the previous assistant."""
+    """One turn. Yields the same ("progress" | "token" | "done", text) events as the previous assistant,
+    and before "done" one ("outcome", "acted" | "none"): whether the turn carried anything out."""
     if not config.vault_dir:
         # Web chat configures no memory vault. What the user asks Kairo to remember is kept in
         # their own data directory, next to everything else stored for them.
@@ -107,6 +108,10 @@ async def astream_graph(message: str, config: OrchestratorConfig) -> AsyncIterat
                                             "recursion_limit": 80})
         reply = final["reply"]
         yield ("token", reply)
+        # A receipt that did not fail is something stored (or already as asked). A question, an answer
+        # in words, an approval still waiting and a turn that got nowhere leave none.
+        acted = any(receipt.status != "failed" for receipt in final.get("receipts", []))
+        yield ("outcome", "acted" if acted else "none")
         yield ("done", reply)
 
 

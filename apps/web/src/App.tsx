@@ -152,7 +152,7 @@ function MainApp() {
         );
 
       if (mode === "personal-manager") {
-        await streamChat(
+        const turn = await streamChat(
           text,
           sessionId,
           (token) => {
@@ -169,7 +169,8 @@ function MainApp() {
         );
         await refreshUser();
         setScheduleRefreshNonce((n) => n + 1);
-        setPmPetRewardNonce((n) => n + 1);
+        // XP is for something done, not for a question, a pending approval or a turn that got nowhere.
+        if (turn.acted) setPmPetRewardNonce((n) => n + 1);
       }
     } catch (err) {
       if ((err as Error).name === "AbortError") {
