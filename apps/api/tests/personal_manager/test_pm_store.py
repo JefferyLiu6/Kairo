@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 
-from kairo.storage.store import RecurrenceRule, ScheduleData, ScheduleEntry, format_schedule_for_context, get_upcoming_events, save_schedule, schedule_replace
+from kairo.storage.store import RecurrenceRule, ScheduleData, ScheduleEntry, format_schedule_for_context, get_upcoming_events, load_schedule, save_schedule, schedule_replace
 
 
-def test_schedule_replace_accepts_schedule_object(tmp_path):
+def test_an_entry_stored_with_a_weekday_number_is_read_as_a_weekly_repeat(tmp_path):
     result = schedule_replace(
         json.dumps(
             {
@@ -29,9 +29,26 @@ def test_schedule_replace_accepts_schedule_object(tmp_path):
     )
 
     assert result == "OK: schedule replaced with 1 entries"
+    entry = load_schedule("pm-demo", str(tmp_path)).entries[0]
+    assert entry.recurrence == RecurrenceRule(freq="weekly", by_day=["MO"])
+    # What is written back holds the repeat and no weekday number.
+    stored = json.loads((tmp_path / "users" / "pm-demo" / "schedule.json").read_text())["entries"][0]
+    assert "weekday" not in stored and stored["recurrence"]["by_day"] == ["MO"]
 
 
-def test_format_schedule_uses_sunday_zero_mapping(tmp_path):
+def test_a_weekday_number_does_not_replace_a_repeat_the_entry_already_has():
+    entry = ScheduleEntry.model_validate(
+        {"title": "Gym", "weekday": 1, "recurrence": {"freq": "weekly", "by_day": ["TU", "TH"]}}
+    )
+
+    assert entry.recurrence == RecurrenceRule(freq="weekly", by_day=["TU", "TH"])
+
+
+def test_an_entry_with_no_weekday_number_has_no_repeat():
+    assert ScheduleEntry.model_validate({"title": "Dentist", "date": "2026-12-01", "weekday": None}).recurrence is None
+
+
+def test_a_stored_weekday_number_counts_from_sunday(tmp_path):
     schedule_replace(
         json.dumps(
             {

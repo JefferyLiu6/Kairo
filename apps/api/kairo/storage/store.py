@@ -16,7 +16,7 @@ import uuid
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from kairo.utils.parsing.recurrence import WEEKDAY_TO_BY_DAY
 
@@ -50,7 +50,6 @@ class ScheduleEntry(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
     title: str
     date: Optional[str] = None      # YYYY-MM-DD for one-off events or series anchor
-    weekday: Optional[int] = None   # DEPRECATED — 0=Sun … 6=Sat; use recurrence instead
     start: str = ""                 # HH:mm
     end: str = ""                   # HH:mm
     notes: str = ""
@@ -59,6 +58,23 @@ class ScheduleEntry(BaseModel):
     recurrence: Optional[RecurrenceRule] = None
     exceptions: list[str] = Field(default_factory=list)      # YYYY-MM-DD dates to skip
     overrides: list[OverrideEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_stored_weekday(cls, data: Any) -> Any:
+        """Read an entry saved with a `weekday` number (0=Sun … 6=Sat) as a weekly repeat.
+
+        Entries used to repeat that way. One is rewritten with `recurrence` the next time
+        its schedule is saved.
+        """
+        if not isinstance(data, dict) or "weekday" not in data:
+            return data
+        data = dict(data)
+        weekday = data.pop("weekday")
+        code = WEEKDAY_TO_BY_DAY.get(weekday) if isinstance(weekday, int) else None
+        if code and not data.get("recurrence"):
+            data["recurrence"] = {"freq": "weekly", "by_day": [code]}
+        return data
 
 
 class ScheduleData(BaseModel):
@@ -228,24 +244,13 @@ def schedule_remove(ids_json: str, session_id: str, data_dir: str) -> str:
         return f"Error: {exc}"
 
 
-def _entry_recurrence(entry: ScheduleEntry) -> Optional[RecurrenceRule]:
-    """Return the effective RecurrenceRule, migrating legacy weekday-int entries on the fly."""
-    if entry.recurrence:
-        return entry.recurrence
-    if entry.weekday is not None:
-        code = WEEKDAY_TO_BY_DAY.get(entry.weekday)
-        if code:
-            return RecurrenceRule(freq="weekly", by_day=[code])
-    return None
-
-
 def expand_series(
     entry: ScheduleEntry,
     window_start: date,
     window_end: date,
 ) -> list[tuple[date, ScheduleEntry]]:
     """Expand a recurring entry into (occurrence_date, effective_entry) pairs within the window."""
-    rule = _entry_recurrence(entry)
+    rule = entry.recurrence
     if rule is None:
         return []
 
@@ -299,7 +304,6 @@ def expand_series(
                         "recurrence": None,
                         "exceptions": [],
                         "overrides": [],
-                        "weekday": None,
                     }
                     if ov:
                         if ov.title is not None:
@@ -354,11 +358,11 @@ def schedule_cancel_series_from(series_id: str, from_date: str, session_id: str,
         data = load_schedule(session_id, data_dir)
         for i, entry in enumerate(data.entries):
             if entry.id == series_id or entry.series_id == series_id:
-                rule = _entry_recurrence(entry)
+                rule = entry.recurrence
                 if rule is None:
                     return f"Error: '{entry.title}' is not a recurring event"
                 new_rule = rule.model_copy(update={"until": cutoff})
-                data.entries[i] = entry.model_copy(update={"recurrence": new_rule, "weekday": None})
+                data.entries[i] = entry.model_copy(update={"recurrence": new_rule})
                 save_schedule(data, session_id, data_dir)
                 return f"OK: cancelled '{entry.title}' from {from_date}"
         return f"Error: no series found with id '{series_id}'"
@@ -373,7 +377,7 @@ def format_schedule_for_context(session_id: str, data_dir: str) -> str:
     _BY_DAY_NAME = {"MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu", "FR": "Fri", "SA": "Sat", "SU": "Sun"}
     lines = ["## Schedule"]
     for e in data.entries:
-        rule = _entry_recurrence(e)
+        rule = e.recurrence
         if rule is not None:
             by_day_names = [_BY_DAY_NAME.get(c, c) for c in rule.by_day]
             if rule.freq == "daily" or set(rule.by_day) == {"SU", "MO", "TU", "WE", "TH", "FR", "SA"}:
@@ -543,7 +547,7 @@ def format_todos_for_context(session_id: str, data_dir: str) -> str:
 def get_upcoming_events(session_id: str, data_dir: str, days: int = 1) -> list[dict]:
     """
     Return schedule entries whose date falls within the next `days` days,
-    plus recurring entries that match a weekday within that window.
+    plus the occurrences of repeating entries within that window.
     Results are sorted by (date, start).
     """
     from datetime import date, timedelta
@@ -553,11 +557,10 @@ def get_upcoming_events(session_id: str, data_dir: str, days: int = 1) -> list[d
     safe_days = max(1, days)
     window = {today + timedelta(days=i) for i in range(safe_days)}
     window_end = today + timedelta(days=safe_days - 1)
-    window_weekdays = {d.isoweekday() % 7 for d in window}  # 0=Sun … 6=Sat
 
     results: list[dict] = []
     for e in data.entries:
-        rule = _entry_recurrence(e)
+        rule = e.recurrence
         if rule is not None:
             for matched_date, occurrence in expand_series(e, today, window_end):
                 results.append({
@@ -578,12 +581,6 @@ def get_upcoming_events(session_id: str, data_dir: str, days: int = 1) -> list[d
                     matched_date = ev_date
             except ValueError:
                 pass
-        elif e.weekday is not None and e.weekday in window_weekdays:
-            # Find the actual date in the window that matches this weekday
-            for d in sorted(window):
-                if d.isoweekday() % 7 == e.weekday:
-                    matched_date = d
-                    break
 
         if matched_date is not None:
             results.append({

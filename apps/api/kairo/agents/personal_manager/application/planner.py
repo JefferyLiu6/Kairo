@@ -50,7 +50,6 @@ def plan_pm_actions(intent: PMIntent, entities: dict[str, Any], config: Any) -> 
             {
                 "title": str(entry.get("title") or "Scheduled block").strip() or "Scheduled block",
                 "date": entry.get("date") or "",
-                "weekday": entry.get("weekday"),
                 "series_id": entry.get("series_id") or "",
                 "recurrence": _normalize_recurrence(entry.get("recurrence")),
                 "start": entry.get("start") or "",

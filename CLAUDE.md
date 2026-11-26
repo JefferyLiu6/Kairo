@@ -46,7 +46,6 @@ features and do not copy their patterns into new code.
 - `to_legacy()` and the `legacy_*()` methods on the commands in
   `kairo/core/domain/`. They turn a typed command back into a dict. A new
   executor takes the typed command.
-- `ScheduleEntry.weekday`. Use `recurrence`.
 
 ## Conventions
 

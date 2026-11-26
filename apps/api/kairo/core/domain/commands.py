@@ -36,7 +36,6 @@ class RecurrenceCommand(_CommandModel):
 class ScheduleEntryCommand(_CommandModel):
     title: str
     date: str = ""
-    weekday: Optional[int] = None
     series_id: str = ""
     recurrence: Optional[RecurrenceCommand] = None
     start: str = ""

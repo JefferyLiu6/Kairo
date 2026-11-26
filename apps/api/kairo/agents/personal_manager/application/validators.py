@@ -135,21 +135,13 @@ def validate_entities(intent: PMIntent, entities: dict[str, Any]) -> list[str]:
                 if not isinstance(entry, dict):
                     missing.append("schedule entry")
                     continue
-                has_when = (
-                    entry.get("date")
-                    or entry.get("weekday") is not None
-                    or entry.get("recurrence") is not None
-                )
+                has_when = entry.get("date") or entry.get("recurrence") is not None
                 if not has_when and "date" not in missing:
                     missing.append("date")
                 if not entry.get("start") and "start" not in missing:
                     missing.append("start")
             return missing
-        has_when = (
-            entities.get("date")
-            or entities.get("weekday") is not None
-            or entities.get("recurrence") is not None
-        )
+        has_when = entities.get("date") or entities.get("recurrence") is not None
         if not entities.get("start"):
             missing.append("start")
         if not has_when:

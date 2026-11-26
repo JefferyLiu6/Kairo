@@ -8,7 +8,7 @@ from kairo.tools.calendar.service import CalendarService, is_google_calendar_con
 from kairo.storage.calendar_store import mark_mirror_deleted
 from kairo.core.domain.schedule import GoogleCalendarRef, ScheduleResolution, ScheduleTarget
 from kairo.utils.parsing.text import _norm
-from kairo.storage.store import _entry_recurrence, load_schedule
+from kairo.storage.store import load_schedule
 
 
 _GENERIC_EVENT_TOKENS = frozenset({
@@ -124,7 +124,7 @@ def _resolve_schedule_refs(session_id: str, data_dir: str, payload: dict[str, An
 
 def _local_schedule_target(event: Any, payload: dict[str, Any]) -> ScheduleTarget:
     occurrence_date = str(payload.get("original_date") or payload.get("skip_date") or "")
-    recurrence = _entry_recurrence(event)
+    recurrence = event.recurrence
     if occurrence_date:
         kind = "occurrence"
     elif recurrence is not None:

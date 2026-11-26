@@ -6,7 +6,6 @@ import re
 from datetime import date, timedelta
 
 
-_WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 _BY_DAY_TO_SHORT = {"MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu", "FR": "Fri", "SA": "Sat", "SU": "Sun"}
 
 
@@ -105,8 +104,6 @@ def _format_schedule_add_reply(entries: list[dict]) -> str:
         title = e.get("title") or "Event"
         recurrence = e.get("recurrence")
         when = _format_recurrence_natural(recurrence, e.get("date") or "") if recurrence else _format_date_natural(e.get("date") or "")
-        if not when and e.get("weekday") is not None:
-            when = f"every {_WEEKDAY_NAMES[e['weekday']]}"
         at = _format_time_natural(e.get("start") or "")
         if when and at:
             return f"Done! Added '{title}' {when} at {at}."
@@ -120,8 +117,6 @@ def _format_schedule_add_reply(entries: list[dict]) -> str:
         title = e.get("title") or "Event"
         recurrence = e.get("recurrence")
         when = _format_recurrence_natural(recurrence, e.get("date") or "") if recurrence else _format_date_natural(e.get("date") or "")
-        if not when and e.get("weekday") is not None:
-            when = f"every {_WEEKDAY_NAMES[e['weekday']]}"
         at = _format_time_natural(e.get("start") or "")
         part = f"  • '{title}'"
         if when:

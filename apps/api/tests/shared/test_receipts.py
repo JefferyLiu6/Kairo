@@ -155,7 +155,7 @@ def test_running_an_action_inside_a_collector_yields_a_verified_receipt(tmp_path
 
 def test_a_calendar_event_is_read_back_from_the_schedule_store(tmp_path):
     entry = {"title": "gym", "date": "2026-11-13", "start": "06:00", "end": "07:00", "notes": "", "series_id": "",
-             "weekday": None, "recurrence": {"freq": "weekly", "interval": 1, "by_day": ["MO", "WE", "FR"]}}
+             "recurrence": {"freq": "weekly", "interval": 1, "by_day": ["MO", "WE", "FR"]}}
     _, made = run(PMAction("schedule_add", {"entries": [entry]}), cfg(tmp_path))
 
     assert [r.status for r in made] == ["verified"], made[0].problems

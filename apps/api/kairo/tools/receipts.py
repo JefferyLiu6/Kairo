@@ -151,7 +151,7 @@ def _recurrence_problem(wanted: Optional[Mapping[str, Any]]) -> Callable[[Change
     def check(change: Change) -> Optional[str]:
         stored = (change.after or {}).get("recurrence")
         if _blank(wanted):
-            return None  # the command did not ask for a repeat; the store may normalise one from a weekday
+            return None  # the command did not ask for a repeat
         if _blank(stored):
             return f"recurrence is missing, the command said {dict(wanted)!r}"
         if stored.get("freq") != wanted.get("freq") or set(stored.get("by_day") or []) != set(wanted.get("by_day") or []):

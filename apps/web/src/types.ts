@@ -29,7 +29,6 @@ export type ScheduleEntry = {
   id: string;
   title: string;
   date: string;
-  weekday: number | null;
   start: string;
   end: string;
   notes: string;

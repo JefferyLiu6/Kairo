@@ -49,7 +49,7 @@ from kairo.domains.checks import (
 )
 from kairo.domains.memory import remembered_facts
 from kairo.domains.registry import Answer, DomainSpec, NotThisDomain, Proposal, Proposed, ToolContext, ToolSpec
-from kairo.storage.store import ScheduleEntry, _entry_recurrence, expand_series, load_schedule
+from kairo.storage.store import ScheduleEntry, expand_series, load_schedule
 from kairo.tools.calendar.service import CalendarService, is_google_calendar_connected
 from kairo.tools.resolvers.schedule import _google_event_ref, resolve_schedule_targets
 from kairo.utils.formatters import _format_schedule_remove_summary, _format_time_natural
@@ -97,7 +97,7 @@ def load_events(ctx: ToolContext) -> list[Event]:
         return [Event(str(r["id"]), r["title"], r["date"], r["start"], r["end"], external=True) for r in refs]
     events = []
     for entry in load_schedule(ctx.user_id, ctx.data_dir).entries:
-        rule = _entry_recurrence(entry)
+        rule = entry.recurrence
         events.append(Event(entry.id, entry.title, entry.date or "", entry.start, entry.end,
                             recurrence=rule.model_dump(mode="json") if rule else None,
                             exceptions=tuple(entry.exceptions), entry=entry))

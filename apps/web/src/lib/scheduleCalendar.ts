@@ -73,10 +73,10 @@ function weeksBetween(a: Date, b: Date): number {
 }
 
 export function isRecurringEntry(entry: ScheduleEntry): boolean {
-  return Boolean(entry.recurrence || (entry.weekday !== null && !entry.date));
+  return Boolean(entry.recurrence);
 }
 
-/** One-off on `date`, recurring via `recurrence`, or legacy weekly on `weekday`. */
+/** One-off on `date`, or repeating via `recurrence`. */
 export function entryMatchesDay(entry: ScheduleEntry, day: Date): boolean {
   const ymd = formatYMD(day);
   const recurrence = entry.recurrence;
@@ -112,17 +112,11 @@ export function entryMatchesDay(entry: ScheduleEntry, day: Date): boolean {
     return weeksBetween(anchor, day) % interval === 0;
   }
 
-  if (entry.date) {
-    return entry.date === ymd;
-  }
-  if (entry.weekday !== null) {
-    return entry.weekday === day.getDay();
-  }
-  return false;
+  return Boolean(entry.date) && entry.date === ymd;
 }
 
 export function isUndatedEntry(entry: ScheduleEntry): boolean {
-  return !entry.date && entry.weekday === null && !entry.recurrence;
+  return !entry.date && !entry.recurrence;
 }
 
 export function parseTimeToMinutes(hhmm: string): number | null {

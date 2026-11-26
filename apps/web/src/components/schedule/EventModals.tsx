@@ -1,18 +1,30 @@
 import { useState, type FormEvent } from "react";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { formatTimeRange } from "../../lib/scheduleCalendar";
-import type { ScheduleEntry } from "../../types";
+import type { RecurrenceRule, ScheduleEntry } from "../../types";
 
-const WEEKDAYS = [
-  { v: "", label: "Doesn't repeat" },
-  { v: "0", label: "Sunday" },
-  { v: "1", label: "Monday" },
-  { v: "2", label: "Tuesday" },
-  { v: "3", label: "Wednesday" },
-  { v: "4", label: "Thursday" },
-  { v: "5", label: "Friday" },
-  { v: "6", label: "Saturday" },
+const NO_REPEAT = "";
+/** A repeat this dialog cannot edit: daily, monthly, or on several days. It is kept as it is. */
+const OTHER_REPEAT = "other";
+
+const WEEKLY_OPTIONS = [
+  { v: NO_REPEAT, label: "Doesn't repeat" },
+  { v: "SU", label: "Sunday" },
+  { v: "MO", label: "Monday" },
+  { v: "TU", label: "Tuesday" },
+  { v: "WE", label: "Wednesday" },
+  { v: "TH", label: "Thursday" },
+  { v: "FR", label: "Friday" },
+  { v: "SA", label: "Saturday" },
 ];
+
+/** The option that stands for `recurrence`: none, the one day of a weekly repeat, or "other". */
+function repeatOption(recurrence: RecurrenceRule | null | undefined): string {
+  if (!recurrence) return NO_REPEAT;
+  const freq = String(recurrence.freq || "weekly").toLowerCase();
+  const days = recurrence.by_day || [];
+  return freq === "weekly" && days.length === 1 && days[0] ? days[0] : OTHER_REPEAT;
+}
 
 type EditorProps = {
   entry: ScheduleEntry;
@@ -72,7 +84,7 @@ export function EventEditorModal({ entry, isNew, busy = false, error, onClose, o
           />
         </label>
         <label className="sch-field">
-          <span>Date (one-off)</span>
+          <span>Date</span>
           <input
             type="date"
             className="sch-input sch-input-date"
@@ -84,17 +96,26 @@ export function EventEditorModal({ entry, isNew, busy = false, error, onClose, o
           <span>Repeat weekly</span>
           <select
             className="sch-select"
-            value={draft.weekday === null ? "" : String(draft.weekday)}
+            value={repeatOption(draft.recurrence)}
             onChange={(e) => {
               const v = e.target.value;
-              setDraft((d) => ({ ...d, weekday: v === "" ? null : parseInt(v, 10) }));
+              setDraft((d) => {
+                if (v === NO_REPEAT) return { ...d, recurrence: null };
+                if (v === OTHER_REPEAT) return { ...d, recurrence: entry.recurrence };
+                // Moving a weekly repeat to another day keeps how often it repeats and when it ends.
+                const weekly = repeatOption(d.recurrence) !== OTHER_REPEAT ? d.recurrence : null;
+                return { ...d, recurrence: { interval: 1, ...weekly, freq: "weekly", by_day: [v] } };
+              });
             }}
           >
-            {WEEKDAYS.map((w) => (
+            {WEEKLY_OPTIONS.map((w) => (
               <option key={w.v || "none"} value={w.v}>
                 {w.label}
               </option>
             ))}
+            {repeatOption(entry.recurrence) === OTHER_REPEAT && (
+              <option value={OTHER_REPEAT}>Other (keeps the current repeat)</option>
+            )}
           </select>
         </label>
         <div className="sch-field-row">
@@ -132,8 +153,8 @@ export function EventEditorModal({ entry, isNew, busy = false, error, onClose, o
           />
         </label>
         <p className="sch-modal-hint">
-          Leave times empty for an all-day item. Use either a specific date or a weekly repeat, or neither for a floating
-          reminder (shown in the top strip).
+          Leave times empty for an all-day item. With a weekly repeat, the date is when it starts. With neither a date
+          nor a repeat, it is a floating reminder (shown in the top strip).
         </p>
 
         {error && <p className="sch-field-error" role="alert">{error}</p>}

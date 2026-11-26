@@ -12,7 +12,7 @@ from kairo.core.domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
 from kairo.utils.parsing.datetime import _smart_end_time
 from kairo.utils.formatters import _format_date_natural, _format_time_natural
 from kairo.storage.personalization import BehavioralPatternRecord, FieldChoiceRecord, PreferenceRecord, decay_behavioral_patterns, list_behavioral_patterns, list_field_choices, list_user_preferences, recent_choice_penalty, record_choice_shown
-from kairo.storage.store import _entry_recurrence, expand_series, load_schedule
+from kairo.storage.store import expand_series, load_schedule
 
 
 _KNOWN_CATEGORIES = {
@@ -645,7 +645,7 @@ def _load_calendar_events(session_id: str, data_dir: str) -> list[dict[str, Any]
     window_end = today + timedelta(days=30)
     events: list[dict[str, Any]] = []
     for entry in entries:
-        rule = _entry_recurrence(entry)
+        rule = entry.recurrence
         if rule:
             for occ_date, occ in expand_series(entry, today, window_end):
                 events.append(

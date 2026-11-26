@@ -9,7 +9,7 @@ from typing import Any, Optional
 from kairo.tools.calendar.service import CalendarService, CalendarWriteUnavailableError, is_google_calendar_connected
 from kairo.core.domain.commands import ScheduleAddCommand, ScheduleCancelSeriesFromCommand, ScheduleModifyOccurrenceCommand, ScheduleRemoveCommand, ScheduleSkipOccurrenceCommand, ScheduleUpdateCommand
 from kairo.utils.parsing.datetime import _default_end_time
-from kairo.storage.store import _entry_recurrence, expand_series, load_schedule, schedule_add, schedule_add_exception, schedule_add_override, schedule_cancel_series_from, schedule_remove, schedule_update
+from kairo.storage.store import expand_series, load_schedule, schedule_add, schedule_add_exception, schedule_add_override, schedule_cancel_series_from, schedule_remove, schedule_update
 from kairo.utils.formatters import _format_date_natural, _format_event_duration, _format_schedule_add_reply, _format_time_natural
 from kairo.tools.resolvers.schedule import _google_delete_targets_for_events, _google_event_ref, _hide_google_mirror_refs
 from kairo.core.domain.types import PMAction
@@ -29,17 +29,13 @@ def _find_schedule_conflicts(new_entries: list[dict], session_id: str, data_dir:
     conflicts: list[str] = []
     for new in new_entries:
         n_date = new.get("date") or ""
-        n_weekday = new.get("weekday")
         n_start = new.get("start") or ""
         n_end = new.get("end") or ""
         n_title = new.get("title") or "New event"
         if not n_start or not n_end:
             continue
         for ex in existing:
-            same_when = (n_date and ex.date == n_date) or (
-                n_weekday is not None and ex.weekday == n_weekday
-            )
-            if not same_when or not ex.start or not ex.end:
+            if not n_date or ex.date != n_date or not ex.start or not ex.end:
                 continue
             if n_start < ex.end and ex.start < n_end:
                 conflicts.append(
@@ -93,7 +89,7 @@ def _format_schedule_list(session_id: str, data_dir: str) -> str:
     series_seen: set[str] = set()
 
     for e in all_entries:
-        rule = _entry_recurrence(e)
+        rule = e.recurrence
         if rule is not None:
             series_key = e.series_id or e.id
             if series_key not in series_seen:
@@ -112,7 +108,7 @@ def _format_schedule_list(session_id: str, data_dir: str) -> str:
     # Also collect series summaries for the footer
     series_lines: list[str] = []
     for e in all_entries:
-        rule = _entry_recurrence(e)
+        rule = e.recurrence
         if rule is None:
             continue
         by_day_names = {"MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu", "FR": "Fri", "SA": "Sat", "SU": "Sun"}
@@ -197,8 +193,6 @@ def _schedule_entries_can_write_google(entries: list[dict], session_id: str, dat
         return False
     for entry in entries:
         has_recurrence = entry.get("recurrence") is not None
-        if entry.get("weekday") is not None and not has_recurrence:
-            return False
         if not entry.get("start") or not entry.get("end"):
             return False
         if not has_recurrence and not entry.get("date"):

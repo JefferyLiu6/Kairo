@@ -14,7 +14,7 @@ from kairo.utils.parsing.text import _norm
 from kairo.storage.control_store import pm_db_path
 from kairo.storage.habits import habit_list
 from kairo.storage.personalization import FieldChoiceRecord, list_field_choices, list_user_preferences, record_choice_shown
-from kairo.storage.store import _entry_recurrence, expand_series, load_schedule, load_todos
+from kairo.storage.store import expand_series, load_schedule, load_todos
 from kairo.utils.formatters import _format_date_natural, _format_time_natural
 
 _RECOMMENDATION_INTENT = "TIME_SLOT_RECOMMENDATION"
@@ -662,7 +662,7 @@ def _events_for_date(session_id: str, data_dir: str, target_date: str) -> list[d
 
     events: list[dict[str, Any]] = []
     for entry in entries:
-        rule = _entry_recurrence(entry)
+        rule = entry.recurrence
         if rule:
             for occ_date, occ in expand_series(entry, day, day):
                 events.append(

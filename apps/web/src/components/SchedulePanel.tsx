@@ -44,7 +44,6 @@ function emptyRow(overrides: Partial<ScheduleEntry> = {}): ScheduleEntry {
     id: crypto.randomUUID(),
     title: "",
     date: "",
-    weekday: null,
     start: "",
     end: "",
     notes: "",
@@ -66,7 +65,6 @@ function googleEventToScheduleEntry(event: GoogleCalendarEvent): ScheduleEntry {
     id: `google-${event.id}`,
     title: event.title || "Busy",
     date: start.date,
-    weekday: null,
     start: start.time,
     end: end.time,
     notes: event.notes,
@@ -420,7 +418,6 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
         id: crypto.randomUUID(),
         title: draggingTask.title,
         date: formatYMD(day),
-        weekday: null,
         start: `${sh}:00`,
         end: `${String(endHour).padStart(2, "0")}:${String(endMin).padStart(2, "0")}`,
         notes: "",
@@ -611,7 +608,7 @@ export function SchedulePanel({ sessionId, onClose, refreshNonce = 0, sidebar = 
         ) : view === "day" ? (
           <DayCalendarView day={cursor} entries={visibleEntries}
             onSlotClick={(h) => openSlot(cursor, h)} onEventClick={openEntry}
-            onAddUndated={() => openNew({ date: "", weekday: null, start: "", end: "" })}
+            onAddUndated={() => openNew({ date: "", start: "", end: "" })}
             {...dragDropViewProps} />
         ) : view === "week" ? (
           <WeekCalendarView days={weekDays} entries={visibleEntries}

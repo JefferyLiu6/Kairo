@@ -33,7 +33,7 @@ def _times_referred_to(action_type: str, payload: dict[str, Any]) -> Iterator[da
     if action_type == "schedule_add":
         for entry in payload.get("entries") or []:
             # A repeating event has no single time that makes approving it pointless.
-            if isinstance(entry, dict) and not entry.get("recurrence") and entry.get("weekday") is None:
+            if isinstance(entry, dict) and not entry.get("recurrence"):
                 yield from _at(entry.get("date"), entry.get("start"))
     elif action_type == "schedule_update":
         for patch in payload.get("updates") or []:
