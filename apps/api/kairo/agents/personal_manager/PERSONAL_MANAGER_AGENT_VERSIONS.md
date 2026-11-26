@@ -162,7 +162,7 @@ These upgrades moved Kairo from a flexible prototype toward an expert-designed p
 
 ### Safety Invariants After v1 Upgrades
 
-- Public Kairo data routes must require auth when `GATEWAY_TOKEN` is set.
+- Kairo data routes must require a signed-in user.
 - Public requests must not choose arbitrary `data_dir` or `vault_dir` values.
 - Approval execution must be storage-claimed before action execution.
 - The fallback path must remain tool-free.
