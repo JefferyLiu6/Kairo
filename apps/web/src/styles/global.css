@@ -4371,6 +4371,25 @@ body {
     padding-left: 44px;
   }
 
+  /* The week scrolls sideways here, so the hours stay at the left edge while the days move. The
+     rows above the grid keep a blank corner there, and the shadow covers the scroller's padding. */
+  .sch-week-grid .sch-time-gutter,
+  .sch-week-allday::before,
+  .sch-week-allday-row::before {
+    position: sticky;
+    left: 0;
+    z-index: 6;
+    background: var(--bg2);
+    box-shadow: -8px 0 0 var(--bg2);
+  }
+
+  .sch-week-allday::before,
+  .sch-week-allday-row::before {
+    content: "";
+    flex: 0 0 44px;
+    margin-left: -44px;
+  }
+
   .sch-month-wrap {
     padding: 8px 8px 12px;
   }

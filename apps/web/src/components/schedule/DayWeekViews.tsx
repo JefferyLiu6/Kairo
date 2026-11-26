@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import type { ScheduleEntry } from "../../types";
 import {
   CAL_DAY_START_HOUR,
@@ -74,13 +74,28 @@ export function WeekCalendarView({
     return list;
   }, []);
   const today = new Date();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const todayRef = useRef<HTMLDivElement>(null);
+  const weekStart = days[0] ? formatYMD(days[0]) : "";
+
+  // On a phone the week is wider than the screen and would open on its first days. Open it with
+  // today in the middle of what is visible instead. Where the whole week fits, this changes nothing.
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    const head = todayRef.current;
+    if (!scroller || !head) return;
+    const gutter = scroller.querySelector<HTMLElement>(".sch-time-gutter")?.offsetWidth ?? 0;
+    const headLeft = head.getBoundingClientRect().left - scroller.getBoundingClientRect().left + scroller.scrollLeft;
+    scroller.scrollLeft = headLeft - gutter - (scroller.clientWidth - gutter - head.offsetWidth) / 2;
+  }, [weekStart]);
 
   return (
-    <div className="sch-cal-scroll">
+    <div className="sch-cal-scroll" ref={scrollRef}>
       <div className="sch-week-allday">
         {days.map((d) => (
           <div
             key={formatYMD(d)}
+            ref={isSameCalendarDay(d, today) ? todayRef : undefined}
             className={`sch-week-head ${isSameCalendarDay(d, today) ? "today" : ""}`}
             aria-current={isSameCalendarDay(d, today) ? "date" : undefined}
           >
