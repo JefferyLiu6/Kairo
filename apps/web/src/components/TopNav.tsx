@@ -26,7 +26,7 @@ export function TopNav({
   onLogout,
 }: Props) {
   return (
-    <header className="topnav">
+    <header className={`topnav${agentBusy ? " topnav-busy" : ""}`}>
       {/* Kairo logo */}
       <div className="topnav-logo">
         <div className="topnav-logo-mark">

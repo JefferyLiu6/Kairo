@@ -4529,10 +4529,15 @@ body {
 }
 
 @media (max-width: 420px) {
-  /* The name pushed the status pill on top of the wordmark at 320px. */
   .topnav-pm-badge-label,
   .topnav-credits,
   .topnav-user-name {
+    display: none;
+  }
+
+  /* While Kairo works, the Stop button appears and says so: it takes the status dot's place, so
+     the bar is no wider than when idle. */
+  .topnav-busy .topnav-pm-pill {
     display: none;
   }
 
@@ -4551,6 +4556,24 @@ body {
   .sch-field-row,
   .approval-actions {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 374px) {
+  /* The wordmark, the status dot and seven buttons need 371px side by side. Below that the logo
+     mark stands alone; the name stays for screen readers. */
+  .topnav {
+    gap: 6px;
+  }
+
+  .topnav-logo-wordmark {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
   }
 }
 
