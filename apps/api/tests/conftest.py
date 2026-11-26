@@ -21,6 +21,13 @@ os.environ.pop("LANGCHAIN_TRACING_V2", None)
 load_dotenv(_REPO_ROOT / ".env", override=False)
 
 
+@pytest.fixture(autouse=True)
+def _encryption_key(monkeypatch):
+    """Stored secrets (MFA, Google tokens) are encrypted; give each test a throwaway key."""
+    from cryptography.fernet import Fernet
+    monkeypatch.setenv("AUTH_ENCRYPTION_KEY", Fernet.generate_key().decode())
+
+
 # ── Auth test helpers ─────────────────────────────────────────────────────────
 
 class _MockUser:

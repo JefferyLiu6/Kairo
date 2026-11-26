@@ -67,7 +67,7 @@ store. Local development can use `apps/api/.env` (never commit it).
 | `SMTP_SECURITY` | `starttls` (default) or `ssl`. Certificate validation is mandatory. |
 | `SMTP_FROM` | Provider-verified sender address. |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | SMTP credentials, when required by your provider. |
-| `AUTH_ENCRYPTION_KEY` | Persistent Fernet key for MFA secrets. Keep it separate from database backups. |
+| `AUTH_ENCRYPTION_KEY` | Persistent Fernet key for MFA secrets and stored Google Calendar tokens. Keep it separate from database backups. |
 
 Generate the encryption key once in the installed backend environment:
 

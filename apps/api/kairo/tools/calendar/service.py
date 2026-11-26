@@ -2,15 +2,19 @@
 from __future__ import annotations
 from kairo.utils.clock import local_today
 
+import logging
 import os
 import threading
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from kairo.tools.calendar.google import GOOGLE_CALENDAR_EVENTS_SCOPE, GoogleCalendarProvider
-from kairo.storage.calendar_store import CalendarAccount, CalendarMirrorEvent, list_calendar_accounts, list_mirror_events, mark_calendar_sync_failed, mark_calendar_sync_finished, mark_calendar_sync_started
+from kairo.tools.calendar.google import GOOGLE_CALENDAR_EVENTS_SCOPE, GoogleCalendarProvider, revoke_google_token
+from kairo.storage.calendar_store import CalendarAccount, CalendarMirrorEvent, disconnect_calendar_account, get_calendar_account, list_calendar_accounts, list_mirror_events, mark_calendar_sync_failed, mark_calendar_sync_finished, mark_calendar_sync_started
 from kairo.tools.calendar.types import CalendarEvent, CalendarEventPatch, CalendarSyncResult
+
+
+logger = logging.getLogger(__name__)
 
 
 class CalendarWriteUnavailableError(RuntimeError):
@@ -64,6 +68,19 @@ class CalendarService:
             if result is not None:
                 results.append(result)
         return results
+
+    def disconnect_google_account(self, account_id: str) -> bool:
+        """Cancel the grant with Google, then drop the tokens and copied events held here.
+
+        Kairo's copy is removed even when Google cannot be reached: the user asked
+        to disconnect, and a token nobody holds can no longer be used.
+        """
+        account = get_calendar_account(self.session_id, self.data_dir, account_id)
+        if account is None or account.status != "active":
+            return False
+        if not revoke_google_token(account.refresh_token or account.access_token):
+            logger.warning("Google did not confirm revoking calendar account %s", account.id)
+        return disconnect_calendar_account(self.session_id, self.data_dir, account_id)
 
     def list_events(
         self,

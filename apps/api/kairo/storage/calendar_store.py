@@ -1,7 +1,12 @@
-"""Google Calendar account and mirror storage for Kairo."""
+"""Google Calendar account and mirror storage for Kairo.
+
+OAuth tokens are encrypted before they are written (the same Fernet key as MFA
+secrets, AUTH_ENCRYPTION_KEY) and decrypted only when an account is loaded.
+"""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import uuid
@@ -9,7 +14,50 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
+from cryptography.fernet import InvalidToken
+
 from kairo.storage.control_store import pm_db_path
+from kairo.storage.identity import IdentityUnavailable, cipher
+
+logger = logging.getLogger(__name__)
+
+# Marks a stored token as ciphertext. A row written before encryption has no
+# marker and is read as it is, then encrypted the next time the store is opened.
+_SEALED = "enc:"
+
+
+class CalendarTokenKeyError(RuntimeError):
+    """A token has to be stored and AUTH_ENCRYPTION_KEY is missing or invalid."""
+
+
+def _seal(owner: str, token: str) -> str:
+    """Encrypt `token` for storage. The owner is bound in, so a row copied to another user is useless."""
+    if not token:
+        return ""
+    try:
+        box = cipher()
+    except IdentityUnavailable as exc:
+        raise CalendarTokenKeyError(
+            "AUTH_ENCRYPTION_KEY is required to store Google Calendar tokens"
+        ) from exc
+    return _SEALED + box.encrypt(f"{owner}:{token}".encode()).decode()
+
+
+def _open(owner: str, stored: str) -> str:
+    """Return the token behind a stored value, or "" when it cannot be decrypted.
+
+    An account whose tokens cannot be read fails its next sync and has to be
+    connected again; listing accounts keeps working.
+    """
+    if not stored or not stored.startswith(_SEALED):
+        return stored or ""
+    try:
+        value = cipher().decrypt(stored[len(_SEALED):].encode()).decode()
+    except (IdentityUnavailable, InvalidToken):
+        logger.warning("a stored Google Calendar token could not be decrypted")
+        return ""
+    prefix = f"{owner}:"
+    return value[len(prefix):] if value.startswith(prefix) else ""
 
 
 @dataclass(frozen=True)
@@ -179,6 +227,42 @@ def _migrate_calendar_accounts(conn: sqlite3.Connection) -> None:
     for name, definition in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE calendar_accounts ADD COLUMN {name} {definition}")
+    _protect_stored_tokens(conn)
+
+
+def _protect_stored_tokens(conn: sqlite3.Connection) -> None:
+    """Bring rows written before tokens were encrypted up to the current rules.
+
+    A disconnected account keeps no tokens. An active account's plaintext tokens
+    are encrypted; without a key they are left readable until one is configured.
+    """
+    conn.execute(
+        """
+        UPDATE calendar_accounts
+        SET access_token = '', refresh_token = '', sync_token = NULL
+        WHERE status != 'active'
+          AND (access_token != '' OR refresh_token != '' OR sync_token IS NOT NULL)
+        """
+    )
+    plain = conn.execute(
+        """
+        SELECT id, session_id, access_token, refresh_token FROM calendar_accounts
+        WHERE (access_token != '' AND access_token NOT LIKE 'enc:%')
+           OR (refresh_token != '' AND refresh_token NOT LIKE 'enc:%')
+        """
+    ).fetchall()
+    for row in plain:
+        try:
+            sealed = [
+                value if value.startswith(_SEALED) else _seal(row["session_id"], value)
+                for value in (row["access_token"], row["refresh_token"])
+            ]
+        except CalendarTokenKeyError:
+            return
+        conn.execute(
+            "UPDATE calendar_accounts SET access_token = ?, refresh_token = ? WHERE id = ?",
+            (*sealed, row["id"]),
+        )
 
 
 def _row_to_account(row: sqlite3.Row) -> CalendarAccount:
@@ -188,8 +272,8 @@ def _row_to_account(row: sqlite3.Row) -> CalendarAccount:
         provider=row["provider"],
         account_email=row["account_email"],
         calendar_id=row["calendar_id"],
-        access_token=row["access_token"],
-        refresh_token=row["refresh_token"],
+        access_token=_open(row["session_id"], row["access_token"]),
+        refresh_token=_open(row["session_id"], row["refresh_token"]),
         token_expiry=row["token_expiry"],
         scopes=row["scopes"],
         sync_token=row["sync_token"],
@@ -243,6 +327,8 @@ def upsert_calendar_account(
     token_expiry: Optional[str],
     scopes: list[str],
 ) -> CalendarAccount:
+    access_token = _seal(session_id, access_token)
+    refresh_token = _seal(session_id, refresh_token)
     init_calendar_store(session_id, data_dir)
     now = _now()
     with _conn(session_id, data_dir) as conn:
@@ -351,6 +437,8 @@ def update_calendar_tokens(
     refresh_token: Optional[str] = None,
     token_expiry: Optional[str] = None,
 ) -> None:
+    access_token = _seal(session_id, access_token)
+    refresh_token = _seal(session_id, refresh_token or "")
     init_calendar_store(session_id, data_dir)
     with _conn(session_id, data_dir) as conn:
         conn.execute(
@@ -360,9 +448,9 @@ def update_calendar_tokens(
                 refresh_token = COALESCE(NULLIF(?, ''), refresh_token),
                 token_expiry = ?,
                 updated_at = ?
-            WHERE id = ? AND session_id = ?
+            WHERE id = ? AND session_id = ? AND status = 'active'
             """,
-            (access_token, refresh_token or "", token_expiry, _now(), account_id, session_id),
+            (access_token, refresh_token, token_expiry, _now(), account_id, session_id),
         )
 
 
@@ -435,16 +523,23 @@ def mark_calendar_sync_failed(
 
 
 def disconnect_calendar_account(session_id: str, data_dir: str, account_id: str) -> bool:
+    """Mark the account disconnected and drop its tokens and the events copied from it."""
     init_calendar_store(session_id, data_dir)
     with _conn(session_id, data_dir) as conn:
         cur = conn.execute(
             """
             UPDATE calendar_accounts
-            SET status = 'disconnected', updated_at = ?
+            SET status = 'disconnected', access_token = '', refresh_token = '',
+                token_expiry = NULL, sync_token = NULL, updated_at = ?
             WHERE id = ? AND session_id = ? AND status = 'active'
             """,
             (_now(), account_id, session_id),
         )
+        if cur.rowcount == 1:
+            conn.execute(
+                "DELETE FROM calendar_event_mirror WHERE session_id = ? AND account_id = ?",
+                (session_id, account_id),
+            )
     return cur.rowcount == 1
 
 

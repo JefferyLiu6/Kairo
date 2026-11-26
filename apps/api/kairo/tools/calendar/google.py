@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
+import httpx
+
 from kairo.storage.calendar_store import CalendarAccount, mark_mirror_deleted, save_sync_token, update_calendar_tokens, upsert_mirror_event, wipe_account_mirror
 from kairo.tools.calendar.types import CalendarEvent, CalendarEventPatch, CalendarSyncResult
 
@@ -12,8 +14,26 @@ GOOGLE_CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.event
 GOOGLE_CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 
 
+GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
+
+
 class GoogleCalendarDependencyError(RuntimeError):
     pass
+
+
+def revoke_google_token(token: str) -> bool:
+    """Ask Google to cancel the grant behind `token`. True only when Google confirms it.
+
+    Revoking a refresh token also ends every access token issued from it. The
+    token goes in the request body, never the URL, so it cannot land in a log.
+    """
+    if not token:
+        return False
+    try:
+        response = httpx.post(GOOGLE_REVOKE_URL, data={"token": token}, timeout=10.0)
+    except httpx.HTTPError:
+        return False
+    return response.status_code == 200
 
 
 def build_google_calendar_service(account: CalendarAccount, data_dir: str):

@@ -29,7 +29,7 @@ from kairo.agents.personal_manager.agent import PMConfig, astream_pm, run_pm
 from kairo.agents.personal_manager.presentation.approval_preview import approval_response
 from kairo.tools.calendar.google import GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_READONLY_SCOPE
 from kairo.tools.calendar.service import CalendarService, CalendarWriteUnavailableError
-from kairo.storage.calendar_store import disconnect_calendar_account, list_calendar_accounts, upsert_calendar_account
+from kairo.storage.calendar_store import CalendarTokenKeyError, list_calendar_accounts, upsert_calendar_account
 from kairo.storage.control_store import expire_due_approvals, get_approval_request, list_approval_requests, list_audit_events, list_all_audit_events
 from kairo.storage.decision_log import list_turn_decisions, list_all_turn_decisions
 from kairo.storage.store import ScheduleData, get_upcoming_events, load_schedule as _load_schedule, load_todos as _load_todos, save_schedule as _save_schedule
@@ -695,14 +695,19 @@ def google_calendar_callback(request: Request) -> HTMLResponse:
         _log.exception("Google OAuth token exchange failed for user %s", user_id)
         raise HTTPException(status_code=400, detail="OAuth token exchange failed. Please try connecting again.")
     credentials = flow.credentials
-    account = upsert_calendar_account(
-        user_id, _service_data_dir(), provider="google", account_email="",
-        calendar_id=os.environ.get("GOOGLE_CALENDAR_ID", "primary").strip() or "primary",
-        access_token=credentials.token or "",
-        refresh_token=credentials.refresh_token or "",
-        token_expiry=credentials.expiry.isoformat() if credentials.expiry else None,
-        scopes=list(credentials.scopes or scopes),
-    )
+    try:
+        account = upsert_calendar_account(
+            user_id, _service_data_dir(), provider="google", account_email="",
+            calendar_id=os.environ.get("GOOGLE_CALENDAR_ID", "primary").strip() or "primary",
+            access_token=credentials.token or "",
+            refresh_token=credentials.refresh_token or "",
+            token_expiry=credentials.expiry.isoformat() if credentials.expiry else None,
+            scopes=list(credentials.scopes or scopes),
+        )
+    except CalendarTokenKeyError:
+        # Tokens are never stored unencrypted, so without a key there is nothing to connect.
+        _log.error("Google Calendar connect refused: AUTH_ENCRYPTION_KEY is not configured")
+        raise HTTPException(status_code=503, detail="Google Calendar is not available on this server yet.")
     try:
         results = CalendarService(user_id, _service_data_dir()).sync_google_accounts()
         synced = sum(r.synced for r in results)
@@ -798,7 +803,7 @@ def delete_google_calendar_event(provider_event_id: str, request: Request) -> di
 @app.delete("/personal-manager/google-calendar/accounts/{account_id}")
 def disconnect_google_calendar_account(account_id: str, request: Request) -> dict:
     user = require_user(request)
-    disconnected = disconnect_calendar_account(user.id, _service_data_dir(), account_id)
+    disconnected = CalendarService(user.id, _service_data_dir()).disconnect_google_account(account_id)
     return {"ok": disconnected}
 
 

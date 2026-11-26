@@ -249,6 +249,20 @@ failures, rate limits, missing configuration, and user-actionable integration
 errors. Internal paths, database errors, stack traces, and upstream provider
 details should stay out of responses.
 
+## Google Calendar Tokens
+
+- Access and refresh tokens are encrypted with `AUTH_ENCRYPTION_KEY` (Fernet)
+  before they are written, and bound to the owning user so a copied row does
+  not decrypt for anyone else. Without the key, connecting returns 503; tokens
+  are never stored unencrypted.
+- Rows written before encryption are encrypted the next time the store opens.
+  SQLite may keep the old plaintext in freed pages until the file is vacuumed.
+- Disconnecting asks Google to revoke the grant, then deletes the tokens, the
+  sync token and the events copied from that account. The local copy is deleted
+  even when Google cannot be reached.
+- If the key is changed or lost, stored tokens read as missing and the user has
+  to connect the calendar again.
+
 ## Required Production Posture
 
 For a public portfolio deployment, use this baseline:
@@ -281,7 +295,9 @@ multi-tenant service.
   [deployment and recovery details](docs/AUTHENTICATION.md).
 - Rate-limit events are stored in local SQLite for a single backend instance;
   multi-instance deployments need a shared store.
-- Local SQLite files are not encrypted at rest by this project.
+- Local SQLite files are not encrypted at rest by this project. MFA secrets and
+  Google Calendar tokens are encrypted individually; schedules, journal entries,
+  notes and mirrored calendar events are not.
 - Demo-account cleanup is opportunistic, not a dedicated scheduled job.
 - Credits are fixed at account creation; there is no billing, top-up, or admin
   grant flow yet.
