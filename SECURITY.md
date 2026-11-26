@@ -322,7 +322,6 @@ multi-tenant service.
 - The eval harness checks workflow behavior and safety policy shape; it does not
   fully prove prose quality or all model-fallback behavior.
 - Browser build-time environment variables are public once bundled.
-- The legacy development router should remain disabled in public deployments.
 
 ## Reporting Vulnerabilities
 

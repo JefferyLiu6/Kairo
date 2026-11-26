@@ -8,9 +8,9 @@ import pytest
 from kairo.agents.config import PMConfig
 from kairo.agents.personal_manager.agent import run_pm
 from kairo.agents.personal_manager.application import clarification as c
-from kairo.agents.personal_manager.application.pending_reply import PENDING_RULES, OpenQuestion, PendingTurn, load_open_question, pm_asked_a_question, resolve_pending_reply, route_message, still_open_after_error, still_open_reply
+from kairo.agents.personal_manager.application.pending_reply import PENDING_RULES, PendingTurn, load_open_question, resolve_pending_reply
 from kairo.agents.personal_manager.application.todo_selection import prepare_todo_target
-from kairo.core.domain.pending import ConfirmationPending, FieldChoicesPending, FreeformPending, TodoListPending
+from kairo.core.domain.pending import ConfirmationPending, FieldChoicesPending, TodoListPending
 from kairo.core.domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
 from kairo.storage.decision_log import TurnDecision
 from kairo.storage.store import TodoData, TodoItem, save_todos
@@ -209,21 +209,7 @@ def test_an_unrelated_reply_keeps_the_question(tmp_path):
     assert turn.d.wm_outcome == "kept"
 
 
-# ── The orchestrator's decisions ──────────────────────────────────────────────
-
-_Q = OpenQuestion(id="wm-1", state=FreeformPending(intent=PMIntent.CREATE_TODO, missing=["title"]))
-
-
-@pytest.mark.parametrize("message, question, route", [
-    ("approve", None, "approval_command"),
-    ("approve", _Q, "answer_question"),            # "approve" the suggestion, not the queue
-    ("reject 1a2b3c4d", _Q, "approval_command"),   # an id always means the queue
-    ("2", _Q, "answer_question"),
-    ("add milk", None, "new_request"),
-])
-def test_route_message(message, question, route):
-    assert route_message(message, question) == route
-
+# ── The open question ─────────────────────────────────────────────────────────
 
 def test_load_open_question_ignores_a_shown_task_list(tmp_path):
     c._store_pending(THREAD, str(tmp_path), TodoListPending(candidates=[{"id": "t1", "title": "x"}]),
@@ -231,26 +217,3 @@ def test_load_open_question_ignores_a_shown_task_list(tmp_path):
     assert load_open_question(THREAD, str(tmp_path), user_id=THREAD) is None
     _choices(tmp_path)
     assert isinstance(load_open_question(THREAD, str(tmp_path), user_id=THREAD).state, FieldChoicesPending)
-
-
-def test_pm_asked_a_question_only_after_a_successful_reply():
-    assert pm_asked_a_question("Which time works?", lambda: _Q)
-    assert not pm_asked_a_question("Added 'milk'.", lambda: None)
-    assert not pm_asked_a_question("Error: boom", lambda: pytest.fail("errors are not questions"))
-
-
-# Regression: edd8784 "pending mission error" — a PM failure must keep the options open.
-def test_still_open_after_error_needs_the_same_untouched_question():
-    same, other = _Q, OpenQuestion(id="wm-2", state=_Q.state)
-    assert still_open_after_error(_Q, "Error: list index out of range", lambda: same) is same
-    assert still_open_after_error(_Q, "Error: failed mid-write", lambda: other) is None  # it changed
-    assert still_open_after_error(_Q, "Error: x", lambda: None) is None                 # it was cleared
-    assert still_open_after_error(None, "Error: x", lambda: pytest.fail("no question before")) is None
-    assert still_open_after_error(_Q, "Added 'milk'.", lambda: pytest.fail("not an error")) is None
-
-
-def test_still_open_reply_relists_the_choices(tmp_path):
-    _choices(tmp_path)
-    reply = still_open_reply(load_open_question(THREAD, str(tmp_path), user_id=THREAD))
-    assert "nothing was saved" in reply and "1. Tomorrow at 9 AM" in reply and "2. Tomorrow at 2 PM" in reply
-    assert "answer my last question again" in still_open_reply(_Q)

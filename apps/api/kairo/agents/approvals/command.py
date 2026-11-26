@@ -11,11 +11,6 @@ def is_approval_command(message: str) -> bool:
     return _APPROVAL_COMMAND.fullmatch(message.strip()) is not None
 
 
-def names_an_approval(message: str) -> bool:
-    """Whether an approval command says which approval it means."""
-    return " " in message.strip()
-
-
 def approval_verb(message: str) -> str:
     """"approve" or "reject", for a message that is an approval command."""
     return _APPROVAL_COMMAND.fullmatch(message.strip()).group(1).lower()

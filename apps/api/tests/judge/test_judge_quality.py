@@ -7,10 +7,8 @@ from pathlib import Path
 import pytest
 
 from kairo.core.observability import telemetry
-from kairo.agents.orchestrator.harness import fast_precheck, parse_harness_verdict
 from evals.judge_eval import DEFAULT_CASES, run, summarize
 from evals.quality_judge import evaluate_response, parse_quality_verdict
-from kairo.agents.orchestrator.translator import StructuredAction
 
 
 def valid(**updates):
@@ -65,24 +63,6 @@ def test_repeated_grades_report_instability():
     replies = iter([valid(), valid(groundedness=0)])
     report = run([case], lambda *_: next(replies), repeats=2)
     assert report["repeat_disagreement_cases"] == 1
-
-
-@pytest.mark.parametrize("raw", ["{}", "[]", "null", "broken", '{"verdict":"PASS"}',
-    '{"verdict":"pass","confidence":NaN,"reason":"x","suggested_fix":"","failure_type":"null"}',
-    '{"verdict":"pass","confidence":2,"reason":"x","suggested_fix":"","failure_type":"null"}'])
-def test_online_judge_invalid_output_falls_back(raw):
-    assert parse_harness_verdict(raw).verdict == "fallback"
-
-
-def test_truthful_empty_result_is_not_automatically_retried():
-    action = StructuredAction("show_schedule", None, [], .9, "show schedule", False)
-    assert fast_precheck(action, "Nothing on the schedule") is None
-    assert fast_precheck(action, "Todo list: (empty)").verdict == "retry"
-
-
-def test_write_error_never_requests_retry():
-    action = StructuredAction("add_event", None, [], .9, "add event", True)
-    assert fast_precheck(action, "Error: timeout").verdict == "fallback"
 
 
 def test_spans_correlate_and_never_include_exception_text(caplog):

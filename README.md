@@ -389,10 +389,10 @@ The full list is in [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 | `apps/api/kairo/agents/graph/` | The agent graph web chat runs on: state, nodes, coordinator prompt |
 | `apps/api/kairo/domains/` | Tool registry and the domains: tasks, habits, journal, schedule, memory, assistant, and the wording checks |
 | `apps/api/kairo/tools/` | Executors, resolvers, receipts, calendar sync, web search |
-| `apps/api/kairo/agents/orchestrator/` | The previous web-chat path: routing, translation, harness checks, humanization |
-| `apps/api/kairo/agents/personal_manager/` | Approval flow and policy (used by the graph), and the previous typed workflow, extraction and planning |
+| `apps/api/kairo/agents/approvals/` | The approval gate: policy, single and batch approvals, approve and reject |
+| `apps/api/kairo/agents/personal_manager/` | The typed workflow that came before the graph: extraction, planning, clarification. The offline suite runs it |
 | `apps/api/evals/` | Blind eval and scores ledger, model date test, offline suite, judge evals |
-| `apps/api/tests/` | Unit, graph turn-level, domain, adversarial, eval-runner, and orchestrator control-flow tests |
+| `apps/api/tests/` | Unit, graph turn-level, domain, adversarial and eval-runner tests |
 | `apps/web/src/` | React chat UI, calendar panel, approval card, decision trace panel |
 | `ARCHITECTURE.md` / `SECURITY.md` / `eval-report.md` | Deep architecture, security policy, and the offline suite's report |
 | `docs/BLIND_EVAL.md` / `docs/MODEL_DATE_TEST.md` / `docs/ideas/` | Blind eval method and every result, the model date test, and the 2.0 plan and design |

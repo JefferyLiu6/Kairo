@@ -1,12 +1,7 @@
 """
 What a message means when Kairo is already waiting for an answer.
 
-This module is the one owner of that question, for both layers:
-
-- the orchestrator asks `route_message` (approval command, answer to the open
-  question, or a new request), `pm_asked_a_question` after a PM call, and
-  `still_open_after_error` when the PM failed;
-- the PM workflow asks `resolve_pending_reply`, which runs the rules in `PENDING_RULES`, in order, against the
+The PM workflow asks `resolve_pending_reply`, which runs the rules in `PENDING_RULES`, in order, against the
 thread's pending question. A rule either answers the turn (returns the reply),
 changes the turn and lets later rules and the normal pipeline continue, or does
 nothing. The order is the policy: e.g. a high-confidence new request must be
@@ -18,9 +13,8 @@ also keep the decision log (TurnDecision) in step.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Optional
 
-from kairo.agents.approvals.command import is_approval_command, names_an_approval
 from kairo.core.domain.pending import ConfirmationPending, DisambiguationPending, FieldChoicesPending, Pending, TodoListPending, TodoSelectionPending, is_question, parse_pending
 from kairo.core.domain.types import PMIntent, PMPlanExtraction
 from kairo.storage.control_store import record_audit_event
@@ -251,7 +245,7 @@ def _is_high_confidence_new_request(plan: PMPlanExtraction, message: str, pendin
     return not _pending_message_is_dialogue_reply(message, pending)
 
 
-# ── Orchestrator decisions ────────────────────────────────────────────────────
+# ── The open question ─────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
 class OpenQuestion:
@@ -260,9 +254,6 @@ class OpenQuestion:
     id: str  # working-memory record id: the same id later means the same, unanswered question
     state: Pending
 
-
-Route = Literal["approval_command", "answer_question", "new_request"]
-_STILL_OPEN = "Something went wrong on my side and nothing was saved."
 
 
 def load_open_question(thread_id: str, data_dir: str, *, user_id: str) -> Optional[OpenQuestion]:
@@ -274,48 +265,3 @@ def load_open_question(thread_id: str, data_dir: str, *, user_id: str) -> Option
     if not is_question(state):
         return None
     return OpenQuestion(id=payload["_working_memory"]["id"], state=state)
-
-
-def route_message(message: str, question: Optional[OpenQuestion]) -> Route:
-    """How the orchestrator should treat a message, given the open question.
-
-    A bare "approve"/"reject" while a question is open is an answer to that
-    question ("approve" the suggested time), not a command for the approval queue;
-    naming an approval id always makes it a command.
-    """
-    if is_approval_command(message) and (question is None or names_an_approval(message)):
-        return "approval_command"
-    return "answer_question" if question is not None else "new_request"
-
-
-def _is_pm_error(pm_output: str) -> bool:
-    return pm_output.strip().lower().startswith("error:")
-
-
-def pm_asked_a_question(pm_output: str, question_now: Callable[[], Optional[OpenQuestion]]) -> bool:
-    """The PM answered by asking the user something (a choice, a missing field)."""
-    return bool(pm_output.strip()) and not _is_pm_error(pm_output) and question_now() is not None
-
-
-def still_open_after_error(
-    before: Optional[OpenQuestion],
-    pm_output: str,
-    question_now: Callable[[], Optional[OpenQuestion]],
-) -> Optional[OpenQuestion]:
-    """The question, if the PM failed while answering it and left it untouched.
-
-    The PM clears a question before acting on the answer, so the same id after an
-    error means nothing ran and the user's options are still valid.
-    """
-    if before is None or not _is_pm_error(pm_output):
-        return None
-    after = question_now()
-    return after if after is not None and after.id == before.id else None
-
-
-def still_open_reply(question: OpenQuestion) -> str:
-    choices = question.state.choices if isinstance(question.state, FieldChoicesPending) else []
-    if not choices:
-        return f"{_STILL_OPEN} Could you answer my last question again?"
-    lines = "\n".join(f"{c.id}. {c.label}" for c in choices)
-    return f"{_STILL_OPEN} Your options are still open:\n\n{lines}\n\nReply with a number, or type another date/time."

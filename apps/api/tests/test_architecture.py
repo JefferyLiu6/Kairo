@@ -49,15 +49,15 @@ def test_imports_point_down(path: Path):
     assert not upward, f"{path.relative_to(KAIRO)} imports upward: {upward}"
 
 
-PREVIOUS_CHAT_PATH = ("kairo.agents.orchestrator", "kairo.agents.personal_manager")
+TYPED_WORKFLOW = "kairo.agents.personal_manager"
 SHARED_AGENT_MODULES = sorted(
     p for p in (KAIRO / "agents").rglob("*.py")
-    if p.relative_to(KAIRO / "agents").parts[0] not in ("orchestrator", "personal_manager")
+    if p.relative_to(KAIRO / "agents").parts[0] != "personal_manager"
 )
 
 
 @pytest.mark.parametrize("path", SHARED_AGENT_MODULES, ids=lambda p: str(p.relative_to(KAIRO)))
-def test_the_graph_and_what_it_shares_do_not_import_the_previous_chat_path(path: Path):
-    """The orchestrator and the typed workflow can be removed without touching the graph."""
-    reached = [module for module in _imports(path) if module.startswith(PREVIOUS_CHAT_PATH)]
-    assert not reached, f"{path.relative_to(KAIRO)} imports the previous chat path: {reached}"
+def test_the_graph_and_what_it_shares_do_not_import_the_typed_workflow(path: Path):
+    """The typed workflow can be removed without touching the graph."""
+    reached = [module for module in _imports(path) if module.startswith(TYPED_WORKFLOW)]
+    assert not reached, f"{path.relative_to(KAIRO)} imports the typed workflow: {reached}"

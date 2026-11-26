@@ -14,7 +14,7 @@ def success(*_args, **_kwargs):
 
 def test_offline_commands_have_no_live_model_flags(tmp_path):
     commands = checks(tmp_path)
-    assert len(commands) == 4
+    assert len(commands) == 3
     assert all('--live' not in command and '--use-model' not in command for _, command in commands)
 
 
@@ -24,7 +24,7 @@ def test_failure_is_preserved_and_later_checks_still_run(tmp_path):
         calls.append(command)
         return SimpleNamespace(returncode=1 if len(calls) == 1 else 0, stdout='result', stderr='')
     result = run_checks(tmp_path / 'run', execute=execute)
-    assert len(calls) == 4
+    assert len(calls) == 3
     assert result['status'] == 'failed'
     assert result['stages'][0]['returncode'] == 1
     assert result['stages'][-1]['status'] == 'passed'
@@ -45,7 +45,7 @@ def test_timeout_retains_partial_output_and_continues(tmp_path):
         raise subprocess.TimeoutExpired('test', 1, output=b'partial output', stderr=b'partial error')
     result = run_checks(tmp_path / 'run', execute=execute)
     assert result['status'] == 'failed'
-    assert len(result['stages']) == 4
+    assert len(result["stages"]) == 3
     assert all(s['status'] == 'timed_out' for s in result['stages'])
     assert (tmp_path / 'run/backend_tests.stdout.txt').read_text() == 'partial output'
 

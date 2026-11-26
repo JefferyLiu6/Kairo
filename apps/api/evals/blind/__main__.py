@@ -2,9 +2,9 @@
 Run the blind eval.
 
     python -m evals.blind --path pm
-    python -m evals.blind --path orchestrator --usd-in 0.15 --usd-out 0.60
+    python -m evals.blind --path graph --usd-in 0.15 --usd-out 0.60
     python -m evals.blind --path pm --scenario 01_freelancer --no-save
-    python -m evals.blind --path orchestrator --record "why this run was made"
+    python -m evals.blind --path graph --record "why this run was made"
     python -m evals.blind --history
 
 Exit code is 0 unless `--gate` is given and the quality bar is missed.

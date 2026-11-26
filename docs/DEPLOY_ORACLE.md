@@ -169,8 +169,7 @@ Optional deploy flags:
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
 | `MODEL` | provider default | The model web chat runs on (measured on `gpt-4o-mini`) |
-| `KAIRO_AGENT` | unset | Set to `legacy` to switch web chat back to the previous orchestrator |
-| `PM_MODEL` | `MODEL` fallback | The small model. On the agent graph it rewords each reply so it sounds like an assistant; on the previous orchestrator it is the delegated model |
+| `PM_MODEL` | `MODEL` fallback | The small model. It rewords each reply so it sounds like an assistant |
 | `KAIRO_VOICE` | unset | Set to `off` to send replies as the records give them, without the rewording call |
 | `RATE_LIMIT_RPM` | `60` | Per-IP and per-user PM requests per minute; `0` disables this limiter |
 | `PM_DEMO_RATE_LIMIT_RPM` / `PM_DEMO_RATE_LIMIT_DAILY` | `20` / `100` | Stricter PM chat limits for temporary demo users |
@@ -200,7 +199,5 @@ Do not expose publicly:
   populated `data/`, `apps/api/data/`, `vault/`, `apps/api/vault/`, or workspace volumes.
 - Do not put backend secrets in `VITE_*` variables. Vite variables are embedded
   into browser JavaScript.
-- Do not enable legacy workspace/terminal routes or mount a writable workspace on
-  a public demo.
 - Do not deploy credentialed wildcard CORS. Prefer same-origin `/api` proxying;
   direct cross-origin cookies require an explicit `CORS_ORIGINS` value.

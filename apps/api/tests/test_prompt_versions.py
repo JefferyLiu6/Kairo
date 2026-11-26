@@ -74,32 +74,3 @@ def test_record_prompt_tags_the_current_trace(monkeypatch):
 
     assert seen["prompt.route"] == system.version
     assert not any(key.startswith("prompt.") and key != "prompt.route" for key in seen)
-
-
-def test_a_real_stage_records_its_prompt_version(monkeypatch, tmp_path):
-    """route/translate/judge/humanize all pass through _invoke, which records the prompt."""
-    import json
-
-    import kairo.agents.orchestrator.agent as orch
-    from kairo.agents.orchestrator.prompts import TRANSLATOR_SYSTEM
-
-    monkeypatch.setenv("LANGSMITH_TRACING", "true")
-    monkeypatch.setattr(Client, "create_run", lambda *a, **k: None)
-    monkeypatch.setattr(Client, "update_run", lambda *a, **k: None)
-    client = Client(api_key="test-key-not-real", api_url="http://127.0.0.1:9", auto_batch_tracing=False)
-    seen = {}
-
-    class FakeModel:
-        def invoke(self, messages):
-            seen.update(get_current_run_tree().metadata)
-            reply = dict(intent="add_todo", timeframe=None, entities=[], confidence=0.9,
-                         pm_prompt="add task call mom", is_write=True)
-            return type("Reply", (), {"content": json.dumps(reply), "usage_metadata": {}})()
-
-    monkeypatch.setattr(orch, "_llm", lambda *_a, **_k: FakeModel())
-    config = orch.OrchestratorConfig(session_id="pm-x", data_dir=str(tmp_path), provider="test",
-                                     model="test", pm_provider="test", pm_model="test")
-    with tracing_context(enabled=True, client=client):
-        assert orch._translate("add task call mom", "", config).intent == "add_todo"
-
-    assert seen["prompt.translate"] == TRANSLATOR_SYSTEM.version

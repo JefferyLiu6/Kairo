@@ -3,12 +3,12 @@
 This document describes how Kairo is built. It is meant to be accurate enough
 for code review, not a marketing diagram.
 
-Web chat runs on the agent graph. The previous path (an orchestrator over a
-typed workflow) is still in the repo, answers web chat under
-`KAIRO_AGENT=legacy`, and shares the approval flow, executors and stores with
-the graph. Both are described here: the graph in
-[Agent Graph](#agent-graph-the-web-chat-path), the previous path in the
-sections around it.
+Web chat runs on the agent graph. The typed workflow that came before it is
+still in the repo: it serves `/personal-manager/chat` and
+`/personal-manager/stream`, it is what the offline 252-case suite runs, and it
+shares the approval flow, executors and stores with the graph. Both are
+described here: the graph in [Agent Graph](#agent-graph-the-web-chat-path), the
+typed workflow in the sections after it.
 
 Primary source files, the agent graph:
 
@@ -18,12 +18,8 @@ Primary source files, the agent graph:
 - [`apps/api/kairo/tools/receipts.py`](apps/api/kairo/tools/receipts.py) - reads the stores back after a write and builds the reply from them
 - [`apps/api/kairo/storage/`](apps/api/kairo/storage) - working memory, approvals, audit, traces, personalization, semantic memory
 
-Primary source files, the previous path:
+Primary source files, the typed workflow:
 
-- [`apps/api/kairo/agents/orchestrator/agent.py`](apps/api/kairo/agents/orchestrator/agent.py) - conversational router/translator/harness/humanizer over the PM agent
-- [`apps/api/kairo/agents/orchestrator/router.py`](apps/api/kairo/agents/orchestrator/router.py) - heuristic plus model routing for direct vs delegated turns
-- [`apps/api/kairo/agents/orchestrator/translator.py`](apps/api/kairo/agents/orchestrator/translator.py) - user request to structured PM trigger prompt
-- [`apps/api/kairo/agents/orchestrator/harness.py`](apps/api/kairo/agents/orchestrator/harness.py) - PM result checking, retry, cache fallback, fallback logging
 - [`apps/api/kairo/agents/personal_manager/agent.py`](apps/api/kairo/agents/personal_manager/agent.py) - sync/streaming entrypoints and tool-free fallback
 - [`apps/api/kairo/agents/personal_manager/workflow.py`](apps/api/kairo/agents/personal_manager/workflow.py) - typed turn coordinator
 - [`apps/api/kairo/agents/personal_manager/application/extraction.py`](apps/api/kairo/agents/personal_manager/application/extraction.py) - deterministic/model extraction arbitration
@@ -41,7 +37,7 @@ api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 | Layer | Holds | Examples |
 | --- | --- | --- |
 | `kairo/api/` | HTTP only: FastAPI app, auth, rate limits | `app.py`, `auth.py` |
-| `kairo/agents/` | Anything that decides what to do with a message | `graph/` (2.0 agent graph), `approvals/` (the approval gate), `config.py`, `conversation_memory.py`; the previous path in `orchestrator/` and `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
+| `kairo/agents/` | Anything that decides what to do with a message | `graph/` (2.0 agent graph), `approvals/` (the approval gate), `config.py`, `conversation_memory.py`; the typed workflow in `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
 | `kairo/domains/` | What Kairo can do, declared as typed tools grouped by area | `registry.py`, `tasks.py`, `habits.py`, `journal.py`, `schedule.py`, `memory.py`, `assistant.py`, `checks.py`, `catalog.py` |
 | `kairo/tools/` | Actions the agents can take | `executors/`, `calendar/`, `resolvers/`, `memory/`, `web_search.py` |
 | `kairo/storage/` | All SQLite and file persistence | `control_store.py`, `working_memory.py`, `store.py`, `user_store.py`, `identity.py` |
@@ -51,7 +47,7 @@ api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 
 `tests/test_architecture.py` fails if any module imports a layer above its own, if
 `kairo` imports `evals`, or if the graph and the modules it shares import the
-previous path in `orchestrator/` or `personal_manager/`.
+typed workflow in `personal_manager/`.
 
 ## System Map
 
@@ -59,14 +55,11 @@ previous path in `orchestrator/` or `personal_manager/`.
 flowchart TB
     UI["React UI<br/>apps/web/src"] <-->|HTTP + SSE| API["FastAPI<br/>kairo/api/app.py"]
 
-    API -->|"/orchestrator/stream (default)"| GRAPH["Agent graph<br/>kairo/agents/graph + kairo/domains"]
+    API -->|"/orchestrator/stream"| GRAPH["Agent graph<br/>kairo/agents/graph + kairo/domains"]
     GRAPH -->|"typed commands"| POLICY
-    API -->|"/orchestrator/stream (KAIRO_AGENT=legacy)"| ORCH["Orchestrator<br/>kairo/agents/orchestrator"]
+    GRAPH --> GMEM["Conversation memory<br/>recent turns (SQLite)"]
+    GRAPH --> GTRACE["Decision trace<br/>turn_decision_log"]
     API -->|/personal-manager/stream| PM["Kairo PM workflow<br/>agent.py"]
-    ORCH -->|delegates via astream_pm| PM
-    ORCH -->|direct reply| OLLM["Orchestrator LLM<br/>chat, routing, humanizing"]
-    ORCH --> OMEM["Orchestrator memory<br/>recent turns (SQLite) + PM cache (in-process)"]
-    ORCH --> OTRACE["Orchestrator decision trace<br/>turn_decision_log"]
 
     PM --> TYPED["Typed workflow<br/>workflow.py"]
     PM --> FALLBACK["Tool-free LangGraph fallback<br/>low-risk chat only"]
@@ -86,88 +79,12 @@ flowchart TB
     EXEC --> GCAL["Google Calendar<br/>optional sync/write path"]
 ```
 
-## Orchestrated Web Turn (the previous path, `KAIRO_AGENT=legacy`)
-
-Web chat (`/orchestrator/stream`) now runs on the [agent graph](#agent-graph-the-web-chat-path)
-by default. This section describes the path it replaced, which still answers
-web chat when `KAIRO_AGENT=legacy` is set and still serves the older
-`/personal-manager/chat` and `/personal-manager/stream` endpoints.
-
-```mermaid
-flowchart TD
-    A["User message"] --> B["astream_orchestrator"]
-    B --> C["Build memory context<br/>profile + recent turns"]
-    C --> D{"Needs PM agent?"}
-
-    D -->|no| E["Direct orchestrator reply"]
-    D -->|yes| F["Translate to StructuredAction<br/>intent, confidence, pm_prompt, is_write"]
-
-    F --> G{"Confidence < 0.70<br/>or direct intent?"}
-    G -->|yes| E
-    G -->|no| H["Call PM agent with pm_prompt<br/>astream_pm, inside a receipt collector"]
-
-    H --> W{"Did a write run,<br/>and was it read back?"}
-    W -->|yes| RB["Reply from the stored records<br/>no judge, no humanizer"]
-    W -->|"workflow answered a write<br/>request without writing"| PT["Workflow's own reply, unchanged"]
-    W -->|"no: a read, an unconfirmed write,<br/>or the chat fallback"| I["Harness precheck / model judge"]
-    I -->|pass| J["Humanize PM output"]
-    I -->|retry| K["Retry with suggested PM prompt<br/>max 2 retries"]
-    K --> H
-    I -->|fallback| L["Safe fallback reply<br/>read cache if available"]
-
-    RB --> M["Update in-process memory<br/>and log orchestrator turn"]
-    PT --> M
-    J --> M
-    L --> M
-    E --> M
-    M --> N["SSE token/progress reply"]
-```
-
-### Receipts
-
-Storage is the evidence for a write. While the PM agent runs, every typed
-action that writes is wrapped by `kairo/tools/receipts.py`: the user's stores
-are read before and after, the difference is checked against the command, and a
-`Receipt` (`kairo/core/domain/receipt.py`) records the result.
-
-| Receipt | Meaning | Reply |
-| --- | --- | --- |
-| `verified` | The stores changed the way the command said | One sentence per stored change, from the stored record |
-| `mismatch` | The stores changed, but not as the command said | The same, plus a note naming what differs |
-| `failed` | The executor refused or errored | Its own explanation, or "nothing was saved" for an internal error |
-| `unverified` | Success reported, nothing changed locally (already done, or written to Google Calendar) | Not used; the turn goes to the judge as before |
-
-The decision log row for each orchestrator turn records what produced it in a
-`versions` field: the prompts sent (name and version), the models, and the
-receipt statuses.
-
-An approved change is read back the same way; the sentence is kept with the
-approval so sending the approval again returns the same reply. A receipt shows
-what is stored, including the weekday, date and times, so a request the
-workflow parsed wrongly is visible in the reply. It does not make the parse
-right: the stores are compared with the command, not with what the user meant.
-
-Important boundaries:
-
-- The orchestrator can answer DIRECT for chat, support, or advice that does not
-  require PM data.
-- Delegated turns are translated into trigger-phrase-like PM prompts before
-  reaching the typed PM workflow.
-- Write turns invalidate the orchestrator PM cache.
-- A write that was read back is never judged or rewritten by a model; the reply
-  is built from the stored records.
-- Harness fallback never fabricates write success; a write that could not be
-  confirmed asks the user to retry or check the target data directly.
-- Orchestrator memory is in-process and resets on backend restart. Durable PM
-  state remains in Kairo's stores below.
-
 ## Agent Graph (the web chat path)
 
 `/orchestrator/stream` runs [`kairo/agents/graph`](apps/api/kairo/agents/graph).
 Every message is answered on it: tasks, habits and the journal by the
 coordinator's own tools; the calendar, memory and everything else by a domain's
-own agent. Nothing is handed to the previous orchestrator. `KAIRO_AGENT=legacy`
-switches web chat back to it.
+own agent.
 
 ```mermaid
 flowchart TD
@@ -199,7 +116,7 @@ flowchart TD
     V --> P["persist<br/>turn memory keeps the draft,<br/>decision log with versions"]
 ```
 
-How it differs from the orchestrated turn:
+What holds for every turn:
 
 - **A model proposes; code decides.** `coordinate` and `agent` are the only
   nodes whose model decides anything. Each call picks one tool and fills in
@@ -371,10 +288,9 @@ is shown the remembered facts and proposes `remember`, `export_data`,
   the older of two facts that contradict each other
   (`kairo/tools/memory/reconciliation.py`). It used to merge facts and put them
   in the third person, which changed who a fact was about.
-- **No vault needs to be configured.** Web chat sets no `VAULT_DIR`, which made
-  "remember …" fail on the orchestrated path. The graph keeps the profile in
-  the user's own data directory unless a vault is configured, and hands the
-  same location to the orchestrator when a turn is handed off.
+- **No vault needs to be configured.** Web chat sets no `VAULT_DIR`. The graph
+  keeps the profile in the user's own data directory unless a vault is
+  configured.
 
 ### Questions
 
@@ -399,8 +315,8 @@ stateDiagram-v2
   the reply ends with `Still open: …`. A parked question is not something the
   user owes an answer to; it is kept for one more message and then dropped.
 - A request gets at most two questions in a row.
-- A question the orchestrator left open is closed as soon as the graph handles
-  a later message itself.
+- A question the typed workflow left open is closed as soon as the graph
+  handles a later message.
 
 ### The registry
 
@@ -626,7 +542,7 @@ flowchart LR
         WM["working_memory"]
         AR["approval_requests"]
         AE["audit_events"]
-        DL["turn_decision_log<br/>PM + orchestrator turns"]
+        DL["turn_decision_log<br/>typed workflow + graph turns"]
         UP["user_preferences"]
         FCM["field_choice_memory"]
         BP["behavioral_patterns"]
@@ -638,11 +554,10 @@ flowchart LR
     subgraph "Shared files"
         VAULT["vault/PROFILE.md"]
         CKPT["personal-manager/checkpoints.db"]
-        OFB["fallback_log.jsonl<br/>orchestrator fallback records"]
     end
 
     subgraph "Process memory"
-        OWM["orchestrator WorkingMemory<br/>recent turns + PM cache"]
+        CMEM["Conversation memory<br/>recent turns, also written to pm.db"]
     end
 
     TYPED["Typed workflow"] --> S
@@ -662,9 +577,8 @@ flowchart LR
     SYNC_SAVE["Sync fallback<br/>passive fact save"] --> VAULT
     SYNC_SAVE --> P
 
-    ORCH["Orchestrator"] --> OWM
-    ORCH --> DL
-    ORCH --> OFB
+    GRAPH["Agent graph"] --> CMEM
+    GRAPH --> DL
 
     GCAL["Google Calendar sync"] --> CA
     GCAL --> CM

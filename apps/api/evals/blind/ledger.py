@@ -6,7 +6,7 @@ ties each run's scores to the prompt versions, model and eval set that produced
 them, so a change can be compared with what came before it. It is committed
 with the code (apps/api/evals/scores.jsonl) and only ever appended to.
 
-    python -m evals.blind --path orchestrator --record "why this run was made"
+    python -m evals.blind --path graph --record "why this run was made"
     python -m evals.blind --history
 
 tests/evals/test_blind_ledger.py fails when the current prompts have no
@@ -75,9 +75,17 @@ def load(ledger: Union[str, Path] = LEDGER) -> list[dict[str, Any]]:
     return [json.loads(line) for line in lines if line.strip()]
 
 
-def scored(prompts: Optional[str], *, path: str = "orchestrator", ledger: Union[str, Path] = LEDGER) -> bool:
-    """Whether a run on `path` is recorded for this prompt set."""
-    return any(entry["path"] == path and entry["prompt_set"] == prompts for entry in load(ledger))
+def scored(prompts: Mapping[str, str], *, path: str = "graph", ledger: Union[str, Path] = LEDGER) -> bool:
+    """Whether a run on `path` is recorded with each of these prompts at this version.
+
+    A run that also sent prompts which have since been removed still counts:
+    the prompts that are left are the ones it was scored with.
+    """
+    def ran_with(entry: Mapping[str, Any]) -> bool:
+        used = entry.get("prompts") or {}
+        return all(used.get(name) == version for name, version in prompts.items())
+
+    return any(entry["path"] == path and ran_with(entry) for entry in load(ledger))
 
 
 def _percent(value: Optional[float]) -> str:

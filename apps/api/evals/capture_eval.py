@@ -42,7 +42,7 @@ def capture() -> list[dict]:
                                         "before": before, "after": after}, sort_keys=True),
                 "expected": None,
                 "provenance": {"source": "deterministic_pm_capture", "review_status": "unreviewed",
-                               "scope": "PM workflow output, not final orchestrator humanization"},
+                               "scope": "PM workflow output"},
             })
     return cases
 

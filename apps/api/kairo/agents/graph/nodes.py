@@ -706,8 +706,6 @@ async def persist(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     user, thread = _ids(cfg)
     memory = get_working_memory(user, thread, cfg.data_dir)
     receipts = state.get("receipts", [])
-    if receipts:
-        memory.invalidate_pm_cache()
     memory.add_turn("user", state["message"])
     # The models read the draft next turn and the user reads the reply. The two say the same thing, and
     # keeping the draft here means how a reply was worded can never change what a model decides later.

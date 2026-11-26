@@ -465,12 +465,9 @@ async def pm_stream(req: PMChatRequest, request: Request):
 async def orchestrator_stream(req: PMChatRequest, request: Request):
     user = require_user(request)
     _rate_limit(request, user)
-    from kairo.agents.graph import astream_graph, graph_enabled
+    from kairo.agents.graph import astream_graph
     from kairo.agents.config import OrchestratorConfig
-    from kairo.agents.orchestrator.agent import astream_orchestrator
     from kairo.storage.user_store import ThreadOwnershipError, ensure_thread
-    # Web chat runs on the agent graph. KAIRO_AGENT=legacy switches back to the previous assistant.
-    stream_turn = astream_graph if graph_enabled() else astream_orchestrator
     thread_id = normalize_pm_session_id(req.session_id)
     # Register the thread in users.db
     try:
@@ -522,7 +519,7 @@ async def orchestrator_stream(req: PMChatRequest, request: Request):
 
     async def _turn_events():
         """(stream line, reply text it adds) for each event of the turn."""
-        async for kind, value in stream_turn(req.message, config):
+        async for kind, value in astream_graph(req.message, config):
             if kind == "progress":
                 yield turns.sse({"progress": value}), ""
             elif kind == "token":

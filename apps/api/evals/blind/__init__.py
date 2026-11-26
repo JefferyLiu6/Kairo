@@ -2,7 +2,7 @@
 Blind eval: un-coached messages scored by what ends up stored.
 
     python -m evals.blind --path pm             offline typed workflow, no model
-    python -m evals.blind --path orchestrator   the web-chat path, needs model credentials
+    python -m evals.blind --path graph          the web-chat path, needs model credentials
 
 The set (tests/fixtures/blind_eval_set.json) is ten personas typing the way
 people text, 85 turns in all. Each turn says what should be in storage

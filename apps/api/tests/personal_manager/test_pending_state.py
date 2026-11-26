@@ -4,13 +4,9 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-import kairo.agents.orchestrator.agent as orch
 from kairo.agents.personal_manager.application import clarification as c
-from kairo.agents.personal_manager.application.pending_reply import still_open_reply
-from kairo.agents.personal_manager.application.todo_selection import remember_todo_list
-from kairo.core.domain.pending import PENDING_MODES, ConfirmationPending, DisambiguationPending, FieldChoicesPending, FreeformPending, PlanPending, TodoListPending, parse_pending
+from kairo.core.domain.pending import PENDING_MODES, ConfirmationPending, DisambiguationPending, FieldChoicesPending, FreeformPending, PlanPending, parse_pending
 from kairo.core.domain.types import PMIntent, PMPlanExtraction, PMTaskExtraction
-from kairo.storage.store import TodoData, TodoItem, save_todos
 from kairo.storage.working_memory import list_working_memory, load_active_working_memory, save_working_memory
 
 THREAD = "pm-pending"
@@ -78,27 +74,3 @@ def test_a_corrupt_row_ends_the_question_instead_of_crashing(tmp_path, caplog):
     assert c._load_pending(THREAD, str(tmp_path)) is None
     assert "discarding invalid pending state" in caplog.text
     assert list_working_memory(THREAD, str(tmp_path))[0].status == "expired"
-
-
-def _orch_config(tmp_path):
-    return orch.OrchestratorConfig(session_id=THREAD, data_dir=str(tmp_path), provider="test",
-                                   model="test", pm_provider="test", pm_model="test")
-
-
-def test_orchestrator_sees_a_typed_question_and_lists_open_choices(tmp_path):
-    _writers(str(tmp_path))[FieldChoicesPending]()
-
-    question = orch._open_question(_orch_config(tmp_path))
-
-    assert isinstance(question.state, FieldChoicesPending) and question.id
-    reply = still_open_reply(question)
-    assert "1. Tomorrow at 9 AM" in reply and "2. Tomorrow at 2 PM" in reply
-
-
-def test_a_shown_task_list_is_not_a_question(tmp_path):
-    save_todos(TodoData(items=[TodoItem(id="t1", title="call mom")]), THREAD, str(tmp_path))
-    config = _orch_config(tmp_path)
-    assert remember_todo_list(config, THREAD, THREAD, "## Todos\n- [ ] [t1] call mom")
-
-    assert isinstance(c.load_pending_state(THREAD, str(tmp_path)), TodoListPending)
-    assert orch._open_question(config) is None

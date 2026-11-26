@@ -23,8 +23,6 @@ def checks(output):
         ('quality_contract', [python, '-m', 'evals.judge_eval',
                               '--repeats', '2', '--max-calls', '32',
                               '--output', str(output / 'quality.json')]),
-        ('runtime_contract', [python, '-m', 'evals.runtime_eval',
-                              '--output', str(output / 'runtime.json')]),
     ]
 
 

@@ -29,12 +29,10 @@
   completing a task from the task list in the web app.
 - The blind eval uses simulated personas. Real users' messages are the test
   that has not been run.
-- The previous orchestrator and workflow are still in the repo. They answer
-  web chat under `KAIRO_AGENT=legacy` and still serve
-  `/personal-manager/chat` and `/personal-manager/stream`; the offline
-  252-case suite covers them, not the graph.
+- The typed workflow that came before the graph is still in the repo. It
+  serves `/personal-manager/chat` and `/personal-manager/stream`, which the web
+  app does not call; the offline 252-case suite covers it, not the graph.
 - The schedule tools reuse the existing Google Calendar references, but the
   graph has not been run against a connected Google account.
 - The learning loop is narrow: mostly time-window preferences on the previous
   path, not broad behavioral modeling.
-- Legacy workspace/terminal routes should remain disabled in public deployments.

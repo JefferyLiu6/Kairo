@@ -1,9 +1,8 @@
-"""Orchestrator conversation context survives restarts (Phase 4d)."""
+"""A thread's recent turns survive a restart and stay with their thread and user."""
 from __future__ import annotations
 
 import pytest
 
-import kairo.agents.orchestrator.agent as orch
 from kairo.agents import conversation_memory as memory
 from kairo.storage.control_store import delete_thread_data, list_orchestrator_turns
 
@@ -22,7 +21,6 @@ def test_turns_are_restored_after_a_restart(tmp_path, monkeypatch):
     wm = memory.get_working_memory("user-1", "pm-thread", str(tmp_path))
     wm.add_turn("user", "I'm planning a trip to Lisbon")
     wm.add_turn("assistant", "Nice, when are you going?")
-    wm.cache_pm("schedule", "cached snapshot")
 
     _restart(monkeypatch)
     again = memory.get_working_memory("user-1", "pm-thread", str(tmp_path))
@@ -31,7 +29,6 @@ def test_turns_are_restored_after_a_restart(tmp_path, monkeypatch):
         {"role": "user", "content": "I'm planning a trip to Lisbon"},
         {"role": "assistant", "content": "Nice, when are you going?"},
     ]
-    assert again.get_cached_pm("schedule") is None  # the cache is in-process by design
 
 
 def test_only_the_newest_turns_are_kept(tmp_path, monkeypatch):
@@ -51,7 +48,7 @@ def test_threads_and_users_do_not_share_context(tmp_path):
     assert memory.get_working_memory("user-2", "pm-a", str(tmp_path)).turns == []
 
 
-def test_deleting_a_thread_deletes_its_orchestrator_turns(tmp_path, monkeypatch):
+def test_deleting_a_thread_deletes_its_turns(tmp_path, monkeypatch):
     memory.get_working_memory("user-1", "pm-a", str(tmp_path)).add_turn("user", "forget me")
     memory.get_working_memory("user-1", "pm-b", str(tmp_path)).add_turn("user", "keep me")
 
@@ -60,17 +57,3 @@ def test_deleting_a_thread_deletes_its_orchestrator_turns(tmp_path, monkeypatch)
     _restart(monkeypatch)
     assert memory.get_working_memory("user-1", "pm-a", str(tmp_path)).turns == []
     assert memory.get_working_memory("user-1", "pm-b", str(tmp_path)).turns[0]["content"] == "keep me"
-
-
-def test_a_real_turn_is_in_the_prompt_context_after_a_restart(tmp_path, monkeypatch):
-    config = orch.OrchestratorConfig(user_id="user-1", session_id="pm-thread", data_dir=str(tmp_path),
-                                     provider="test", model="test", pm_provider="test", pm_model="test")
-    monkeypatch.setattr(orch, "_route", lambda *_a, **_k: False)
-    monkeypatch.setattr(orch, "_direct_reply", lambda *_a, **_k: "Lisbon in May sounds lovely.")
-    orch.run_orchestrator("I'm going to Lisbon in May", config)
-
-    _restart(monkeypatch)
-    context = memory.build_memory_context(config.user_id, config.session_id, str(tmp_path), config.data_dir)
-
-    assert "User: I'm going to Lisbon in May" in context
-    assert "Assistant: Lisbon in May sounds lovely." in context

@@ -28,18 +28,21 @@ One backend test: `cd apps/api && uv run pytest tests/graph/test_graph_turns.py 
   needs the user's approval goes through the approval flow.
 - **Stores** are in `kairo/storage/`. Per-user data lives under
   `data/users/<user_id>/`; get the directory from `pm_dir`.
+- **"Orchestrator" now means web chat.** The component of that name was removed,
+  but the name is in the route (`/orchestrator/stream`), in stored data (the
+  `orchestrator_turns` table, the `orchestrator` label in the decision log) and
+  in the code that reads and writes them (`OrchestratorConfig`,
+  `log_orchestrator_turn`). Do not add new names with it.
 
 ## Do not extend
 
-These are kept until the previous chat path is retired. Fix bugs in them; add no
-features and do not copy their patterns into new code.
+Fix bugs in these; add no features and do not copy their patterns into new
+code.
 
-- `kairo/agents/orchestrator/` and the typed workflow in
-  `kairo/agents/personal_manager/` (`agent.py`, `workflow.py`, most of
-  `application/` and `extractors/`). This is the previous chat path, reached
-  with `KAIRO_AGENT=legacy` and through `/personal-manager/chat` and
-  `/personal-manager/stream`. The graph imports nothing from it, and a test
-  keeps it that way: what both paths need lives in `kairo/agents/approvals/`,
+- The typed workflow in `kairo/agents/personal_manager/`. It came before the
+  graph, serves `/personal-manager/chat` and `/personal-manager/stream`, and is
+  what the offline suite runs. The graph imports nothing from it, and a test
+  keeps it that way: what both need lives in `kairo/agents/approvals/`,
   `kairo/agents/config.py` and `kairo/agents/conversation_memory.py`.
 - The schedule functions in `kairo/storage/store.py` that take a JSON string and
   return an `"OK: …"` or `"Error: …"` string (`schedule_add`, `schedule_update`

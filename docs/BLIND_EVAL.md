@@ -12,15 +12,14 @@ is the measure every Kairo 2.0 step is judged against
 
 ```bash
 make eval-blind                      # offline typed workflow, no model, about a second
-make eval-blind path=orchestrator    # the web-chat path; calls the configured model
-make eval-blind path=graph           # the 2.0 agent graph (KAIRO_AGENT=graph); calls the configured model
+make eval-blind path=graph           # the web-chat path, the agent graph; calls the configured model
 ```
 
 or, from `apps/api`:
 
 ```bash
 python -m evals.blind --path pm
-python -m evals.blind --path orchestrator --usd-in 0.15 --usd-out 0.60   # also report cost
+python -m evals.blind --path graph --usd-in 0.15 --usd-out 0.60          # also report cost
 python -m evals.blind --path pm --scenario 01_freelancer --no-save
 python -m evals.blind --path pm --gate                                    # exit 1 if the bar is missed
 ```
@@ -29,8 +28,12 @@ A run prints a summary and writes the full report (every turn, reply, outcome
 and reason) to `artifacts/blind/<path>-<time>.json`. Reports are never
 overwritten. `artifacts/` is git-ignored.
 
-The orchestrator and graph paths read model credentials from `apps/api/.env` the
+The graph path reads model credentials from `apps/api/.env` the
 same way the API does. Eval turns are never sent to LangSmith.
+
+Results below that say "orchestrator" or "previous path" are from the path web
+chat ran on before the graph. It was removed on 2026-11-26 and can no longer be
+run; its recorded runs stay in the ledger.
 
 ## What is in the set
 
@@ -745,8 +748,8 @@ model, eval set and commit that produced it. It is committed with the code and
 only ever appended to.
 
 ```bash
-make eval-blind path=orchestrator record="what changed and why"   # run and record
-make eval-history                                                  # print the ledger
+make eval-blind path=graph record="what changed and why"   # run and record
+make eval-history                                           # print the ledger
 ```
 
 - **A note is required**, so the history reads as a list of reasons.
@@ -755,8 +758,9 @@ make eval-history                                                  # print the l
 - **The prompt set** is one short hash over every prompt's version. Two runs
   with the same prompt set, model and eval set differ only by code and chance.
 - **A prompt edit is not finished until it is scored.**
-  `tests/evals/test_blind_ledger.py` fails when the current prompt set has no
-  recorded web-chat run, and says which command to run.
+  `tests/evals/test_blind_ledger.py` fails when no recorded web-chat run used
+  every current prompt at its current version, and says which command to run.
+  Removing a prompt does not need a new run.
 
 The three runs from 2026-11-12 were added from their saved reports. A fourth,
 recorded after a change that did not alter behaviour, shows how far two runs of

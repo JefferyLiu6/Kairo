@@ -140,26 +140,29 @@ class PMWorkflowPath:
         return session
 
 
-class OrchestratorPath:
-    """The previous web-chat path (KAIRO_AGENT=legacy), configured the way `/orchestrator/stream` configures it."""
+class GraphPath:
+    """The agent graph, configured the way `/orchestrator/stream` configures it. Every message is answered on it."""
 
-    name = "orchestrator"
+    name = "graph"
 
     def describe(self) -> dict[str, Any]:
+        from kairo.agents.graph.nodes import bundle_version
+
         env = load_default_llm_from_env()
         prompts = prompt_versions.current()
         return {"provider": env.get("provider"), "model": env.get("model"),
                 "pm_model": os.environ.get("PM_MODEL") or env.get("model"),
-                "prompt_set": prompt_set(prompts), "prompts": prompts,
-                "note": "mirrors kairo/api/app.py orchestrator_stream, including no memory vault"}
+                "prompt_set": prompt_set(prompts), "prompts": prompts, "bundle": bundle_version(),
+                "note": "the agent graph, as web chat runs it: mirrors kairo/api/app.py orchestrator_stream, "
+                        "including no memory vault"}
 
     def open(self, scenario_id: str, data_dir: str) -> Session:
         from kairo.agents.config import OrchestratorConfig
-        from kairo.agents.orchestrator.agent import run_orchestrator
+        from kairo.agents.graph import run_graph
 
         env = load_default_llm_from_env()
         if not env:
-            raise PathUnavailable("the orchestrator path needs model credentials "
+            raise PathUnavailable("the graph path needs model credentials "
                                   "(OPENAI_API_KEY, ANTHROPIC_API_KEY or an Ollama setting)")
         session = _KairoSession(scenario_id, data_dir, vault_in_user_dir=False)
         config = OrchestratorConfig(
@@ -169,32 +172,11 @@ class OrchestratorPath:
             pm_api_key=env.get("api_key"), pm_base_url=env.get("base_url"),
         )
         session.config = config
-        session.reply_to = lambda message: run_orchestrator(message, config)
-        return session
-
-
-class GraphPath(OrchestratorPath):
-    """The agent graph, configured like web chat. Every message is answered on it."""
-
-    name = "graph"
-
-    def describe(self) -> dict[str, Any]:
-        from kairo.agents.graph.nodes import bundle_version
-
-        return {**super().describe(), "bundle": bundle_version(),
-                "note": "the agent graph, as web chat runs it by default; nothing is handed to the orchestrator"}
-
-    def open(self, scenario_id: str, data_dir: str) -> Session:
-        from kairo.agents.graph import run_graph
-
-        session = super().open(scenario_id, data_dir)
-        config = session.config
         session.reply_to = lambda message: run_graph(message, config)
         return session
 
 
 PATHS: dict[str, Callable[[], Path]] = {
     PMWorkflowPath.name: PMWorkflowPath,
-    OrchestratorPath.name: OrchestratorPath,
     GraphPath.name: GraphPath,
 }

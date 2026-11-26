@@ -29,7 +29,7 @@ only if it says what the draft says (kairo/agents/graph/voice.py). The rewording
 is what the user reads; the models keep reading the draft. KAIRO_VOICE=off sends
 the drafts as written.
 
-Web chat runs on it by default. KAIRO_AGENT=legacy switches back to the previous assistant.
+Web chat (`/orchestrator/stream`) runs on it.
 """
 from __future__ import annotations
 
@@ -87,14 +87,9 @@ def build_graph():
 GRAPH = build_graph()
 
 
-def graph_enabled() -> bool:
-    """Whether web chat runs on the graph. It does unless KAIRO_AGENT=legacy asks for the previous assistant."""
-    return os.environ.get("KAIRO_AGENT", "").strip().lower() != "legacy"
-
-
 async def astream_graph(message: str, config: OrchestratorConfig) -> AsyncIterator[tuple[str, str]]:
-    """One turn. Yields the same ("progress" | "token" | "done", text) events as the previous assistant,
-    and before "done" one ("outcome", "acted" | "none"): whether the turn carried anything out."""
+    """One turn, as ("progress" | "token" | "done", text) events, and before "done" one
+    ("outcome", "acted" | "none"): whether the turn carried anything out."""
     if not config.vault_dir:
         # Web chat configures no memory vault. What the user asks Kairo to remember is kept in
         # their own data directory, next to everything else stored for them.

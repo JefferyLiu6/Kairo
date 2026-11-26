@@ -1,8 +1,8 @@
 # Kairo — Backend
 
 FastAPI backend for Kairo. Web chat runs on the agent graph
-(`kairo/agents/graph`); the previous orchestrator and typed workflow are still
-here and answer web chat under `KAIRO_AGENT=legacy`. For the project pitch,
+(`kairo/agents/graph`); the typed workflow that came before it is still here
+and serves `/personal-manager/chat` and `/personal-manager/stream`. For the project pitch,
 architecture and results, see the top-level [`README.md`](../../README.md),
 [`ARCHITECTURE.md`](../../ARCHITECTURE.md) and
 [`docs/BLIND_EVAL.md`](../../docs/BLIND_EVAL.md).
@@ -39,8 +39,8 @@ kairo/
 ├── api/                        # HTTP only: FastAPI app, auth, rate limits
 ├── agents/
 │   ├── graph/                  # The agent graph: nodes, state, prompts, voice pass
-│   ├── orchestrator/           # Previous path: route, translate, judge, humanize
-│   └── personal_manager/       # Approval flow and policy (shared), and the previous typed workflow
+│   ├── approvals/              # The approval gate, used by the graph and the typed workflow
+│   └── personal_manager/       # The typed workflow that came before the graph
 ├── domains/                    # What Kairo can do: registry, one module per area, checks
 │   ├── tasks.py  habits.py  journal.py      # inline: the coordinator calls their tools itself
 │   ├── schedule.py  memory.py  assistant.py # agents: each has its own prompt and tools
@@ -57,11 +57,11 @@ evals/
 ├── prompt_versions.py          # Snapshot of every prompt's version
 └── scores.jsonl                # Ledger of recorded blind-eval runs
 
-tests/                          # 1455 tests
+tests/                          # 1471 tests
 ├── graph/                      # The graph turn by turn: scripted model, real stores
 ├── domains/                    # Each domain's tools and checks
 ├── personal_manager/           # The previous workflow, including adversarial cases
-├── evals/  judge/  orchestrator/  api/  shared/  golden/
+├── evals/  judge/  api/  shared/  golden/
 └── fixtures/                   # The blind eval set, prompt-version snapshot, judge cases
 scripts/
 ├── seed_demo.py                # Populate the demo session
@@ -79,7 +79,7 @@ With a provider key in `.env`, a few tests of the previous workflow call the
 model and can fail on its answers. CI runs without a key.
 
 A prompt edit changes the prompt set; `tests/evals/test_blind_ledger.py` fails
-until a blind-eval run is recorded for it (`make eval-blind path=orchestrator
+until a blind-eval run is recorded for it (`make eval-blind path=graph
 record="what changed and why"`) and `make prompt-versions` has updated the
 snapshot.
 
