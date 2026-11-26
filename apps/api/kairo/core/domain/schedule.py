@@ -18,13 +18,6 @@ class GoogleCalendarRef(BaseModel):
     start: str = ""
     end: str = ""
 
-    @classmethod
-    def from_legacy(cls, value: dict[str, Any]) -> "GoogleCalendarRef":
-        return cls.model_validate(value)
-
-    def to_legacy(self) -> dict[str, Any]:
-        return self.model_dump(mode="json", by_alias=True)
-
 
 class ScheduleQuery(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -57,14 +50,6 @@ class ScheduleTarget(BaseModel):
     occurrence_date: str = ""
     google: Optional[GoogleCalendarRef] = None
 
-    @property
-    def legacy_id(self) -> str:
-        return self.id
-
-    @property
-    def legacy_title(self) -> str:
-        return self.title
-
 
 class ScheduleResolution(BaseModel):
     ok: bool
@@ -73,29 +58,17 @@ class ScheduleResolution(BaseModel):
 
     @property
     def ids(self) -> list[str]:
-        return [target.legacy_id for target in self.targets]
+        return [target.id for target in self.targets]
 
     @property
     def titles(self) -> list[str]:
-        return [target.legacy_title for target in self.targets]
+        return [target.title for target in self.targets]
 
     @property
     def google_events(self) -> list[dict[str, Any]]:
+        """The Google events behind the targets, in the form a command payload carries them."""
         return [
-            target.google.to_legacy()
+            target.google.model_dump(mode="json", by_alias=True)
             for target in self.targets
             if target.google is not None
         ]
-
-    def to_legacy(self) -> dict[str, Any]:
-        if not self.ok:
-            return {"ok": False, "message": self.message}
-        payload: dict[str, Any] = {
-            "ok": True,
-            "ids": self.ids,
-            "titles": self.titles,
-        }
-        google_events = self.google_events
-        if google_events:
-            payload["googleEvents"] = google_events
-        return payload

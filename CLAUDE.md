@@ -40,9 +40,11 @@ features and do not copy their patterns into new code.
   with `KAIRO_AGENT=legacy` and through `/personal-manager/chat` and
   `/personal-manager/stream`. The graph still uses its approval flow, pending
   replies and working memory.
-- `to_legacy()` and the `legacy_*()` methods on the commands in
-  `kairo/core/domain/`. They turn a typed command back into a dict. A new
-  executor takes the typed command.
+- The schedule functions in `kairo/storage/store.py` that take a JSON string and
+  return an `"OK: …"` or `"Error: …"` string (`schedule_add`, `schedule_update`
+  and the rest). They began as model tools. An executor reads the typed command
+  and converts with `_plain` only to call them; a new store function takes and
+  returns typed values.
 
 ## Conventions
 

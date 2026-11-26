@@ -6,6 +6,7 @@ from typing import Any
 
 from kairo.tools.calendar.service import CalendarService, is_google_calendar_connected
 from kairo.storage.calendar_store import mark_mirror_deleted
+from kairo.core.domain.commands import GoogleCalendarRefCommand
 from kairo.core.domain.schedule import GoogleCalendarRef, ScheduleResolution, ScheduleTarget
 from kairo.utils.parsing.text import _norm
 from kairo.storage.store import load_schedule
@@ -118,10 +119,6 @@ def resolve_schedule_targets(session_id: str, data_dir: str, payload: dict[str, 
     return ScheduleResolution(ok=True, targets=targets)
 
 
-def _resolve_schedule_refs(session_id: str, data_dir: str, payload: dict[str, Any]) -> dict[str, Any]:
-    return resolve_schedule_targets(session_id, data_dir, payload).to_legacy()
-
-
 def _local_schedule_target(event: Any, payload: dict[str, Any]) -> ScheduleTarget:
     occurrence_date = str(payload.get("original_date") or payload.get("skip_date") or "")
     recurrence = event.recurrence
@@ -144,7 +141,7 @@ def _local_schedule_target(event: Any, payload: dict[str, Any]) -> ScheduleTarge
 
 
 def _google_schedule_target(ref: dict[str, Any], payload: dict[str, Any]) -> ScheduleTarget:
-    google = GoogleCalendarRef.from_legacy(ref)
+    google = GoogleCalendarRef.model_validate(ref)
     return ScheduleTarget(
         kind="google_mirror",
         id=google.id,
@@ -206,11 +203,11 @@ def _matching_google_schedule_refs(session_id: str, data_dir: str, payload: dict
     return matches
 
 
-def _google_delete_targets_for_events(events: list[dict[str, Any]]) -> list[str]:
+def _google_delete_targets_for_events(events: list[GoogleCalendarRefCommand]) -> list[str]:
     targets: list[str] = []
     seen: set[str] = set()
     for event in events:
-        provider_event_id = str(event.get("recurringEventId") or event.get("providerEventId") or "")
+        provider_event_id = event.recurring_event_id or event.provider_event_id
         if not provider_event_id or provider_event_id in seen:
             continue
         seen.add(provider_event_id)
@@ -218,17 +215,15 @@ def _google_delete_targets_for_events(events: list[dict[str, Any]]) -> list[str]
     return targets
 
 
-def _hide_google_mirror_refs(session_id: str, data_dir: str, events: list[dict[str, Any]]) -> None:
+def _hide_google_mirror_refs(session_id: str, data_dir: str, events: list[GoogleCalendarRefCommand]) -> None:
     for event in events:
-        account_id = str(event.get("accountId") or "")
-        provider_event_id = str(event.get("providerEventId") or "")
-        if not account_id or not provider_event_id:
+        if not event.account_id or not event.provider_event_id:
             continue
         mark_mirror_deleted(
             session_id,
             data_dir,
-            account_id=account_id,
-            provider_event_id=provider_event_id,
+            account_id=event.account_id,
+            provider_event_id=event.provider_event_id,
         )
 
 
@@ -259,7 +254,6 @@ def _split_calendar_ref_when(value: str) -> tuple[str, str]:
 
 __all__ = [
     "resolve_schedule_targets",
-    "_resolve_schedule_refs",
     "_google_delete_targets_for_events",
     "_hide_google_mirror_refs",
     "_google_event_ref",

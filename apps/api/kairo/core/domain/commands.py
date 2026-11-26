@@ -1,7 +1,7 @@
-"""Typed PM action payloads with legacy dict-compatible serialization."""
+"""Typed PM action payloads."""
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -42,9 +42,6 @@ class ScheduleEntryCommand(_CommandModel):
     end: str = ""
     notes: str = ""
 
-    def to_legacy(self) -> dict[str, Any]:
-        return self.model_dump(mode="json", by_alias=True)
-
 
 class ScheduleUpdatePatchCommand(_CommandModel):
     id: str
@@ -53,9 +50,6 @@ class ScheduleUpdatePatchCommand(_CommandModel):
     start: Optional[str] = None
     end: Optional[str] = None
     notes: Optional[str] = None
-
-    def to_legacy(self) -> dict[str, Any]:
-        return self.model_dump(mode="json", by_alias=True, exclude_none=True, exclude_unset=True)
 
 
 class OccurrenceOverrideCommand(_CommandModel):
@@ -73,9 +67,6 @@ class OccurrenceOverrideCommand(_CommandModel):
             raise ValueError("schedule occurrence override requires original_date")
         return value
 
-    def to_legacy(self) -> dict[str, Any]:
-        return self.model_dump(mode="json", by_alias=True, exclude_none=True, exclude_unset=True)
-
 
 class ScheduleAddCommand(_CommandModel):
     entries: list[ScheduleEntryCommand]
@@ -86,9 +77,6 @@ class ScheduleAddCommand(_CommandModel):
         if not value:
             raise ValueError("schedule_add requires at least one entry")
         return value
-
-    def legacy_entries(self) -> list[dict[str, Any]]:
-        return [entry.to_legacy() for entry in self.entries]
 
 
 class GoogleCalendarRefCommand(_CommandModel):
@@ -119,12 +107,6 @@ class ScheduleUpdateCommand(_CommandModel):
             raise ValueError("schedule_update requires at least one update")
         return value
 
-    def legacy_updates(self) -> list[dict[str, Any]]:
-        return [update.to_legacy() for update in self.updates]
-
-    def legacy_google_events(self) -> list[dict[str, Any]]:
-        return [event.model_dump(mode="json", by_alias=True) for event in self.google_events]
-
 
 class ScheduleRemoveCommand(_CommandModel):
     ids: list[str]
@@ -137,9 +119,6 @@ class ScheduleRemoveCommand(_CommandModel):
             raise ValueError("schedule_remove requires at least one id")
         return value
 
-    def legacy_google_events(self) -> list[dict[str, Any]]:
-        return [event.model_dump(mode="json", by_alias=True) for event in self.google_events]
-
 
 class ScheduleSkipOccurrenceCommand(_CommandModel):
     series_id: str
@@ -149,9 +128,6 @@ class ScheduleSkipOccurrenceCommand(_CommandModel):
 class ScheduleModifyOccurrenceCommand(_CommandModel):
     series_id: str
     override: OccurrenceOverrideCommand
-
-    def legacy_override(self) -> dict[str, Any]:
-        return self.override.to_legacy()
 
 
 class ScheduleCancelSeriesFromCommand(_CommandModel):

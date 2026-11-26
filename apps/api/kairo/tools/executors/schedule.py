@@ -7,18 +7,18 @@ from datetime import date, timedelta
 from typing import Any, Optional
 
 from kairo.tools.calendar.service import CalendarService, CalendarWriteUnavailableError, is_google_calendar_connected
-from kairo.core.domain.commands import ScheduleAddCommand, ScheduleCancelSeriesFromCommand, ScheduleModifyOccurrenceCommand, ScheduleRemoveCommand, ScheduleSkipOccurrenceCommand, ScheduleUpdateCommand
+from kairo.core.domain.commands import GoogleCalendarRefCommand, ScheduleAddCommand, ScheduleCancelSeriesFromCommand, ScheduleEntryCommand, ScheduleModifyOccurrenceCommand, ScheduleRemoveCommand, ScheduleSkipOccurrenceCommand, ScheduleUpdateCommand, ScheduleUpdatePatchCommand
 from kairo.utils.parsing.datetime import _default_end_time
 from kairo.storage.store import expand_series, load_schedule, schedule_add, schedule_add_exception, schedule_add_override, schedule_cancel_series_from, schedule_remove, schedule_update
 from kairo.utils.formatters import _format_date_natural, _format_event_duration, _format_schedule_add_reply, _format_time_natural
 from kairo.tools.resolvers.schedule import _google_delete_targets_for_events, _google_event_ref, _hide_google_mirror_refs
 from kairo.core.domain.types import PMAction
-from kairo.tools.executors.common import _result
+from kairo.tools.executors.common import _plain, _result
 
 
 # ── Conflict detection ────────────────────────────────────────────────────────
 
-def _find_schedule_conflicts(new_entries: list[dict], session_id: str, data_dir: str) -> list[str]:
+def _find_schedule_conflicts(new_entries: list[ScheduleEntryCommand], session_id: str, data_dir: str) -> list[str]:
     """Return human-readable descriptions of time overlaps between new entries and existing events."""
     if is_google_calendar_connected(session_id, data_dir):
         return _find_google_schedule_conflicts(new_entries, session_id, data_dir)
@@ -28,10 +28,8 @@ def _find_schedule_conflicts(new_entries: list[dict], session_id: str, data_dir:
         return []
     conflicts: list[str] = []
     for new in new_entries:
-        n_date = new.get("date") or ""
-        n_start = new.get("start") or ""
-        n_end = new.get("end") or ""
-        n_title = new.get("title") or "New event"
+        n_date, n_start, n_end = new.date, new.start, new.end
+        n_title = new.title or "New event"
         if not n_start or not n_end:
             continue
         for ex in existing:
@@ -44,17 +42,15 @@ def _find_schedule_conflicts(new_entries: list[dict], session_id: str, data_dir:
     return conflicts
 
 
-def _find_google_schedule_conflicts(new_entries: list[dict], session_id: str, data_dir: str) -> list[str]:
+def _find_google_schedule_conflicts(new_entries: list[ScheduleEntryCommand], session_id: str, data_dir: str) -> list[str]:
     try:
         existing = [_google_event_ref(event) for event in CalendarService(session_id, data_dir).list_events(limit=1000)]
     except Exception:
         return []
     conflicts: list[str] = []
     for new in new_entries:
-        n_date = new.get("date") or ""
-        n_start = new.get("start") or ""
-        n_end = new.get("end") or ""
-        n_title = new.get("title") or "New event"
+        n_date, n_start, n_end = new.date, new.start, new.end
+        n_title = new.title or "New event"
         if not n_date or not n_start or not n_end:
             continue
         for ex in existing:
@@ -183,7 +179,7 @@ def _format_google_schedule_list(session_id: str, data_dir: str) -> str:
 
 # ── Google write helpers ──────────────────────────────────────────────────────
 
-def _schedule_entries_can_write_google(entries: list[dict], session_id: str, data_dir: str) -> bool:
+def _schedule_entries_can_write_google(entries: list[ScheduleEntryCommand], session_id: str, data_dir: str) -> bool:
     if not entries:
         return False
     try:
@@ -192,10 +188,9 @@ def _schedule_entries_can_write_google(entries: list[dict], session_id: str, dat
     except Exception:
         return False
     for entry in entries:
-        has_recurrence = entry.get("recurrence") is not None
-        if not entry.get("start") or not entry.get("end"):
+        if not entry.start or not entry.end:
             return False
-        if not has_recurrence and not entry.get("date"):
+        if entry.recurrence is None and not entry.date:
             return False
     return True
 
@@ -212,10 +207,11 @@ def _format_google_schedule_add_reply(entries: list[dict]) -> str:
     return base + "\nSaved to Google Calendar."
 
 
-def _google_patch_from_update(patch: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
-    out = {k: v for k, v in patch.items() if k != "id" and v is not None}
+def _google_patch_from_update(patch: ScheduleUpdatePatchCommand, target: GoogleCalendarRefCommand) -> dict[str, Any]:
+    """What to send Google for `patch`: the fields it sets, plus the date and end time Google needs with a time."""
+    out = {k: v for k, v in _plain(patch, set_fields_only=True).items() if k != "id"}
     if ("start" in out or "end" in out) and "date" not in out:
-        out["date"] = target.get("date") or ""
+        out["date"] = target.date
     if "start" in out and "end" not in out:
         out["end"] = _default_end_time(out["start"])
     return out
@@ -226,9 +222,10 @@ def _google_patch_from_update(patch: dict[str, Any], target: dict[str, Any]) -> 
 def execute_schedule_action(action: PMAction, session_id: str, data_dir: str) -> dict[str, Any] | None:
     if action.action_type == "schedule_add":
         command = ScheduleAddCommand.model_validate(action.payload)
-        entries = command.legacy_entries()
-        conflicts = _find_schedule_conflicts(entries, session_id, data_dir)
-        if _schedule_entries_can_write_google(entries, session_id, data_dir):
+        conflicts = _find_schedule_conflicts(command.entries, session_id, data_dir)
+        # The store, the calendar service and the reply text all take an entry as it is stored.
+        entries = [_plain(entry) for entry in command.entries]
+        if _schedule_entries_can_write_google(command.entries, session_id, data_dir):
             try:
                 created = _write_schedule_entries_to_google(entries, session_id, data_dir)
             except CalendarWriteUnavailableError:
@@ -249,16 +246,13 @@ def execute_schedule_action(action: PMAction, session_id: str, data_dir: str) ->
         return _result(store_msg)
     if action.action_type == "schedule_update":
         command = ScheduleUpdateCommand.model_validate(action.payload)
-        google_events = command.legacy_google_events()
-        if google_events:
-            updates = command.legacy_updates()
+        if command.google_events:
             try:
-                for target, patch in zip(google_events, updates):
-                    provider_event_id = target.get("providerEventId")
-                    if not provider_event_id:
+                for target, patch in zip(command.google_events, command.updates):
+                    if not target.provider_event_id:
                         continue
                     CalendarService(session_id, data_dir).update_google_event(
-                        provider_event_id,
+                        target.provider_event_id,
                         _google_patch_from_update(patch, target),
                     )
             except CalendarWriteUnavailableError as exc:
@@ -266,24 +260,23 @@ def execute_schedule_action(action: PMAction, session_id: str, data_dir: str) ->
             except Exception as exc:
                 return _result(f"I couldn't update Google Calendar: {exc}")
             return _result("Done! Updated it in Google Calendar.")
-        raw = schedule_update(json.dumps(command.legacy_updates()), session_id, data_dir)
+        updates = [_plain(patch, set_fields_only=True) for patch in command.updates]
+        raw = schedule_update(json.dumps(updates), session_id, data_dir)
         if raw.startswith("Error"):
             return _result(raw)
-        updates = command.legacy_updates()
-        if updates:
-            patch = updates[0]
-            parts: list[str] = []
-            if patch.get("start"):
-                parts.append(f"to {_format_time_natural(patch['start'])}")
-            if patch.get("date"):
-                parts.append(f"on {_format_date_natural(patch['date']) or patch['date']}")
-            if parts:
-                return _result(f"Done! Moved it {' '.join(parts)}.")
-        return _result(f"Updated {len(updates)} event(s).")
+        patch = command.updates[0]
+        parts: list[str] = []
+        if patch.start:
+            parts.append(f"to {_format_time_natural(patch.start)}")
+        if patch.date:
+            parts.append(f"on {_format_date_natural(patch.date) or patch.date}")
+        if parts:
+            return _result(f"Done! Moved it {' '.join(parts)}.")
+        return _result(f"Updated {len(command.updates)} event(s).")
     if action.action_type == "schedule_remove":
         command = ScheduleRemoveCommand.model_validate(action.payload)
         ids = command.ids
-        google_events = command.legacy_google_events()
+        google_events = command.google_events
         if google_events:
             try:
                 service = CalendarService(session_id, data_dir)
@@ -295,7 +288,7 @@ def execute_schedule_action(action: PMAction, session_id: str, data_dir: str) ->
             except Exception as exc:
                 return _result(f"I couldn't update Google Calendar: {exc}")
             if len(google_events) == 1:
-                return _result(f"Removed '{google_events[0].get('title')}' from Google Calendar.")
+                return _result(f"Removed '{google_events[0].title}' from Google Calendar.")
             return _result(f"Removed {len(google_events)} events from Google Calendar.")
         titles: list[str] = []
         try:
@@ -325,20 +318,20 @@ def execute_schedule_action(action: PMAction, session_id: str, data_dir: str) ->
         return _result(f"Skipping {skip_when}, keeping the rest of the series.")
     if action.action_type == "schedule_add_override":
         command = ScheduleModifyOccurrenceCommand.model_validate(action.payload)
-        override = command.legacy_override()
+        override = command.override
         raw = schedule_add_override(
             command.series_id,
-            override,
+            _plain(override, set_fields_only=True),
             session_id,
             data_dir,
         )
         if raw.startswith("Error"):
             return _result(raw)
-        parts: list[str] = []
-        if override.get("start"):
-            parts.append(f"to {_format_time_natural(override['start'])}")
-        if override.get("original_date"):
-            parts.append(f"on {_format_date_natural(override['original_date']) or override['original_date']}")
+        parts = []
+        if override.start:
+            parts.append(f"to {_format_time_natural(override.start)}")
+        if override.original_date:
+            parts.append(f"on {_format_date_natural(override.original_date) or override.original_date}")
         return _result(f"Moved just that one {' '.join(parts)}." if parts else "Updated that occurrence.")
     if action.action_type == "schedule_cancel_series_from":
         command = ScheduleCancelSeriesFromCommand.model_validate(action.payload)
