@@ -90,8 +90,7 @@ flowchart TB
 Web chat (`/orchestrator/stream`) now runs on the [agent graph](#agent-graph-the-web-chat-path)
 by default. This section describes the path it replaced, which still answers
 web chat when `KAIRO_AGENT=legacy` is set and still serves the older
-`/personal-manager/chat` and `/personal-manager/stream` endpoints and the demo
-`/chat/stream` route.
+`/personal-manager/chat` and `/personal-manager/stream` endpoints.
 
 ```mermaid
 flowchart TD

@@ -46,22 +46,6 @@ def record_usage(session_id: str, data_dir: str, prompt: int, completion: int) -
             json.dump(data, f, indent=2)
 
 
-def list_all_usage(data_dir: str) -> list[dict]:
-    usage_dir = os.path.join(data_dir, "usage")
-    if not os.path.isdir(usage_dir):
-        return []
-    results: list[dict] = []
-    for fname in sorted(os.listdir(usage_dir)):
-        if not fname.endswith(".json"):
-            continue
-        try:
-            with open(os.path.join(usage_dir, fname), encoding="utf-8") as f:
-                results.append(json.load(f))
-        except Exception:
-            pass
-    return results
-
-
 # ── LangChain callback ────────────────────────────────────────────────────────
 
 class UsageTracker(BaseCallbackHandler):

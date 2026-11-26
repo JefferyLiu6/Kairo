@@ -26,13 +26,13 @@ test('a retry after a dropped stream sends the same idempotency key, and the nex
     return call === 1 ? sse('{"token":"Added "}') : sse('{"token":"Added task."}', '[DONE]');
   });
 
-  const reply = await api.streamChat('buy milk', 'pm-1', () => {}, undefined, undefined, 'personal-manager');
+  const reply = await api.streamChat('buy milk', 'pm-1', () => {});
   assert.equal(reply, 'Added task.');
   assert.equal(keys.length, 2);
   assert.ok(keys[0] && keys[0].length >= 32);
   assert.equal(keys[1], keys[0]);
 
-  await api.streamChat('call mom', 'pm-1', () => {}, undefined, undefined, 'personal-manager');
+  await api.streamChat('call mom', 'pm-1', () => {});
   assert.notEqual(keys[2], keys[0]);
 });
 

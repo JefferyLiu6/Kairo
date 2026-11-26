@@ -165,7 +165,6 @@ function MainApp() {
             setAgentActivity(status);
             setProgressSteps((prev) => [...prev, status]);
           },
-          "personal-manager",
           resetAssistantMsg,
         );
         await refreshUser();

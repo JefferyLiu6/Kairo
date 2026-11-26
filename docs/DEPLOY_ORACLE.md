@@ -177,8 +177,6 @@ Optional deploy flags:
 | `AUTH_DEMO_RATE_LIMIT_RPM` / `AUTH_DEMO_RATE_LIMIT_DAILY` | `2` / `25` | Public demo-account creation limits by IP |
 | `AUTH_LOGIN_EMAIL_LIMIT_15M` | `5` | Login attempts per email hash per 15 minutes |
 | `TRUST_PROXY_HEADERS` | `false` | Trust `CF-Connecting-IP` / `X-Forwarded-For` only behind a trusted proxy |
-| `ENABLE_DEMO_WEB_ROUTES` | `0` | Enables legacy local workspace/terminal demo routes only when explicitly set |
-| `GATEWAY_TOKEN` | unset | Required only if legacy demo web routes are enabled |
 | `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` | unset | Enables Google Calendar OAuth |
 | `GOOGLE_CALENDAR_REDIRECT_URI` | derived from `PUBLIC_URL` | Override OAuth callback URL |
 
@@ -193,8 +191,6 @@ Data storage:
   accepted chat turn consumes one account credit.
 - The Vercel deployment proxies `/api/*` to the backend through
   `apps/web/vercel.json`. This keeps auth cookies first-party on mobile browsers.
-- Workspace file editing/running endpoints are legacy local-development routes.
-  Keep `ENABLE_DEMO_WEB_ROUTES=0` for an internet-facing portfolio demo.
 - These stores are intentionally gitignored and should be backed up or destroyed
   according to the sensitivity of the demo data.
 

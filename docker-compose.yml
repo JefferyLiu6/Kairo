@@ -19,9 +19,6 @@ services:
       COOKIE_SECURE: "${COOKIE_SECURE:-true}"
       COOKIE_SAMESITE: "${COOKIE_SAMESITE:-none}"
       CORS_ORIGINS: "${CORS_ORIGINS:?Set CORS_ORIGINS to your frontend origin}"
-      ENABLE_DEMO_WEB_ROUTES: "${ENABLE_DEMO_WEB_ROUTES:-0}"
-      # Optional legacy token, used only when ENABLE_DEMO_WEB_ROUTES=1.
-      GATEWAY_TOKEN: "${GATEWAY_TOKEN:-}"
 
       # Account email and encrypted authenticator seeds.
       AUTH_EMAIL_PROVIDER: "${AUTH_EMAIL_PROVIDER:-smtp}"

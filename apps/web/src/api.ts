@@ -201,8 +201,6 @@ export async function streamChat(
   onToken: (token: string) => void,
   signal?: AbortSignal,
   onProgress?: (status: string) => void,
-  /** Generic chat vs Kairo streaming (same SSE + tool progress). */
-  streamMode: "chat" | "personal-manager" = "chat",
   /** Called before a retry attempt so the UI can clear any partial content. */
   onRetry?: () => void,
 ): Promise<string> {
@@ -230,11 +228,10 @@ export async function streamChat(
 
     let caughtError: unknown;
     try {
-      const endpoint = streamMode === "personal-manager" ? "/orchestrator/stream" : "/chat/stream";
-      const res = await apiFetch(endpoint, {
+      const res = await apiFetch("/orchestrator/stream", {
         method: "POST",
         headers,
-        body: JSON.stringify({ message, session_id: sessionId, mode: streamMode }),
+        body: JSON.stringify({ message, session_id: sessionId }),
         signal,
       });
 

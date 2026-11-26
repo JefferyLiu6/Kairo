@@ -18,9 +18,6 @@ Kairo now uses real user accounts instead of anonymous demo sessions.
 - User data lives under `data/users/<user_id>/`.
 - Thread metadata lives in the `chat_threads` table.
 
-The old shared `GATEWAY_TOKEN` model is no longer the normal public app
-authentication boundary.
-
 ## Ownership and Isolation
 
 Kairo separates account-owned data from thread-owned conversation state.
@@ -163,22 +160,6 @@ Kairo uses a simple account-level credit system to control public-demo cost.
 Credits are stored on the user row in `users.db`. This is demo cost control, not
 a billing system.
 
-## Legacy Development Routes
-
-The legacy `demo_web` router contains workspace and terminal routes intended for
-local/private development. It is disabled by default.
-
-Production deployments should use:
-
-```env
-ENABLE_DEMO_WEB_ROUTES=0
-```
-
-If the legacy router is explicitly enabled, it requires a non-empty
-`GATEWAY_TOKEN` and fails closed when the token is missing. Do not enable these
-routes on a public deployment unless the environment is intentionally private and
-protected.
-
 ## Approval Gates
 
 State-changing actions are planned as typed `PMAction` objects and passed
@@ -273,7 +254,6 @@ details should stay out of responses.
 For a public portfolio deployment, use this baseline:
 
 ```env
-ENABLE_DEMO_WEB_ROUTES=0
 COOKIE_SECURE=true
 COOKIE_SAMESITE=none
 CORS_ORIGINS=https://your-frontend-domain.example

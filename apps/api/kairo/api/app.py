@@ -233,7 +233,6 @@ def _google_state_secret() -> str:
     secret = (
         os.environ.get("SESSION_SECRET", "").strip()
         or os.environ.get("GOOGLE_CALENDAR_STATE_SECRET", "").strip()
-        or os.environ.get("GATEWAY_TOKEN", "").strip()
         or os.environ.get("GOOGLE_CALENDAR_CLIENT_SECRET", "").strip()
     )
     if not secret:
@@ -859,14 +858,3 @@ def get_pm_decisions(request: Request, sessionId: str = "", limit: int = 20) -> 
     else:
         decisions = list_all_turn_decisions(user.id, data_dir, limit=limit)
     return {"decisions": decisions}
-
-
-# ── Demo web router (opt-in via env flag for local dev only) ─────────────────
-if os.environ.get("ENABLE_DEMO_WEB_ROUTES", "").strip() not in ("", "0", "false", "no"):
-    from kairo.api.demo_web import router as _demo_web_router  # noqa: E402
-    app.include_router(_demo_web_router)
-    if not os.environ.get("GATEWAY_TOKEN", "").strip():
-        _log.warning(
-            "ENABLE_DEMO_WEB_ROUTES is set but GATEWAY_TOKEN is empty — "
-            "all legacy demo routes will reject requests with 401 until a token is configured."
-        )

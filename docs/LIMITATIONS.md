@@ -31,8 +31,8 @@
   that has not been run.
 - The previous orchestrator and workflow are still in the repo. They answer
   web chat under `KAIRO_AGENT=legacy` and still serve
-  `/personal-manager/chat`, `/personal-manager/stream`, and the legacy demo
-  route; the offline 252-case suite covers them, not the graph.
+  `/personal-manager/chat` and `/personal-manager/stream`; the offline
+  252-case suite covers them, not the graph.
 - The schedule tools reuse the existing Google Calendar references, but the
   graph has not been run against a connected Google account.
 - The learning loop is narrow: mostly time-window preferences on the previous
