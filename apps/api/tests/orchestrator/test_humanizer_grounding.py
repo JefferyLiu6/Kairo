@@ -4,7 +4,7 @@ import json
 import pytest
 
 from kairo.agents.orchestrator import agent
-from kairo.agents.orchestrator import memory
+from kairo.agents import conversation_memory as memory
 from kairo.storage.store import pm_dir
 from pathlib import Path
 

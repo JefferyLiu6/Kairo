@@ -17,10 +17,10 @@ also keep the decision log (TurnDecision) in step.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, Optional
 
+from kairo.agents.approvals.command import is_approval_command, names_an_approval
 from kairo.core.domain.pending import ConfirmationPending, DisambiguationPending, FieldChoicesPending, Pending, TodoListPending, TodoSelectionPending, is_question, parse_pending
 from kairo.core.domain.types import PMIntent, PMPlanExtraction
 from kairo.storage.control_store import record_audit_event
@@ -262,7 +262,6 @@ class OpenQuestion:
 
 
 Route = Literal["approval_command", "answer_question", "new_request"]
-_APPROVAL_COMMAND = re.compile(r"(approve|reject)(?:\s+[0-9a-f]{8})?", re.I)
 _STILL_OPEN = "Something went wrong on my side and nothing was saved."
 
 
@@ -284,15 +283,9 @@ def route_message(message: str, question: Optional[OpenQuestion]) -> Route:
     question ("approve" the suggested time), not a command for the approval queue;
     naming an approval id always makes it a command.
     """
-    text = message.strip()
-    if _APPROVAL_COMMAND.fullmatch(text) and (question is None or " " in text):
+    if is_approval_command(message) and (question is None or names_an_approval(message)):
         return "approval_command"
     return "answer_question" if question is not None else "new_request"
-
-
-def approval_verb(message: str) -> str:
-    """"approve" or "reject" for a message `route_message` called an approval command."""
-    return _APPROVAL_COMMAND.fullmatch(message.strip()).group(1).lower()
 
 
 def _is_pm_error(pm_output: str) -> bool:

@@ -266,7 +266,7 @@ High-value files to inspect:
 | [`apps/api/kairo/domains/registry.py`](apps/api/kairo/domains/registry.py) | The tool registry: one typed spec per tool, grouped into domains that run inline or as agents |
 | [`apps/api/kairo/domains/schedule.py`](apps/api/kairo/domains/schedule.py) | The calendar agent: its tools, its checks, the free-time lookup and suggested events |
 | [`apps/api/kairo/domains/checks.py`](apps/api/kairo/domains/checks.py) | Checks that compare a proposal with the message's own date, time and repeat wording, and a task or event picked by id with the user's words |
-| [`apps/api/kairo/agents/personal_manager/application/approval_flow.py`](apps/api/kairo/agents/personal_manager/application/approval_flow.py) | Approval policy applied to proposals: run now, one approval, or one batch for several |
+| [`apps/api/kairo/agents/approvals/flow.py`](apps/api/kairo/agents/approvals/flow.py) | Approval policy applied to proposals: run now, one approval, or one batch for several |
 | [`apps/api/kairo/domains/memory.py`](apps/api/kairo/domains/memory.py) and [`apps/web/src/components/AboutMePanel.tsx`](apps/web/src/components/AboutMePanel.tsx) | What Kairo remembers, and the panel that checks it against what the user asked |
 | [`apps/api/kairo/tools/receipts.py`](apps/api/kairo/tools/receipts.py) | Reads the stores back after a write and builds the reply from what is stored |
 | [`apps/api/tests/graph/`](apps/api/tests/graph) | Turn-level tests of the graph with a scripted model and real stores |

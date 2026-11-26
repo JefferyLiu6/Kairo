@@ -5,7 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.config import PMConfig
+from kairo.agents.personal_manager.agent import run_pm
 from kairo.agents.personal_manager.application import clarification as c
 from kairo.agents.personal_manager.application.pending_reply import PENDING_RULES, OpenQuestion, PendingTurn, load_open_question, pm_asked_a_question, resolve_pending_reply, route_message, still_open_after_error, still_open_reply
 from kairo.agents.personal_manager.application.todo_selection import prepare_todo_target

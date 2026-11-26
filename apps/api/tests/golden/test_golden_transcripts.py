@@ -32,7 +32,8 @@ from pathlib import Path
 import pytest
 
 import kairo.agents.personal_manager.application.extraction as pm_extraction
-from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.config import PMConfig
+from kairo.agents.personal_manager.agent import run_pm
 from kairo.agents.personal_manager.application.clarification import _load_pending
 from kairo.core.domain.types import PMPlanExtraction
 from kairo.storage.control_store import list_approval_requests

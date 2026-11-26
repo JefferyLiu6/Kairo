@@ -7,8 +7,8 @@ from zoneinfo import ZoneInfo
 
 import time_machine
 
-from kairo.agents.personal_manager.application.approval_expiry import approval_deadline
-from kairo.agents.personal_manager.application.approval_flow import approve_pm_request, reject_pm_request
+from kairo.agents.approvals.expiry import approval_deadline
+from kairo.agents.approvals.flow import approve_pm_request, reject_pm_request
 from kairo.storage.control_store import (
     APPROVAL_TTL,
     EXPIRED_MESSAGE,

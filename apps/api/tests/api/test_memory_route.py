@@ -6,8 +6,8 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from kairo.agents.personal_manager.agent import PMConfig
-from kairo.agents.personal_manager.application.approval_flow import submit_action
+from kairo.agents.config import PMConfig
+from kairo.agents.approvals.flow import submit_action
 from kairo.api.app import app
 from kairo.core.domain.types import PMAction
 from kairo.storage.control_store import pm_db_path

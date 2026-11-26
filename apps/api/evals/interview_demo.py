@@ -9,10 +9,11 @@ from unittest.mock import patch
 
 from evals.capture_eval import capture
 from kairo.agents.orchestrator import agent as orch
-from kairo.agents.orchestrator import memory
+from kairo.agents import conversation_memory as memory
 from kairo.agents.orchestrator.translator import StructuredAction
 from kairo.agents.orchestrator.harness import evaluate_harness
-from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.config import PMConfig
+from kairo.agents.personal_manager.agent import run_pm
 from kairo.storage import store
 
 

@@ -38,8 +38,9 @@ features and do not copy their patterns into new code.
   `kairo/agents/personal_manager/` (`agent.py`, `workflow.py`, most of
   `application/` and `extractors/`). This is the previous chat path, reached
   with `KAIRO_AGENT=legacy` and through `/personal-manager/chat` and
-  `/personal-manager/stream`. The graph still uses its approval flow, pending
-  replies and working memory.
+  `/personal-manager/stream`. The graph imports nothing from it, and a test
+  keeps it that way: what both paths need lives in `kairo/agents/approvals/`,
+  `kairo/agents/config.py` and `kairo/agents/conversation_memory.py`.
 - The schedule functions in `kairo/storage/store.py` that take a JSON string and
   return an `"OK: …"` or `"Error: …"` string (`schedule_add`, `schedule_update`
   and the rest). They began as model tools. An executor reads the typed command

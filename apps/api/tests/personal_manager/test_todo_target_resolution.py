@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.config import PMConfig
+from kairo.agents.personal_manager.agent import run_pm
 from kairo.agents.personal_manager.application.clarification import _load_pending
 from kairo.storage.store import TodoData, TodoItem, load_todos, save_todos
 

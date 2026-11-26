@@ -29,11 +29,11 @@ from pydantic import ValidationError
 from kairo.agents.graph.prompts import COORDINATOR, LEFTOVER, VOICE
 from kairo.agents.graph.state import GraphState
 from kairo.agents.graph.voice import VOICE_TIMEOUT, changed_the_facts, sent_as_written, voice_enabled, voice_input
-from kairo.agents.orchestrator.agent import OrchestratorConfig
-from kairo.agents.orchestrator.memory import get_working_memory
-from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, queue_for_approval, reject_from_chat, split_by_approval, stored_read_back, submit_action, submit_actions
-from kairo.agents.personal_manager.application.pending_reply import approval_verb, route_message
-from kairo.agents.personal_manager.extractors.intent import _looks_like_injection
+from kairo.agents.config import OrchestratorConfig
+from kairo.agents.conversation_memory import get_working_memory
+from kairo.utils.injection import looks_like_injection
+from kairo.agents.approvals.command import approval_verb, is_approval_command
+from kairo.agents.approvals.flow import approve_from_chat, queue_for_approval, reject_from_chat, split_by_approval, stored_read_back, submit_action, submit_actions
 from kairo.core.domain.pending import GraphQuestion
 from kairo.core.domain.types import PMAction
 from kairo.core.domain.session import normalize_pm_session_id
@@ -350,7 +350,7 @@ async def ingest(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     message = state["message"]
     update: dict[str, Any] = {"now": local_now(), "attempts": 0, "agent_attempts": 0, "rejection": None,
                               "question": None, "offer": None, "history": []}
-    if _looks_like_injection(message):
+    if looks_like_injection(message):
         return {**update, "notes": [_REFUSAL], "route": "respond"}   # refused before anything else is touched
 
     # A question this graph asked is taken off the table now and decided on at the end of the turn.
@@ -370,7 +370,7 @@ async def ingest(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     update["history"] = [(turn["role"], turn["content"]) for turn in turns]
     update["offer"] = _approval_on_offer(cfg, update["history"])
     update["route"] = "coordinate"
-    if route_message(message, None) == "approval_command":
+    if is_approval_command(message):
         update["route"] = "approval"
         if update["offer"] and " " not in message.strip():
             # A bare approve or reject right after a prompt answers that prompt.
@@ -685,7 +685,7 @@ async def voice(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     cfg = _config(config)
     draft, receipts = state["draft"], state.get("receipts", [])
     kept = "voice is off" if not voice_enabled() else sent_as_written(receipts, state.get("approvals", []))
-    if kept is None and _looks_like_injection(state["message"]):
+    if kept is None and looks_like_injection(state["message"]):
         kept = "refusal"           # a message that was refused is not shown to another model
     if kept is None:
         try:

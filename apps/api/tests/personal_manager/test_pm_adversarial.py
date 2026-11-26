@@ -18,7 +18,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta, datetime, timezone
 
-from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.config import PMConfig
+from kairo.agents.personal_manager.agent import run_pm
 from kairo.agents.personal_manager.application.clarification import _load_pending
 from kairo.storage.personalization import list_field_choices, list_user_preferences
 from kairo.storage.recent_context import save_recent_context

@@ -67,7 +67,7 @@ eval-report:
 	@echo "Report saved to eval-report.md"
 
 smoke:
-	cd $(BACKEND_DIR) && uv run python -c "from tempfile import TemporaryDirectory; from kairo.agents.personal_manager.agent import PMConfig, run_pm; d = TemporaryDirectory(); reply = run_pm('Add task to smoke test', PMConfig(model='unused', data_dir=d.name, session_id='pm-smoke')); assert \"Added 'smoke test'\" in reply; d.cleanup()"
+	cd $(BACKEND_DIR) && uv run python -c "from tempfile import TemporaryDirectory; from kairo.agents.config import PMConfig; from kairo.agents.personal_manager.agent import run_pm; d = TemporaryDirectory(); reply = run_pm('Add task to smoke test', PMConfig(model='unused', data_dir=d.name, session_id='pm-smoke')); assert \"Added 'smoke test'\" in reply; d.cleanup()"
 
 build-web:
 	pnpm --dir $(WEB_DIR) build

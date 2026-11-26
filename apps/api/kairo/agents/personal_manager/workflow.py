@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat, submit_action
+from kairo.agents.approvals.flow import approve_from_chat, reject_from_chat, submit_action
 from kairo.agents.personal_manager.application.extraction import extract_pm_plan
 from kairo.core.domain.approval_response import has_pending_approval
 from kairo.agents.personal_manager.application.clarification import _clear_pending, _find_plan_blocker, _load_pending, _save_pending_confirmation, _save_pending_disambiguation, _save_pending_field_choices, _save_pending_plan
@@ -21,7 +21,8 @@ from kairo.agents.personal_manager.application.todo_selection import prepare_tod
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.domain.types import PMAction, PMGraphState, PMIntent, PMPlanExtraction
 from kairo.tools.executors.dispatcher import execute_pm_action
-from kairo.agents.personal_manager.extractors.intent import _looks_like_injection, _safe_for_react_fallback
+from kairo.utils.injection import looks_like_injection
+from kairo.agents.personal_manager.extractors.intent import _safe_for_react_fallback
 from kairo.storage.control_store import record_audit_event
 from kairo.storage.decision_log import TurnDecision
 from kairo.storage.recent_context import list_recent_context
@@ -46,7 +47,7 @@ def run_typed_pm_turn(message: str, config: Any) -> Optional[str]:
 
 
 def _run_typed_pm_turn_inner(message: str, config: Any, sid: str, thread_id: str, d: TurnDecision) -> Optional[str]:
-    if _looks_like_injection(message):
+    if looks_like_injection(message):
         d.route("unsafe_injection", "message contains prompt-injection markers")
         d.wm_after = "none"
         reply = (

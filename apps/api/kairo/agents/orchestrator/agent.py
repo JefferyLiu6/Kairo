@@ -4,8 +4,7 @@ from __future__ import annotations
 import logging
 import time
 import os
-from dataclasses import dataclass
-from typing import Any, AsyncIterator, Optional, Sequence
+from typing import Any, AsyncIterator, Sequence
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -13,15 +12,17 @@ from kairo.core.llm import ContractError, call_contract, to_payload
 from kairo.core.llm_env import build_llm
 from kairo.core.prompt import collecting_prompts, prompts_used, record_prompt
 from kairo.core.observability.tracing import mark_contract_error, mark_fallback, tag_turn, traced
-from kairo.agents.personal_manager.agent import PMConfig, astream_pm
+from kairo.agents.config import OrchestratorConfig
+from kairo.agents.personal_manager.agent import astream_pm
 from kairo.core.domain.approval_response import has_pending_approval
-from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat, stored_read_back
-from kairo.agents.personal_manager.application.pending_reply import OpenQuestion, approval_verb, load_open_question, pm_asked_a_question, route_message, still_open_after_error, still_open_reply
+from kairo.agents.approvals.flow import approve_from_chat, reject_from_chat, stored_read_back
+from kairo.agents.approvals.command import approval_verb
+from kairo.agents.personal_manager.application.pending_reply import OpenQuestion, load_open_question, pm_asked_a_question, route_message, still_open_after_error, still_open_reply
 from kairo.core.domain.session import normalize_pm_session_id
 
 from kairo.agents.orchestrator.contracts import HumanizeInput, PersonalizationSources, RouterInput, RouterOutput, TranslatorInput, TranslatorOutput
 from kairo.core.observability.telemetry import emit, observed, span
-from kairo.agents.orchestrator.memory import build_memory_context, get_working_memory, load_profile
+from kairo.agents.conversation_memory import build_memory_context, get_working_memory, load_profile
 from kairo.agents.orchestrator.prompts import HARNESS_SYSTEM as HARNESS_SYSTEM, HUMANIZER_SYSTEM, ORCHESTRATOR_SYSTEM, ROUTER_SYSTEM, TRANSLATOR_SYSTEM
 from kairo.agents.orchestrator.router import is_likely_pm_needed
 from kairo.agents.orchestrator.translator import StructuredAction, build_retry_prompt, is_safe_read_retry, unparsed_action
@@ -30,36 +31,6 @@ from kairo.core.domain.receipt import Receipt
 from kairo.tools.receipts import Collected, collecting, read_back_reply
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class OrchestratorConfig:
-    session_id: str           # chat thread identifier
-    user_id: str = ""         # owner identity (from auth cookie)
-    data_dir: str = "./data"
-    vault_dir: Optional[str] = None
-    # Orchestrator model (reasoning + humanization)
-    provider: str = "openai"
-    model: str = "gpt-4o"
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    # PM agent model (fast, cheap execution)
-    pm_provider: str = "openai"
-    pm_model: str = "gpt-4o-mini"
-    pm_api_key: Optional[str] = None
-    pm_base_url: Optional[str] = None
-
-    def pm_config(self) -> PMConfig:
-        return PMConfig(
-            user_id=self.user_id,
-            provider=self.pm_provider,
-            model=self.pm_model,
-            api_key=self.pm_api_key,
-            base_url=self.pm_base_url,
-            data_dir=self.data_dir,
-            vault_dir=self.vault_dir,
-            session_id=self.session_id,
-        )
 
 
 def _llm(config: OrchestratorConfig, *, fast: bool = False):

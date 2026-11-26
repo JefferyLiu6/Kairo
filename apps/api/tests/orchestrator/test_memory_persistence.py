@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 import kairo.agents.orchestrator.agent as orch
-from kairo.agents.orchestrator import memory
+from kairo.agents import conversation_memory as memory
 from kairo.storage.control_store import delete_thread_data, list_orchestrator_turns
 
 

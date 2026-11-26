@@ -5,7 +5,7 @@ import pytest
 
 from kairo.agents.orchestrator import agent
 from evals.final_eval import TITLE, capture_final, capture_suite, snapshot
-from kairo.agents.orchestrator.memory import _sessions
+from kairo.agents.conversation_memory import _sessions
 from kairo.storage.store import _todos_path, todo_add
 
 

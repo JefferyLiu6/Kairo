@@ -9,7 +9,7 @@ import sqlite3
 import pytest
 
 from kairo.agents.orchestrator import agent as orch
-from kairo.agents.orchestrator import memory as orch_memory
+from kairo.agents import conversation_memory as orch_memory
 from kairo.agents.orchestrator.prompts import TRANSLATOR_SYSTEM
 from kairo.core.observability.telemetry import logger as telemetry_logger, span
 from kairo.core.prompt import Prompt, collecting_prompts, record_prompt

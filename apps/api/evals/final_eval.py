@@ -14,8 +14,9 @@ from tempfile import TemporaryDirectory
 import time
 import uuid
 
-from kairo.agents.orchestrator.agent import OrchestratorConfig, run_orchestrator
-from kairo.agents.orchestrator.memory import _sessions
+from kairo.agents.config import OrchestratorConfig
+from kairo.agents.orchestrator.agent import run_orchestrator
+from kairo.agents.conversation_memory import _sessions
 from kairo.core.observability.telemetry import logger as telemetry_logger
 from evals.monitor_report import summarize_logs
 from kairo.storage.store import TodoData, _todos_path, todo_add

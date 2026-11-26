@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from kairo.agents.personal_manager.agent import PMConfig
+from kairo.agents.config import PMConfig
 from kairo.agents.personal_manager.workflow import run_typed_pm_turn
 from kairo.storage.store import load_todos
 

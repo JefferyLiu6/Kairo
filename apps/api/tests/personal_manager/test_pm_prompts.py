@@ -12,7 +12,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import kairo.agents.personal_manager.application.extraction as pm_extraction
-from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.config import PMConfig
+from kairo.agents.personal_manager.agent import run_pm
 from kairo.storage.control_store import list_approval_requests, pm_db_path
 from kairo.storage.journal import journal_read
 from kairo.storage.store import ScheduleData, ScheduleEntry, load_schedule, load_todos, save_schedule

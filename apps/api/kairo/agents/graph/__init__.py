@@ -43,7 +43,7 @@ from langgraph.graph import END, START, StateGraph
 
 from kairo.agents.graph import nodes
 from kairo.agents.graph.state import GraphState
-from kairo.agents.orchestrator.agent import OrchestratorConfig
+from kairo.agents.config import OrchestratorConfig
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.observability.telemetry import span
 from kairo.core.prompt import collecting_prompts

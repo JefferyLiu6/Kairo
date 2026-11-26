@@ -9,8 +9,8 @@ import pytest
 import time_machine
 
 from kairo.agents.graph import nodes, run_graph
-from kairo.agents.orchestrator import memory as orch_memory
-from kairo.agents.orchestrator.agent import OrchestratorConfig
+from kairo.agents import conversation_memory as orch_memory
+from kairo.agents.config import OrchestratorConfig
 from kairo.storage.store import TodoData, TodoItem, load_todos, save_todos
 from kairo.storage.working_memory import load_active_working_memory
 

@@ -7,12 +7,13 @@ from kairo.utils.parsing.recurrence import _extract_recurring_weekdays
 from kairo.core.domain.types import PMIntent
 from kairo.utils.parsing.datetime import _has_explicit_time_signal, _parse_date
 from kairo.utils.parsing.schedule_text import _looks_like_ambiguous_schedulable_routine, _looks_like_bare_schedule_slot, _looks_like_schedule_creation_command, _looks_like_scheduled_life_event
+from kairo.utils.injection import looks_like_injection
 from kairo.utils.parsing.text import _norm
 
 
 def classify_pm_intent(message: str) -> PMIntent:
     text = _norm(message)
-    if _looks_like_injection(text):
+    if looks_like_injection(text):
         return PMIntent.UNKNOWN
     # Leading ack + correction marker is ambiguous without pending state: "yes
     # and move it later" or "confirm the one from earlier" could be approval-
@@ -233,22 +234,6 @@ def _looks_like_web_search_request(text: str) -> bool:
     if _WEB_SEARCH_FIND_ONLINE.search(lower):
         return True
     return False
-
-
-_INJECTION_PATTERNS = (
-    r"\bignore\s+(?:previous|all|prior|any|the)\s+(?:instructions?|rules?|prompts?|directives?|context)\b",
-    r"\bdisregard\s+(?:previous|all|prior|the)\s+(?:instructions?|rules?|context)\b",
-    r"^\s*system\s*[:：]",
-    r"^\s*assistant\s*[:：]",
-    r"\bpretend\s+(?:you|i|we)\s+(?:said|are|did|were|had)\b",
-    r"\bnew\s+instructions?\s*[:：\-]",
-    r"</?(?:system|user|assistant)\s*>",
-)
-
-
-def _looks_like_injection(text: str) -> bool:
-    lower = text.strip().lower()
-    return any(re.search(p, lower) for p in _INJECTION_PATTERNS)
 
 
 _SELF_DISCLOSURE_PATTERNS = (

@@ -11,10 +11,11 @@ from langchain_core.messages import AIMessage
 from pydantic import ValidationError
 
 import kairo.agents.personal_manager.agent as pm_agent
-import kairo.agents.personal_manager.application.approval_flow as approval_flow
+import kairo.agents.approvals.flow as approval_flow
 import kairo.agents.personal_manager.application.extraction as pm_extraction
 import kairo.agents.personal_manager.workflow as pm_workflow
-from kairo.agents.personal_manager.agent import PMConfig, run_pm
+from kairo.agents.config import PMConfig
+from kairo.agents.personal_manager.agent import run_pm
 from kairo.tools.memory.semantic import SemanticMemoryCandidate
 from kairo.storage.control_store import create_approval_request, list_approval_requests, list_audit_events, pm_db_path
 from kairo.core.domain.commands import validate_action_payload
@@ -2104,7 +2105,7 @@ def test_approval_endpoints_round_trip(tmp_path, monkeypatch, authed_client):
 
 def test_cross_thread_approval_isolation(tmp_path, monkeypatch):
     """Generic approve/reject from thread B must not execute thread A's pending approval."""
-    from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
+    from kairo.agents.approvals.flow import approve_from_chat, reject_from_chat
 
     uid = "test-user-cross"
     cfg_a = PMConfig(user_id=uid, provider="openai", model="unused",
@@ -2180,7 +2181,7 @@ def test_cross_thread_guard_blocks_approve_intent(tmp_path, monkeypatch):
 
 def test_explicit_id_cross_thread_approval_blocked(tmp_path):
     """approve <id> from thread B must not execute thread A's approval even with an explicit ID."""
-    from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat
+    from kairo.agents.approvals.flow import approve_from_chat, reject_from_chat
     from kairo.core.domain.session import normalize_pm_session_id
 
     uid = "test-user-explicit-id"

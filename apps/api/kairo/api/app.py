@@ -25,15 +25,16 @@ from pydantic import BaseModel, Field
 
 from kairo.api.rate_limit import RateLimitRule, enforce_rate_limit, env_limit, request_ip_bucket, user_bucket
 from kairo.core.llm_env import load_default_llm_from_env
-from kairo.agents.personal_manager.agent import PMConfig, astream_pm, run_pm
-from kairo.agents.personal_manager.presentation.approval_preview import approval_response
+from kairo.agents.config import PMConfig
+from kairo.agents.personal_manager.agent import astream_pm, run_pm
+from kairo.agents.approvals.preview import approval_response
 from kairo.tools.calendar.google import GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_READONLY_SCOPE
 from kairo.tools.calendar.service import CalendarService, CalendarWriteUnavailableError
 from kairo.storage.calendar_store import CalendarTokenKeyError, list_calendar_accounts, upsert_calendar_account
 from kairo.storage.control_store import expire_due_approvals, get_approval_request, list_approval_requests, list_audit_events, list_all_audit_events
 from kairo.storage.decision_log import list_turn_decisions, list_all_turn_decisions
 from kairo.storage.store import ScheduleData, get_upcoming_events, load_schedule as _load_schedule, load_todos as _load_todos, save_schedule as _save_schedule
-from kairo.agents.personal_manager.application.approval_flow import approve_pm_request, reject_pm_request
+from kairo.agents.approvals.flow import approve_pm_request, reject_pm_request
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.storage.user_store import User, consume_user_credit, init_users_db
 from kairo.api.auth import is_valid_csrf_token, require_user, router as auth_router
@@ -465,7 +466,8 @@ async def orchestrator_stream(req: PMChatRequest, request: Request):
     user = require_user(request)
     _rate_limit(request, user)
     from kairo.agents.graph import astream_graph, graph_enabled
-    from kairo.agents.orchestrator.agent import OrchestratorConfig, astream_orchestrator
+    from kairo.agents.config import OrchestratorConfig
+    from kairo.agents.orchestrator.agent import astream_orchestrator
     from kairo.storage.user_store import ThreadOwnershipError, ensure_thread
     # Web chat runs on the agent graph. KAIRO_AGENT=legacy switches back to the previous assistant.
     stream_turn = astream_graph if graph_enabled() else astream_orchestrator

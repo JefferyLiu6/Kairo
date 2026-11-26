@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import pytest
-from kairo.agents.orchestrator.agent import OrchestratorConfig
+from kairo.agents.config import OrchestratorConfig
 from evals.eval_report import combine
 from evals.final_eval import capture_suite, capture_final, TITLE
 from evals.judge_eval import content_hash, summarize

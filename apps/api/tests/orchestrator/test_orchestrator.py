@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from kairo.agents.orchestrator import agent as orch
-from kairo.agents.orchestrator import memory as orch_memory
+from kairo.agents import conversation_memory as orch_memory
 from kairo.agents.orchestrator.harness import HarnessVerdict
 from kairo.agents.orchestrator.translator import StructuredAction
 
@@ -332,7 +332,7 @@ def test_approval_result_bypasses_models(tmp_path, monkeypatch, verb, explicit_i
 
 
 def test_approval_failure_is_not_reported_as_success(tmp_path, monkeypatch):
-    from kairo.agents.personal_manager.application import approval_flow
+    from kairo.agents.approvals import flow as approval_flow
     from kairo.storage.control_store import create_approval_request, find_approval_request
     config = _config(tmp_path)
     approval = create_approval_request(
@@ -376,7 +376,7 @@ def test_judge_cannot_trigger_a_second_write(tmp_path, monkeypatch):
 
 
 def test_missing_time_question_survives_and_followup_resumes(tmp_path, monkeypatch):
-    from kairo.agents.personal_manager.agent import PMConfig
+    from kairo.agents.config import PMConfig
     from kairo.agents.personal_manager.workflow import run_typed_pm_turn
     from kairo.storage.store import load_schedule
     from kairo.storage.decision_log import list_turn_decisions

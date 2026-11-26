@@ -21,14 +21,13 @@ RunnableConfig give clean names to the LangGraph steps inside them.
 """
 from __future__ import annotations
 
-import dataclasses
 import json
 import os
 import sqlite3
 import threading
 from kairo.utils.clock import local_now
 from kairo.core.observability.tracing import tag_turn, traced
-from typing import Any, AsyncIterator, Callable, Optional
+from typing import Any, AsyncIterator
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -54,6 +53,7 @@ from kairo.storage.store import pm_dir, format_schedule_for_context, format_todo
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.storage.control_store import append_conversation_turn, list_conversation_turns
 from kairo.storage.decision_log import TurnDecision
+from kairo.agents.config import PMConfig
 from kairo.agents.personal_manager.workflow import run_typed_pm_turn
 from kairo.core.prompt import prompt, record_prompt
 
@@ -82,19 +82,6 @@ a concrete example. For schedule creation the required fields are event name + d
 Use the provided context only to support the answer. Do not dump raw private
 context unless the user specifically asks for it. Keep replies concise.
 """)
-
-
-@dataclasses.dataclass
-class PMConfig:
-    user_id: str = ""             # owner identity (UUID from users table)
-    provider: str = "openai"
-    model: str = "gpt-oss:120b"
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    data_dir: str = "./data"
-    vault_dir: Optional[str] = None
-    session_id: str = "default"   # chat thread identifier
-    on_progress: Optional[Callable[[str], None]] = None
 
 
 # ── Path helpers ───────────────────────────────────────────────────────────────

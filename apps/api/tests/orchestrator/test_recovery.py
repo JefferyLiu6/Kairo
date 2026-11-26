@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from kairo.agents.orchestrator import agent as orch
-from kairo.agents.orchestrator import memory
+from kairo.agents import conversation_memory as memory
 from kairo.agents.orchestrator.harness import HarnessVerdict, evaluate_harness
 from kairo.agents.orchestrator.translator import StructuredAction
 from kairo.storage import store

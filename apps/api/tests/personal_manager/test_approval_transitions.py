@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-import kairo.agents.personal_manager.application.approval_flow as approval_flow
+import kairo.agents.approvals.flow as approval_flow
 from kairo.storage.control_store import APPROVAL_STATUSES, APPROVAL_TRANSITIONS, ApprovalTransitionError, claim_approval_request, create_approval_request, finish_approval, get_approval_request, reject_approval_request
 
 SESSION = "pm-transitions"

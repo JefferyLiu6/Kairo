@@ -125,7 +125,8 @@ class PMWorkflowPath:
                 "note": "typed workflow only; model credentials are hidden from it"}
 
     def open(self, scenario_id: str, data_dir: str) -> Session:
-        from kairo.agents.personal_manager.agent import PMConfig, run_pm
+        from kairo.agents.config import PMConfig
+        from kairo.agents.personal_manager.agent import run_pm
 
         session = _KairoSession(scenario_id, data_dir, vault_in_user_dir=True)
         config = PMConfig(user_id=session.user_id, provider="openai", model="unused", data_dir=data_dir,
@@ -153,7 +154,8 @@ class OrchestratorPath:
                 "note": "mirrors kairo/api/app.py orchestrator_stream, including no memory vault"}
 
     def open(self, scenario_id: str, data_dir: str) -> Session:
-        from kairo.agents.orchestrator.agent import OrchestratorConfig, run_orchestrator
+        from kairo.agents.config import OrchestratorConfig
+        from kairo.agents.orchestrator.agent import run_orchestrator
 
         env = load_default_llm_from_env()
         if not env:

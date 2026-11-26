@@ -318,7 +318,8 @@ def test_a_calendar_turn_is_logged_with_the_agent_that_handled_it(chat):
 
 def test_the_old_workflow_is_not_confused_by_a_question_the_graph_left_open(chat):
     """If the setting is switched off mid-conversation, the previous path sees a kind of question it does not own."""
-    from kairo.agents.personal_manager.agent import PMConfig, run_pm
+    from kairo.agents.config import PMConfig
+    from kairo.agents.personal_manager.agent import run_pm
 
     ask_time(chat)
     config = PMConfig(user_id=USER, provider="test", model="unused", data_dir=chat.data_dir, session_id=THREAD)

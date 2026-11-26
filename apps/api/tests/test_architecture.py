@@ -47,3 +47,17 @@ def test_imports_point_down(path: Path):
             if LAYER_RANK[parts[1]] > LAYER_RANK[layer]:
                 upward.append(f"{module} ({layer} may not import {parts[1]})")
     assert not upward, f"{path.relative_to(KAIRO)} imports upward: {upward}"
+
+
+PREVIOUS_CHAT_PATH = ("kairo.agents.orchestrator", "kairo.agents.personal_manager")
+SHARED_AGENT_MODULES = sorted(
+    p for p in (KAIRO / "agents").rglob("*.py")
+    if p.relative_to(KAIRO / "agents").parts[0] not in ("orchestrator", "personal_manager")
+)
+
+
+@pytest.mark.parametrize("path", SHARED_AGENT_MODULES, ids=lambda p: str(p.relative_to(KAIRO)))
+def test_the_graph_and_what_it_shares_do_not_import_the_previous_chat_path(path: Path):
+    """The orchestrator and the typed workflow can be removed without touching the graph."""
+    reached = [module for module in _imports(path) if module.startswith(PREVIOUS_CHAT_PATH)]
+    assert not reached, f"{path.relative_to(KAIRO)} imports the previous chat path: {reached}"

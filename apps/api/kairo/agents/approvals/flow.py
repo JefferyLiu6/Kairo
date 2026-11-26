@@ -10,8 +10,8 @@ from typing import Any, Optional
 
 from kairo.core.domain.session import normalize_pm_session_id
 from kairo.core.domain.types import PMAction
-from kairo.agents.personal_manager.application.approval_expiry import approval_deadline
-from kairo.agents.personal_manager.application.approval_policy import apply_approval_policy
+from kairo.agents.approvals.expiry import approval_deadline
+from kairo.agents.approvals.policy import apply_approval_policy
 from kairo.tools.executors.dispatcher import execute_pm_action
 from kairo.tools.receipts import collecting, read_back_reply, record as record_receipt
 from kairo.utils.parsing.text import _extract_id

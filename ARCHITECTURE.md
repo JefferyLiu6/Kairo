@@ -14,7 +14,7 @@ Primary source files, the agent graph:
 
 - [`apps/api/kairo/agents/graph/`](apps/api/kairo/agents/graph) - the graph: its nodes (`nodes.py`), state, prompts, and the voice pass (`voice.py`)
 - [`apps/api/kairo/domains/`](apps/api/kairo/domains) - what Kairo can do: the tool registry, one module per area, and the checks proposals are held to
-- [`apps/api/kairo/agents/personal_manager/application/approval_flow.py`](apps/api/kairo/agents/personal_manager/application/approval_flow.py) - approval policy, single and batch approvals, approve and reject
+- [`apps/api/kairo/agents/approvals/flow.py`](apps/api/kairo/agents/approvals/flow.py) - approval policy, single and batch approvals, approve and reject
 - [`apps/api/kairo/tools/receipts.py`](apps/api/kairo/tools/receipts.py) - reads the stores back after a write and builds the reply from them
 - [`apps/api/kairo/storage/`](apps/api/kairo/storage) - working memory, approvals, audit, traces, personalization, semantic memory
 
@@ -28,7 +28,7 @@ Primary source files, the previous path:
 - [`apps/api/kairo/agents/personal_manager/workflow.py`](apps/api/kairo/agents/personal_manager/workflow.py) - typed turn coordinator
 - [`apps/api/kairo/agents/personal_manager/application/extraction.py`](apps/api/kairo/agents/personal_manager/application/extraction.py) - deterministic/model extraction arbitration
 - [`apps/api/kairo/agents/personal_manager/application/planner.py`](apps/api/kairo/agents/personal_manager/application/planner.py) - intent-to-action planning
-- [`apps/api/kairo/agents/personal_manager/application/approval_policy.py`](apps/api/kairo/agents/personal_manager/application/approval_policy.py) - destructive/privacy approval gates
+- [`apps/api/kairo/agents/approvals/policy.py`](apps/api/kairo/agents/approvals/policy.py) - destructive/privacy approval gates
 
 ## Package Layout
 
@@ -41,7 +41,7 @@ api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 | Layer | Holds | Examples |
 | --- | --- | --- |
 | `kairo/api/` | HTTP only: FastAPI app, auth, rate limits | `app.py`, `auth.py` |
-| `kairo/agents/` | Anything that decides what to do with a message | `graph/` (2.0 agent graph), `orchestrator/`, `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
+| `kairo/agents/` | Anything that decides what to do with a message | `graph/` (2.0 agent graph), `approvals/` (the approval gate), `config.py`, `conversation_memory.py`; the previous path in `orchestrator/` and `personal_manager/` (workflow, planning, clarification, `pending_reply.py`) |
 | `kairo/domains/` | What Kairo can do, declared as typed tools grouped by area | `registry.py`, `tasks.py`, `habits.py`, `journal.py`, `schedule.py`, `memory.py`, `assistant.py`, `checks.py`, `catalog.py` |
 | `kairo/tools/` | Actions the agents can take | `executors/`, `calendar/`, `resolvers/`, `memory/`, `web_search.py` |
 | `kairo/storage/` | All SQLite and file persistence | `control_store.py`, `working_memory.py`, `store.py`, `user_store.py`, `identity.py` |
@@ -49,8 +49,9 @@ api  ->  agents  ->  domains  ->  tools  ->  storage / core  ->  utils
 | `kairo/utils/` | Small helpers with no app state | `parsing/`, `clock.py`, `formatters.py`, `sensitivity.py` |
 | `evals/` | Eval, judge and monitoring tools, outside the package | `judge_eval.py`, `pm_runner.py` |
 
-`tests/test_architecture.py` fails if any module imports a layer above its own, or if
-`kairo` imports `evals`.
+`tests/test_architecture.py` fails if any module imports a layer above its own, if
+`kairo` imports `evals`, or if the graph and the modules it shares import the
+previous path in `orchestrator/` or `personal_manager/`.
 
 ## System Map
 
@@ -249,7 +250,7 @@ How it differs from the orchestrated turn:
   the reason, to the model that proposed them. If the second attempt fails too,
   nothing is stored and the user is asked.
 - **Same execution path as before.** `act` uses `submit_action`
-  (`application/approval_flow.py`), the function the typed workflow uses too:
+  (`kairo/agents/approvals/flow.py`), the function the typed workflow uses too:
   approval policy, approval queue, executors, audit events, receipts.
 - **A domain says when a request is not its own.** A check can answer "this
   belongs to the calendar" (a repeating reminder is not a task) and the graph
@@ -309,7 +310,7 @@ note). An update that would change nothing is sent back before anyone is asked
 to approve it, and so is a time in `create_events` that the message never gave.
 
 **Several changes, one approval.** `act` hands a proposal's commands to
-`submit_actions` (`application/approval_flow.py`). Those that need no approval
+`submit_actions` (`kairo/agents/approvals/flow.py`). Those that need no approval
 run. One that does is queued as before. Several that do become one approval of
 type `batch`, whose summary lists each change; approving it runs each command
 in turn through `execute_pm_action`, with a receipt each, and a failure in one

@@ -9,7 +9,7 @@ import pytest
 import time_machine
 
 from kairo.agents.orchestrator import agent as orch
-from kairo.agents.orchestrator import memory as orch_memory
+from kairo.agents import conversation_memory as orch_memory
 from kairo.agents.orchestrator.harness import HarnessVerdict
 from kairo.agents.orchestrator.translator import StructuredAction
 from kairo.core.domain.receipt import Receipt
