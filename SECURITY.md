@@ -263,6 +263,20 @@ details should stay out of responses.
 - If the key is changed or lost, stored tokens read as missing and the user has
   to connect the calendar again.
 
+## Personal Data in Logs
+
+Telemetry records carry no message text. The agent step log (`AGENT_TRACE`, on
+by default) does carry message, tool-argument and tool-result text, so it is
+redacted before it is written (`kairo/utils/redaction.py`):
+
+- a line on a private topic, by the same check that routes facts to private
+  notes, is withheld whole and only its length is logged
+- links, email addresses, phone, card and ID numbers, and postal codes are
+  replaced by labels such as `[email]`
+
+Names and other free text have no pattern to match and are still logged. Set
+`AGENT_TRACE=0` where the log must hold no personal data at all.
+
 ## Required Production Posture
 
 For a public portfolio deployment, use this baseline:

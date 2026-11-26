@@ -4,6 +4,11 @@ Structured logging of ReAct / LangGraph agent steps (tool calls and results).
 Logs to the ``kairo.agent`` logger at INFO so uvicorn / backend terminals
 show what each agent did without changing API return types.
 
+Every message, tool argument and tool result is passed through
+``kairo.utils.redaction`` first: lines on private topics are withheld, and
+emails, phone numbers, links and ID numbers are replaced by labels. Names and
+other free text cannot be recognised and are still logged.
+
 Set ``AGENT_TRACE=0`` to disable local file logging.
 
 LangSmith
@@ -19,6 +24,8 @@ import os
 from typing import Any, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+
+from kairo.utils.redaction import redact, redact_text
 
 logger = logging.getLogger("kairo.agent")
 
@@ -45,7 +52,8 @@ def configure_langsmith() -> None:
 # ── Local trace logging ────────────────────────────────────────────────────────
 
 def _trunc(text: str, max_len: int = 600) -> str:
-    t = " ".join(text.split())
+    """Redact, then shorten. Redacting first means a cut can never leave half an address."""
+    t = " ".join(redact_text(text).split())
     if len(t) <= max_len:
         return t
     return t[: max_len - 3] + "..."
@@ -55,7 +63,7 @@ def _safe_tool_args(args: Any, max_len: int = 1200) -> str:
     try:
         if isinstance(args, str):
             return _trunc(args, max_len)
-        s = json.dumps(args, ensure_ascii=False, default=str)
+        s = json.dumps(redact(args), ensure_ascii=False, default=str)
         return _trunc(s, max_len)
     except Exception:
         return _trunc(repr(args), max_len)
