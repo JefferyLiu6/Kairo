@@ -11,11 +11,15 @@ from langchain_core.messages import AIMessage
 from pydantic import ValidationError
 
 import kairo.agents.personal_manager.agent as pm_agent
+import kairo.agents.personal_manager.application.approval_flow as approval_flow
+import kairo.agents.personal_manager.application.extraction as pm_extraction
 import kairo.agents.personal_manager.workflow as pm_workflow
 from kairo.agents.personal_manager.agent import PMConfig, run_pm
 from kairo.tools.memory.semantic import SemanticMemoryCandidate
-from kairo.storage.control_store import create_approval_request, list_approval_requests, list_audit_events
+from kairo.storage.control_store import create_approval_request, list_approval_requests, list_audit_events, pm_db_path
 from kairo.core.domain.commands import validate_action_payload
+from kairo.core.domain.types import PMAction, PMExtraction, PMIntent, PMPlanExtraction, PMTaskExtraction
+from kairo.tools.executors.dispatcher import execute_pm_action
 from kairo.agents.personal_manager.application.clarification import _load_pending
 from kairo.storage.journal import journal_read
 from kairo.storage.personalization import list_field_choices, list_behavioral_patterns, list_user_preferences, promote_patterns_from_choice_memory, record_choice_selected, upsert_user_preference
@@ -54,14 +58,14 @@ def _next_month_bounds() -> tuple[str, str]:
 
 def test_typed_schedule_command_validation_rejects_invalid_payloads():
     with pytest.raises(ValidationError):
-        validate_action_payload(pm_workflow.PMAction("schedule_remove", {"ids": []}))
+        validate_action_payload(PMAction("schedule_remove", {"ids": []}))
     with pytest.raises(ValidationError):
         validate_action_payload(
-            pm_workflow.PMAction("schedule_add_override", {"series_id": "series1", "override": {"start": "09:00"}})
+            PMAction("schedule_add_override", {"series_id": "series1", "override": {"start": "09:00"}})
         )
     with pytest.raises(ValidationError):
         validate_action_payload(
-            pm_workflow.PMAction("schedule_remove", {"ids": ["g1"], "googleEvents": [{"title": "Missing provider id"}]})
+            PMAction("schedule_remove", {"ids": ["g1"], "googleEvents": [{"title": "Missing provider id"}]})
         )
 
 
@@ -102,9 +106,9 @@ def _install_fake_model_extractions(monkeypatch, responses: dict[str, dict]):
         data = responses.get(message)
         if data is None:
             return None
-        return pm_workflow.PMExtraction(source="model_structured", **data)
+        return PMExtraction(source="model_structured", **data)
 
-    monkeypatch.setattr(pm_workflow, "_extract_pm_request_with_model", fake_model_extract)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_request_with_model", fake_model_extract)
 
 
 def test_add_task_creates_todo_without_approval(tmp_path):
@@ -156,7 +160,7 @@ def test_bulk_delete_keeps_deterministic_scope_when_model_omits_it(tmp_path, mon
         },
     )
 
-    extraction = pm_workflow.extract_structured_pm_request(message, cfg)
+    extraction = pm_extraction.extract_structured_pm_request(message, cfg)
 
     assert extraction.entities["bulk"] is True
     assert extraction.entities["range_start"] == start
@@ -167,11 +171,11 @@ def test_model_plan_bulk_delete_keeps_deterministic_scope(tmp_path, monkeypatch)
     cfg = _cfg(tmp_path)
     message = "delete eat breakfast at 8:30 am everyday next month on calendar"
     start, end = _next_month_bounds()
-    model_plan = pm_workflow.PMPlanExtraction(
+    model_plan = PMPlanExtraction(
         tasks=[
-            pm_workflow.PMTaskExtraction(
+            PMTaskExtraction(
                 task_id="task-1",
-                intent=pm_workflow.PMIntent.REMOVE_SCHEDULE_EVENT,
+                intent=PMIntent.REMOVE_SCHEDULE_EVENT,
                 entities={"query": "eat breakfast", "start": "08:30"},
                 confidence=0.95,
                 source="model_structured",
@@ -180,9 +184,9 @@ def test_model_plan_bulk_delete_keeps_deterministic_scope(tmp_path, monkeypatch)
         confidence=0.95,
         source="model_structured",
     )
-    monkeypatch.setattr(pm_workflow, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
 
-    plan = pm_workflow.extract_pm_plan(message, cfg)
+    plan = pm_extraction.extract_pm_plan(message, cfg)
 
     assert plan.tasks[0].entities["bulk"] is True
     assert plan.tasks[0].entities["range_start"] == start
@@ -193,9 +197,9 @@ def test_bulk_delete_all_matching_title_and_time_needs_no_range(tmp_path):
     cfg = _cfg(tmp_path)
     message = 'remove all the "Scheduled block" from my calendar 8:30am - 9:30am'
 
-    extraction = pm_workflow.extract_structured_pm_request(message, cfg)
+    extraction = pm_extraction.extract_structured_pm_request(message, cfg)
 
-    assert extraction.intent == pm_workflow.PMIntent.REMOVE_SCHEDULE_EVENT
+    assert extraction.intent == PMIntent.REMOVE_SCHEDULE_EVENT
     assert extraction.entities["bulk"] is True
     assert extraction.entities["query"] == "Scheduled block"
     assert extraction.entities["start"] == "08:30"
@@ -207,11 +211,11 @@ def test_bulk_delete_all_matching_title_and_time_needs_no_range(tmp_path):
 def test_model_plan_bulk_all_matching_time_drops_range_missing(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path)
     message = 'remove all the "Scheduled block" from my calendar 8:30am - 9:30am'
-    model_plan = pm_workflow.PMPlanExtraction(
+    model_plan = PMPlanExtraction(
         tasks=[
-            pm_workflow.PMTaskExtraction(
+            PMTaskExtraction(
                 task_id="task-1",
-                intent=pm_workflow.PMIntent.REMOVE_SCHEDULE_EVENT,
+                intent=PMIntent.REMOVE_SCHEDULE_EVENT,
                 entities={"query": "Scheduled block", "start": "08:30", "end": "09:30"},
                 confidence=0.95,
                 source="model_structured",
@@ -221,9 +225,9 @@ def test_model_plan_bulk_all_matching_time_drops_range_missing(tmp_path, monkeyp
         confidence=0.95,
         source="model_structured",
     )
-    monkeypatch.setattr(pm_workflow, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
 
-    plan = pm_workflow.extract_pm_plan(message, cfg)
+    plan = pm_extraction.extract_pm_plan(message, cfg)
 
     assert plan.global_missing_fields == []
     assert plan.tasks[0].entities["bulk"] is True
@@ -235,11 +239,11 @@ def test_model_plan_bulk_all_matching_time_drops_range_missing(tmp_path, monkeyp
 def test_model_plan_list_state_defaults_to_deterministic_schedule_target(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path)
     message = "what's on my schedule tomorrow?"
-    model_plan = pm_workflow.PMPlanExtraction(
+    model_plan = PMPlanExtraction(
         tasks=[
-            pm_workflow.PMTaskExtraction(
+            PMTaskExtraction(
                 task_id="task-1",
-                intent=pm_workflow.PMIntent.LIST_STATE,
+                intent=PMIntent.LIST_STATE,
                 entities={},
                 confidence=0.98,
                 source="model_structured",
@@ -248,22 +252,22 @@ def test_model_plan_list_state_defaults_to_deterministic_schedule_target(tmp_pat
         confidence=0.98,
         source="model_structured",
     )
-    monkeypatch.setattr(pm_workflow, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
 
-    plan = pm_workflow.extract_pm_plan(message, cfg)
+    plan = pm_extraction.extract_pm_plan(message, cfg)
 
-    assert plan.tasks[0].intent == pm_workflow.PMIntent.LIST_STATE
+    assert plan.tasks[0].intent == PMIntent.LIST_STATE
     assert plan.tasks[0].entities["target"] == "schedule"
 
 
 def test_model_plan_list_state_todo_override_uses_explicit_schedule_keyword(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path)
     message = "what's on my schedule tomorrow?"
-    model_plan = pm_workflow.PMPlanExtraction(
+    model_plan = PMPlanExtraction(
         tasks=[
-            pm_workflow.PMTaskExtraction(
+            PMTaskExtraction(
                 task_id="task-1",
-                intent=pm_workflow.PMIntent.LIST_STATE,
+                intent=PMIntent.LIST_STATE,
                 entities={"target": "todos"},
                 confidence=0.99,
                 source="model_structured",
@@ -272,11 +276,11 @@ def test_model_plan_list_state_todo_override_uses_explicit_schedule_keyword(tmp_
         confidence=0.99,
         source="model_structured",
     )
-    monkeypatch.setattr(pm_workflow, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
 
-    plan = pm_workflow.extract_pm_plan(message, cfg)
+    plan = pm_extraction.extract_pm_plan(message, cfg)
 
-    assert plan.tasks[0].intent == pm_workflow.PMIntent.LIST_STATE
+    assert plan.tasks[0].intent == PMIntent.LIST_STATE
     assert plan.tasks[0].entities["target"] == "schedule"
 
 
@@ -296,9 +300,9 @@ def test_model_structured_list_state_calendar_alias_normalizes_to_schedule(tmp_p
         },
     )
 
-    extraction = pm_workflow.extract_structured_pm_request(message, cfg)
+    extraction = pm_extraction.extract_structured_pm_request(message, cfg)
 
-    assert extraction.intent == pm_workflow.PMIntent.LIST_STATE
+    assert extraction.intent == PMIntent.LIST_STATE
     assert extraction.entities["target"] == "schedule"
 
 
@@ -306,8 +310,8 @@ def test_empty_habit_list_suggests_starter_habits(tmp_path):
     cfg = _cfg(tmp_path)
 
     reply = run_pm("show my habits", cfg)
-    list_reply = pm_workflow.execute_pm_action(
-        pm_workflow.PMAction("list_state", {"target": "habits"}),
+    list_reply = execute_pm_action(
+        PMAction("list_state", {"target": "habits"}),
         cfg,
     )["message"]
 
@@ -321,22 +325,22 @@ def test_tiny_win_routes_to_coaching_not_state_mutation(tmp_path):
     cfg = _cfg(tmp_path)
     message = "Run Tiny Win. Suggest one useful action I can finish in under 10 minutes, then ask me to reply done when it is complete."
 
-    plan = pm_workflow.extract_pm_plan(message, cfg)
+    plan = pm_extraction.extract_pm_plan(message, cfg)
     reply = pm_workflow.run_typed_pm_turn(message, cfg)
 
     assert len(plan.tasks) == 1
-    assert plan.tasks[0].intent == pm_workflow.PMIntent.GENERAL_COACHING
+    assert plan.tasks[0].intent == PMIntent.GENERAL_COACHING
     assert reply is None
 
 
 def test_tiny_win_prefers_deterministic_coaching_over_model_calendar_mutation(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path)
     message = "Run Tiny Win. Suggest one useful action I can finish in under 10 minutes, then ask me to reply done when it is complete."
-    model_plan = pm_workflow.PMPlanExtraction(
+    model_plan = PMPlanExtraction(
         tasks=[
-            pm_workflow.PMTaskExtraction(
+            PMTaskExtraction(
                 task_id="task-1",
-                intent=pm_workflow.PMIntent.REMOVE_SCHEDULE_EVENT,
+                intent=PMIntent.REMOVE_SCHEDULE_EVENT,
                 entities={"query": message},
                 confidence=0.95,
                 source="model_structured",
@@ -345,12 +349,12 @@ def test_tiny_win_prefers_deterministic_coaching_over_model_calendar_mutation(tm
         confidence=0.95,
         source="model_structured",
     )
-    monkeypatch.setattr(pm_workflow, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
 
-    plan = pm_workflow.extract_pm_plan(message, cfg)
+    plan = pm_extraction.extract_pm_plan(message, cfg)
 
     assert len(plan.tasks) == 1
-    assert plan.tasks[0].intent == pm_workflow.PMIntent.GENERAL_COACHING
+    assert plan.tasks[0].intent == PMIntent.GENERAL_COACHING
 
 
 def test_pet_quest_prompts_route_to_coaching_not_calendar_mutation(tmp_path, monkeypatch):
@@ -363,11 +367,11 @@ def test_pet_quest_prompts_route_to_coaching_not_calendar_mutation(tmp_path, mon
     ]
 
     def fake_model_plan(message, _config):
-        return pm_workflow.PMPlanExtraction(
+        return PMPlanExtraction(
             tasks=[
-                pm_workflow.PMTaskExtraction(
+                PMTaskExtraction(
                     task_id="task-1",
-                    intent=pm_workflow.PMIntent.REMOVE_SCHEDULE_EVENT,
+                    intent=PMIntent.REMOVE_SCHEDULE_EVENT,
                     entities={"query": message},
                     confidence=0.95,
                     source="model_structured",
@@ -377,14 +381,14 @@ def test_pet_quest_prompts_route_to_coaching_not_calendar_mutation(tmp_path, mon
             source="model_structured",
         )
 
-    monkeypatch.setattr(pm_workflow, "_extract_pm_plan_with_model", fake_model_plan)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_plan_with_model", fake_model_plan)
 
     for message in messages:
-        plan = pm_workflow.extract_pm_plan(message, cfg)
+        plan = pm_extraction.extract_pm_plan(message, cfg)
         reply = pm_workflow.run_typed_pm_turn(message, cfg)
 
         assert len(plan.tasks) == 1
-        assert plan.tasks[0].intent == pm_workflow.PMIntent.GENERAL_COACHING
+        assert plan.tasks[0].intent == PMIntent.GENERAL_COACHING
         assert reply is None
 
 
@@ -474,11 +478,11 @@ def test_concurrent_approval_execution_is_claimed_once(tmp_path, monkeypatch):
         time.sleep(0.05)
         return {"ok": True, "message": "OK: executed approval"}
 
-    monkeypatch.setattr(pm_workflow, "execute_pm_action", slow_execute)
+    monkeypatch.setattr(approval_flow, "execute_pm_action", slow_execute)
 
     def approve() -> str:
         barrier.wait()
-        return pm_workflow.approve_pm_request(
+        return approval_flow.approve_pm_request(
             approval.id,
             str(tmp_path),
             session_id="pm-demo",
@@ -511,12 +515,12 @@ def test_approval_id_is_scoped_to_chat_session_when_provided(tmp_path, monkeypat
     )
 
     monkeypatch.setattr(
-        pm_workflow,
+        approval_flow,
         "execute_pm_action",
         lambda action, config: {"ok": True, "message": "unexpected"},
     )
 
-    reply = pm_workflow.approve_pm_request(
+    reply = approval_flow.approve_pm_request(
         approval.id,
         str(tmp_path),
         session_id="pm-other",
@@ -1663,9 +1667,9 @@ def test_ordinal_schedule_update_resolves_second_meeting(tmp_path):
 
 
 def test_structured_extraction_reports_confidence_and_missing_fields():
-    extraction = pm_workflow.extract_structured_pm_request("Move the thing to 3pm")
+    extraction = pm_extraction.extract_structured_pm_request("Move the thing to 3pm")
 
-    assert extraction.intent == pm_workflow.PMIntent.UPDATE_SCHEDULE_EVENT
+    assert extraction.intent == PMIntent.UPDATE_SCHEDULE_EVENT
     assert extraction.confidence < 0.65
     assert "schedule event id or title" in extraction.missing_fields
 
@@ -1829,7 +1833,7 @@ def test_plan_executes_schedule_todo_and_journal_in_order(tmp_path):
 
     schedule = load_schedule("pm-demo", str(tmp_path))
     todos = load_todos("pm-demo", str(tmp_path))
-    journal = journal_read(pm_workflow.pm_db_path("pm-demo", str(tmp_path)))
+    journal = journal_read(pm_db_path("pm-demo", str(tmp_path)))
     assert "All done:" in reply
     assert [(entry.title, entry.start) for entry in schedule.entries] == [("breakfast", "08:00")]
     assert [item.title for item in todos.items] == ["call John"]
@@ -2015,18 +2019,18 @@ def test_model_plan_extractor_can_return_multiple_tasks(tmp_path, monkeypatch):
     def fake_model_plan(message, _config):
         if message != "please handle my morning stuff":
             return None
-        return pm_workflow.PMPlanExtraction(
+        return PMPlanExtraction(
             tasks=[
-                pm_workflow.PMTaskExtraction(
+                PMTaskExtraction(
                     task_id="task-1",
-                    intent=pm_workflow.PMIntent.CREATE_SCHEDULE_EVENT,
+                    intent=PMIntent.CREATE_SCHEDULE_EVENT,
                     entities={"title": "breakfast", "date": _tomorrow_iso(), "start": "08:00"},
                     confidence=0.94,
                     source="model_structured",
                 ),
-                pm_workflow.PMTaskExtraction(
+                PMTaskExtraction(
                     task_id="task-2",
-                    intent=pm_workflow.PMIntent.CREATE_TODO,
+                    intent=PMIntent.CREATE_TODO,
                     entities={"title": "call John"},
                     confidence=0.9,
                     source="model_structured",
@@ -2036,7 +2040,7 @@ def test_model_plan_extractor_can_return_multiple_tasks(tmp_path, monkeypatch):
             source="model_structured",
         )
 
-    monkeypatch.setattr(pm_workflow, "_extract_pm_plan_with_model", fake_model_plan)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_plan_with_model", fake_model_plan)
 
     reply = run_pm("please handle my morning stuff", cfg)
 
@@ -2052,9 +2056,9 @@ def _tomorrow_iso() -> str:
 def test_low_confidence_model_extraction_falls_back_to_regex(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path)
     monkeypatch.setattr(
-        pm_workflow,
+        pm_extraction,
         "_extract_pm_request_with_model",
-        lambda _message, _config: pm_workflow.PMExtraction(
+        lambda _message, _config: PMExtraction(
             intent="UNKNOWN",
             entities={},
             confidence=0.1,
@@ -2272,11 +2276,11 @@ def test_eval_fixture_is_well_formed():
 
 def test_model_plan_with_empty_entries_list_completes_numbered_choice(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path)
-    model_plan = pm_workflow.PMPlanExtraction(
+    model_plan = PMPlanExtraction(
         tasks=[
-            pm_workflow.PMTaskExtraction(
+            PMTaskExtraction(
                 task_id="task-1",
-                intent=pm_workflow.PMIntent.CREATE_SCHEDULE_EVENT,
+                intent=PMIntent.CREATE_SCHEDULE_EVENT,
                 entities={"title": "golf", "date": "tomorrow", "entries": []},
                 confidence=0.85,
                 missing_fields=["start"],
@@ -2286,7 +2290,7 @@ def test_model_plan_with_empty_entries_list_completes_numbered_choice(tmp_path, 
         confidence=0.75,
         source="model_structured",
     )
-    monkeypatch.setattr(pm_workflow, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_plan_with_model", lambda *_args, **_kwargs: model_plan)
 
     first = pm_workflow.run_typed_pm_turn("Add golf tmr", cfg)
     reply = pm_workflow.run_typed_pm_turn("1", cfg)

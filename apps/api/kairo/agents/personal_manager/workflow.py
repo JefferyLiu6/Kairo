@@ -3,9 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from kairo.agents.personal_manager.application import approval_flow as _approval_flow
-from kairo.agents.personal_manager.application import extraction as _extraction
-from kairo.agents.personal_manager.application.approval_flow import submit_action
+from kairo.agents.personal_manager.application.approval_flow import approve_from_chat, reject_from_chat, submit_action
+from kairo.agents.personal_manager.application.extraction import extract_pm_plan
 from kairo.core.domain.approval_response import has_pending_approval
 from kairo.agents.personal_manager.application.clarification import _clear_pending, _find_plan_blocker, _load_pending, _save_pending_confirmation, _save_pending_disambiguation, _save_pending_field_choices, _save_pending_plan
 from kairo.agents.personal_manager.application.contextual_scheduling import apply_context_to_explicit_schedule_plan, build_contextual_schedule_proposal
@@ -20,101 +19,12 @@ from kairo.tools.memory.semantic import save_semantic_memory_candidates, semanti
 from kairo.agents.personal_manager.application.time_slot_recommendation import build_time_slot_recommendation_proposal, is_time_slot_recommendation_request
 from kairo.agents.personal_manager.application.todo_selection import prepare_todo_target, remember_todo_list
 from kairo.core.domain.session import normalize_pm_session_id
-from kairo.core.domain.types import PMAction, PMExtraction, PMGraphState, PMIntent, PMPlanExtraction, PMTaskExtraction
+from kairo.core.domain.types import PMAction, PMGraphState, PMIntent, PMPlanExtraction
 from kairo.tools.executors.dispatcher import execute_pm_action
 from kairo.agents.personal_manager.extractors.intent import _looks_like_injection, _safe_for_react_fallback
-from kairo.storage.control_store import pm_db_path, record_audit_event
+from kairo.storage.control_store import record_audit_event
 from kairo.storage.decision_log import TurnDecision
 from kairo.storage.recent_context import list_recent_context
-
-# Re-export public surface so callers that import from workflow still work
-__all__ = [
-    "run_typed_pm_turn",
-    "extract_pm_plan",
-    "extract_structured_pm_request",
-    "approve_pm_request",
-    "reject_pm_request",
-    "approve_from_chat",
-    "reject_from_chat",
-    "normalize_pm_session_id",
-    "execute_pm_action",
-    "pm_db_path",
-    "PMAction",
-    "PMExtraction",
-    "PMIntent",
-    "PMPlanExtraction",
-    "PMTaskExtraction",
-    "_extract_pm_plan_with_model",
-    "_extract_pm_request_with_model",
-]
-
-
-_extract_pm_plan_with_model = _extraction._extract_pm_plan_with_model
-_extract_pm_request_with_model = _extraction._extract_pm_request_with_model
-
-
-def _sync_extraction_hooks() -> None:
-    # Tests and older integrations monkeypatch these names on workflow.py.
-    _extraction._extract_pm_plan_with_model = _extract_pm_plan_with_model
-    _extraction._extract_pm_request_with_model = _extract_pm_request_with_model
-
-
-def _sync_approval_hooks() -> None:
-    # Keep approval execution monkeypatch-compatible after moving approval flow.
-    _approval_flow.execute_pm_action = execute_pm_action
-
-
-def extract_pm_plan(message: str, config: Optional[Any] = None) -> PMPlanExtraction:
-    _sync_extraction_hooks()
-    return _extraction.extract_pm_plan(message, config)
-
-
-def extract_structured_pm_request(message: str, config: Optional[Any] = None) -> PMExtraction:
-    _sync_extraction_hooks()
-    return _extraction.extract_structured_pm_request(message, config)
-
-
-def approve_pm_request(
-    approval_id: str,
-    data_dir: str,
-    *,
-    vault_dir: Optional[str] = None,
-    session_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-) -> str:
-    _sync_approval_hooks()
-    effective_sid = user_id or session_id
-    if not effective_sid:
-        raise ValueError("an approval is always resolved inside its owner's session")
-    return _approval_flow.approve_pm_request(
-        approval_id,
-        data_dir,
-        vault_dir=vault_dir,
-        session_id=effective_sid,
-    )
-
-
-def reject_pm_request(
-    approval_id: str,
-    data_dir: str,
-    *,
-    session_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-) -> str:
-    effective_sid = user_id or session_id
-    if not effective_sid:
-        raise ValueError("an approval is always resolved inside its owner's session")
-    return _approval_flow.reject_pm_request(approval_id, data_dir, session_id=effective_sid)
-
-
-def approve_from_chat(message: str, config: Any) -> str:
-    _sync_approval_hooks()
-    return _approval_flow.approve_from_chat(message, config)
-
-
-def reject_from_chat(message: str, config: Any) -> str:
-    return _approval_flow.reject_from_chat(message, config)
-
 
 def run_typed_pm_turn(message: str, config: Any) -> Optional[str]:
     """Handle deterministic PM workflows. Return None only for safe fallback turns."""
@@ -689,7 +599,6 @@ def _is_explicit_memory_request(message: str) -> bool:
 def _execute_pm_plan(plan: PMPlanExtraction, config: Any, session_id: str, *, thread_id: str = "") -> str:
     results: list[tuple[str, str]] = []
     single_action_plan = len(plan.tasks) == 1
-    _sync_approval_hooks()  # submit_action runs in approval_flow; keep execute_pm_action patchable from here
     for step_idx, task in enumerate(plan.tasks, start=1):
         entities = {**task.entities, "_confidence": task.confidence}
         actions = plan_pm_actions(task.intent, entities, config)

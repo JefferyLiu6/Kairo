@@ -40,9 +40,6 @@ features and do not copy their patterns into new code.
   with `KAIRO_AGENT=legacy` and through `/personal-manager/chat` and
   `/personal-manager/stream`. The graph still uses its approval flow, pending
   replies and working memory.
-- The re-exports and `_sync_*_hooks` in `personal_manager/workflow.py`. They let
-  older tests patch names on `workflow.py`. Import from, and patch, the module
-  that defines the name.
 - `to_legacy()` and the `legacy_*()` methods on the commands in
   `kairo/core/domain/`. They turn a typed command back into a dict. A new
   executor takes the typed command.

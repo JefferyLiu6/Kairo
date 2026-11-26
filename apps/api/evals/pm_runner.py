@@ -20,7 +20,8 @@ from kairo.storage.control_store import create_approval_request, list_approval_r
 from kairo.storage.journal import journal_read
 from kairo.storage.store import ScheduleData, ScheduleEntry, load_schedule, load_todos, save_schedule
 from kairo.core.domain.session import normalize_pm_session_id
-from kairo.agents.personal_manager.workflow import extract_structured_pm_request, run_typed_pm_turn
+from kairo.agents.personal_manager.application.extraction import extract_structured_pm_request
+from kairo.agents.personal_manager.workflow import run_typed_pm_turn
 from kairo.core.domain.types import PMExtraction, PMIntent
 from evals.paths import FIXTURES
 

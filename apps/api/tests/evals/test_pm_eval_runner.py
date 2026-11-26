@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from evals import pm_runner as eval_runner
-import kairo.agents.personal_manager.workflow as pm_workflow
+import kairo.agents.personal_manager.application.extraction as pm_extraction
 from kairo.core.domain.types import PMExtraction, PMIntent
 
 
@@ -99,7 +99,7 @@ def test_eval_runner_supports_fake_model_extractor_for_messy_phrase(tmp_path, mo
             source="model_structured",
         )
 
-    monkeypatch.setattr(pm_workflow, "_extract_pm_request_with_model", fake_model_extract)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_request_with_model", fake_model_extract)
 
     result = eval_runner.run_eval_case(
         case,

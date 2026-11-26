@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-import kairo.agents.personal_manager.workflow as pm_workflow
+import kairo.agents.personal_manager.application.extraction as pm_extraction
 from kairo.agents.personal_manager.agent import PMConfig, run_pm
 from kairo.storage.control_store import list_approval_requests, pm_db_path
 from kairo.storage.journal import journal_read
@@ -42,7 +42,7 @@ def _fake_model(monkeypatch, responses: dict[str, dict]) -> None:
         if data is None:
             return None
         return PMExtraction(source="model_structured", **data)
-    monkeypatch.setattr(pm_workflow, "_extract_pm_request_with_model", _extract)
+    monkeypatch.setattr(pm_extraction, "_extract_pm_request_with_model", _extract)
 
 
 # ─── schedule: create ───────────────────────────────────────────────────────

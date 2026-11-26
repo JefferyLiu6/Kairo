@@ -9,7 +9,9 @@ from kairo.storage.calendar_store import disconnect_calendar_account, get_calend
 from kairo.tools.calendar.types import CalendarEvent, CalendarEventPatch, CalendarSyncResult
 from kairo.storage.store import ScheduleData, ScheduleEntry, load_schedule, save_schedule
 from kairo.tools.resolvers.schedule import resolve_schedule_targets
-from kairo.agents.personal_manager.workflow import execute_pm_action, extract_structured_pm_request, plan_pm_actions
+from kairo.agents.personal_manager.application.extraction import extract_structured_pm_request
+from kairo.agents.personal_manager.application.planner import plan_pm_actions
+from kairo.tools.executors.dispatcher import execute_pm_action
 from kairo.core.domain.types import PMAction, PMIntent
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-import kairo.agents.personal_manager.workflow as pm_workflow
+import kairo.agents.personal_manager.application.approval_flow as approval_flow
 from kairo.storage.control_store import APPROVAL_STATUSES, APPROVAL_TRANSITIONS, ApprovalTransitionError, claim_approval_request, create_approval_request, finish_approval, get_approval_request, reject_approval_request
 
 SESSION = "pm-transitions"
@@ -85,6 +85,6 @@ def test_approvals_are_always_looked_up_in_their_owners_store(approval):
     data_dir, approval_id = approval
     with pytest.raises(TypeError):
         claim_approval_request(data_dir, approval_id)  # session_id is required
-    with pytest.raises(ValueError, match="owner's session"):
-        pm_workflow.approve_pm_request(approval_id, data_dir)
+    with pytest.raises(TypeError):
+        approval_flow.approve_pm_request(approval_id, data_dir)  # and so is the owner's session here
     assert _status(data_dir, approval_id) == "pending"

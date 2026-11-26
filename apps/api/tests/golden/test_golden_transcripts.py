@@ -31,9 +31,10 @@ from pathlib import Path
 
 import pytest
 
-import kairo.agents.personal_manager.workflow as pm_workflow
+import kairo.agents.personal_manager.application.extraction as pm_extraction
 from kairo.agents.personal_manager.agent import PMConfig, run_pm
 from kairo.agents.personal_manager.application.clarification import _load_pending
+from kairo.core.domain.types import PMPlanExtraction
 from kairo.storage.control_store import list_approval_requests
 from kairo.storage.store import ScheduleData, ScheduleEntry, TodoData, TodoItem, load_schedule, load_todos, save_schedule, save_todos
 
@@ -61,11 +62,11 @@ def _seed(seed: dict, data_dir: str) -> None:
 def _install_model_plans(plans: dict, monkeypatch) -> None:
     """Stand in for the model planner: known messages get a fixed plan, others get none."""
     parsed = {
-        message: pm_workflow.PMPlanExtraction(source="model_structured", **plan)
+        message: PMPlanExtraction(source="model_structured", **plan)
         for message, plan in plans.items()
     }
     monkeypatch.setattr(
-        pm_workflow, "_extract_pm_plan_with_model", lambda message, *_args, **_kwargs: parsed.get(message)
+        pm_extraction, "_extract_pm_plan_with_model", lambda message, *_args, **_kwargs: parsed.get(message)
     )
 
 

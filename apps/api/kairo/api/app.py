@@ -33,7 +33,8 @@ from kairo.storage.calendar_store import CalendarTokenKeyError, list_calendar_ac
 from kairo.storage.control_store import expire_due_approvals, get_approval_request, list_approval_requests, list_audit_events, list_all_audit_events
 from kairo.storage.decision_log import list_turn_decisions, list_all_turn_decisions
 from kairo.storage.store import ScheduleData, get_upcoming_events, load_schedule as _load_schedule, load_todos as _load_todos, save_schedule as _save_schedule
-from kairo.agents.personal_manager.workflow import approve_pm_request, normalize_pm_session_id, reject_pm_request
+from kairo.agents.personal_manager.application.approval_flow import approve_pm_request, reject_pm_request
+from kairo.core.domain.session import normalize_pm_session_id
 from kairo.storage.user_store import User, consume_user_credit, init_users_db
 from kairo.api.auth import is_valid_csrf_token, require_user, router as auth_router
 
@@ -830,14 +831,14 @@ def get_pm_approval_detail(approval_id: str, request: Request) -> dict:
 @app.post("/personal-manager/approvals/{approval_id}/approve")
 def approve_pm_approval_route(approval_id: str, request: Request) -> dict:
     user = require_user(request)
-    result = approve_pm_request(approval_id, _service_data_dir(), user_id=user.id)
+    result = approve_pm_request(approval_id, _service_data_dir(), session_id=user.id)
     return {"ok": not result.lower().startswith(("error:", "no approval", "that request expired")), "reply": result}
 
 
 @app.post("/personal-manager/approvals/{approval_id}/reject")
 def reject_pm_approval_route(approval_id: str, request: Request) -> dict:
     user = require_user(request)
-    result = reject_pm_request(approval_id, _service_data_dir(), user_id=user.id)
+    result = reject_pm_request(approval_id, _service_data_dir(), session_id=user.id)
     return {"ok": not result.lower().startswith(("no approval", "that request expired")), "reply": result}
 
 
