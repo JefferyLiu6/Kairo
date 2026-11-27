@@ -186,7 +186,11 @@ def _consume_credit_or_402(user: User) -> int:
     if remaining is None:
         raise HTTPException(
             status_code=402,
-            detail="No credits remaining. Create a new account or try a demo session later.",
+            detail=(
+                "No credits remaining. Create a new account or try a demo session later."
+                if user.is_demo
+                else "No credits left today. Credits refill at 00:00 UTC."
+            ),
         )
     user.credits_remaining = remaining
     return remaining

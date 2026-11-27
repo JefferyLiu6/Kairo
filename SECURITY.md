@@ -134,7 +134,7 @@ to a shared store such as Redis.
 `POST /auth/demo` creates an ephemeral demo account with seeded sample data.
 
 - Demo users are marked with `is_demo=true`.
-- Demo users start with 5 credits.
+- Demo users start with 12 credits, which are not refilled.
 - Demo accounts expire after 24 hours.
 - Expired demo users are rejected at session lookup time.
 - Expired demo users are swept when new demo accounts are created.
@@ -152,13 +152,15 @@ durable storage, but they are not the primary public free-tier flow.
 
 Kairo uses a simple account-level credit system to control public-demo cost.
 
-- New registered users start with 10 credits.
-- Demo users start with 5 credits.
+- A registered account has `USER_DAILY_CREDITS` credits a day (default 10).
+  They are refilled the first time the account is seen on a new UTC day; unused
+  credits do not carry over.
+- Demo users start with 12 credits, which are not refilled.
 - Each accepted chat/stream turn consumes one credit.
 - Requests with no remaining credits return `402`.
 
-Credits are stored on the user row in `users.db`. This is demo cost control, not
-a billing system.
+Credits and the date of the last refill are stored on the user row in
+`users.db`. This is cost control, not a billing system.
 
 ## Approval Gates
 
@@ -313,8 +315,8 @@ multi-tenant service.
   Google Calendar tokens are encrypted individually; schedules, journal entries,
   notes and mirrored calendar events are not.
 - Demo-account cleanup is opportunistic, not a dedicated scheduled job.
-- Credits are fixed at account creation; there is no billing, top-up, or admin
-  grant flow yet.
+- Credits refill daily for registered accounts; there is no billing, top-up, or
+  admin grant flow yet.
 - Google Calendar sync is limited; full two-way conflict resolution is not
   implemented.
 - The prompt-injection and privacy guards are regression-tested, but no static

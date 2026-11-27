@@ -8,8 +8,8 @@
   see [account security setup](AUTHENTICATION.md).
 - A self-service device/session list is not implemented; password recovery revokes
   all sessions and MFA changes revoke other sessions.
-- The credit system is intentionally simple for demo cost control; there is no
-  billing, top-up, or admin grant flow yet.
+- The credit system is simple cost control: a registered account's credits
+  refill each UTC day, and there is no billing, top-up, or admin grant flow yet.
 - SQLite files are not encrypted at rest by this project.
 - Demo-account cleanup is opportunistic, not a dedicated scheduled job.
 - Google Calendar sync is limited; full two-way conflict resolution is not implemented.

@@ -36,6 +36,7 @@ services:
       # ── Abuse controls ────────────────────────────────────────────────────────
       TRUST_PROXY_HEADERS: "${TRUST_PROXY_HEADERS:-false}"
       RATE_LIMIT_RPM: "${RATE_LIMIT_RPM:-60}"
+      USER_DAILY_CREDITS: "${USER_DAILY_CREDITS:-10}"
       PM_DEMO_RATE_LIMIT_RPM: "${PM_DEMO_RATE_LIMIT_RPM:-20}"
       PM_DEMO_RATE_LIMIT_DAILY: "${PM_DEMO_RATE_LIMIT_DAILY:-100}"
       AUTH_SIGNUP_RATE_LIMIT_RPM: "${AUTH_SIGNUP_RATE_LIMIT_RPM:-5}"

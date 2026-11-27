@@ -322,6 +322,87 @@ def test_pm_chat_returns_402_when_credits_exhausted(client):
     )
     assert res.status_code == 402
     assert "credits" in res.json()["detail"].lower()
+    assert "refill" in res.json()["detail"].lower()
+    # Spent today's credits: they stay spent for the rest of the day.
+    assert client.get("/auth/me").json()["credits_remaining"] == 0
+
+
+def _spend_all_credits(email: str, refilled_on: str | None, data_dir: str = "") -> None:
+    """Leave the account with no credits, last refilled on the given UTC date."""
+    import os
+    import sqlite3
+
+    db = sqlite3.connect(os.path.join(data_dir or os.environ["DATA_DIR"], "users.db"))
+    with db:
+        db.execute(
+            "UPDATE users SET credits_remaining = 0, credits_reset_on = ? WHERE email = ?",
+            (refilled_on, email),
+        )
+    db.close()
+
+
+def _yesterday() -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+
+
+# None is an account from before the refill date was recorded.
+@pytest.mark.parametrize("refilled_on", [_yesterday(), None])
+def test_registered_credits_refill_on_a_new_day(client, refilled_on):
+    _signup(client)
+    _login(client)
+    _spend_all_credits("user@example.com", refilled_on)
+
+    # The web app stops sending at zero, so the refill has to show before a message is sent.
+    assert client.get("/auth/me").json()["credits_remaining"] == 10
+
+    csrf = client.get("/auth/csrf").json()["csrf_token"]
+    res = client.post(
+        "/personal-manager/chat",
+        json={"message": "Add task to smoke test", "session_id": "credit-refill"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert res.status_code == 200
+    assert client.get("/auth/me").json()["credits_remaining"] == 9
+
+
+def test_refill_straight_from_a_message_spends_one_of_the_new_credits(tmp_path):
+    from kairo.storage.user_store import consume_user_credit, create_user
+
+    data_dir = str(tmp_path)
+    init_users_db(data_dir)
+    user = create_user(data_dir, "direct@example.com", "hunter2hunter2", "Direct")
+    assert [consume_user_credit(data_dir, user.id) for _ in range(11)] == [9, 8, 7, 6, 5, 4, 3, 2, 1, 0, None]
+
+    _spend_all_credits("direct@example.com", _yesterday(), data_dir)
+    assert consume_user_credit(data_dir, user.id) == 9
+
+
+def test_daily_credits_follow_the_setting(client, monkeypatch):
+    monkeypatch.setenv("USER_DAILY_CREDITS", "3")
+    _signup(client)
+    assert _login(client).json()["credits_remaining"] == 3
+
+    _spend_all_credits("user@example.com", _yesterday())
+    assert client.get("/auth/me").json()["credits_remaining"] == 3
+
+
+def test_demo_credits_are_not_refilled(client, monkeypatch):
+    monkeypatch.setenv("AUTH_DEMO_RATE_LIMIT_RPM", "100")
+    demo = client.post("/auth/demo", json={})
+    assert demo.status_code == 201
+    _spend_all_credits(demo.json()["email"], _yesterday())
+
+    assert client.get("/auth/me").json()["credits_remaining"] == 0
+    csrf = client.get("/auth/csrf").json()["csrf_token"]
+    res = client.post(
+        "/personal-manager/chat",
+        json={"message": "Add task to smoke test", "session_id": "demo-empty"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert res.status_code == 402
+    assert "refill" not in res.json()["detail"].lower()
 
 
 # ── Thread deletion data isolation ───────────────────────────────────────────

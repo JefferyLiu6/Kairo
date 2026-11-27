@@ -171,6 +171,7 @@ Optional deploy flags:
 | `MODEL` | provider default | The model web chat runs on (measured on `gpt-4o-mini`) |
 | `PM_MODEL` | `MODEL` fallback | The small model. It rewords each reply so it sounds like an assistant |
 | `KAIRO_VOICE` | unset | Set to `off` to send replies as the records give them, without the rewording call |
+| `USER_DAILY_CREDITS` | `10` | Chat turns a registered account gets each UTC day |
 | `RATE_LIMIT_RPM` | `60` | Per-IP and per-user PM requests per minute; `0` disables this limiter |
 | `PM_DEMO_RATE_LIMIT_RPM` / `PM_DEMO_RATE_LIMIT_DAILY` | `20` / `100` | Stricter PM chat limits for temporary demo users |
 | `AUTH_DEMO_RATE_LIMIT_RPM` / `AUTH_DEMO_RATE_LIMIT_DAILY` | `2` / `25` | Public demo-account creation limits by IP |
@@ -186,8 +187,8 @@ Data storage:
 - `/data/users/<user_id>/` contains each user's PM SQLite files, profile, decision
   traces, audit events, approvals, conversation logs, calendar mirrors, and
   fallback logs.
-- New accounts start with 10 credits. Demo accounts start with 5 credits. Each
-  accepted chat turn consumes one account credit.
+- A registered account gets `USER_DAILY_CREDITS` credits each UTC day (default
+  10). A demo account gets 12, once. Each accepted chat turn consumes one credit.
 - The Vercel deployment proxies `/api/*` to the backend through
   `apps/web/vercel.json`. This keeps auth cookies first-party on mobile browsers.
 - These stores are intentionally gitignored and should be backed up or destroyed

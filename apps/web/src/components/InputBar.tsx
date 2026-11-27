@@ -7,6 +7,7 @@ type Props = {
   onChange: (v: string) => void;
   onSubmit: () => void;
   disabled: boolean;
+  outOfCreditsNotice: string;
   onStop?: () => void;
   isListening?: boolean;
   isSpeaking?: boolean;
@@ -19,7 +20,7 @@ type Props = {
 const MAX_TEXTAREA_HEIGHT = 140;
 
 export function InputBar({
-  mode, value, onChange, onSubmit, disabled, onStop,
+  mode, value, onChange, onSubmit, disabled, outOfCreditsNotice, onStop,
   isListening, isSpeaking, voiceEnabled, onMicClick, onVoiceToggle, speechSupported,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -52,7 +53,7 @@ export function InputBar({
     <div className="input-area">
       {outOfCredits && (
         <p className="input-notice" id="input-notice" role="status">
-          You're out of credits. Sign up with a new account or try another demo later.
+          {outOfCreditsNotice}
         </p>
       )}
       <div className="input-bar">

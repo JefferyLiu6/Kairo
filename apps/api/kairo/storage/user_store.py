@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at      TEXT NOT NULL,
     is_demo         INTEGER NOT NULL DEFAULT 0,
     demo_expires_at TEXT,
-    credits_remaining INTEGER NOT NULL DEFAULT 10
+    credits_remaining INTEGER NOT NULL DEFAULT 10,
+    credits_reset_on TEXT
 );
 
 CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -93,6 +94,7 @@ def init_users_db(data_dir: str) -> None:
         "ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN demo_expires_at TEXT",
         "ALTER TABLE users ADD COLUMN credits_remaining INTEGER NOT NULL DEFAULT 10",
+        "ALTER TABLE users ADD COLUMN credits_reset_on TEXT",
     ):
         try:
             conn.execute(stmt)
@@ -129,8 +131,35 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-USER_INITIAL_CREDITS = 10
 DEMO_INITIAL_CREDITS = 12
+DEFAULT_USER_DAILY_CREDITS = 10
+
+
+def user_daily_credits() -> int:
+    """Chat turns a registered account gets each UTC day (USER_DAILY_CREDITS)."""
+    raw = os.environ.get("USER_DAILY_CREDITS", "").strip()
+    try:
+        return max(0, int(raw)) if raw else DEFAULT_USER_DAILY_CREDITS
+    except ValueError:
+        return DEFAULT_USER_DAILY_CREDITS
+
+
+def _today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _refill_daily_credits(db: sqlite3.Connection, user_id: str) -> None:
+    """Refill a registered account the first time it is seen on a new UTC day.
+
+    A demo account is never refilled. A row from before the column existed has no
+    date, so it is refilled the next time it is seen.
+    """
+    today = _today()
+    db.execute(
+        "UPDATE users SET credits_remaining = ?, credits_reset_on = ? "
+        "WHERE id = ? AND is_demo = 0 AND (credits_reset_on IS NULL OR credits_reset_on < ?)",
+        (user_daily_credits(), today, user_id, today),
+    )
 
 
 # ── User CRUD ─────────────────────────────────────────────────────────────────
@@ -142,18 +171,20 @@ def create_user(data_dir: str, email: str, password: str, display_name: str) -> 
     password_hash = ph.hash(password)
     uid = _new_id()
     now = _now()
+    credits = user_daily_credits()
     with _conn(data_dir) as db:
         db.execute(
             "INSERT INTO users "
-            "(id, email, password_hash, display_name, created_at, updated_at, credits_remaining) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (uid, email.lower().strip(), password_hash, display_name, now, now, USER_INITIAL_CREDITS),
+            "(id, email, password_hash, display_name, created_at, updated_at, "
+            "credits_remaining, credits_reset_on) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (uid, email.lower().strip(), password_hash, display_name, now, now, credits, _today()),
         )
     return User(
         id=uid,
         email=email.lower().strip(),
         display_name=display_name,
-        credits_remaining=USER_INITIAL_CREDITS,
+        credits_remaining=credits,
     )
 
 
@@ -220,6 +251,7 @@ def verify_password(data_dir: str, email: str, password: str) -> Optional[User]:
 def consume_user_credit(data_dir: str, user_id: str) -> int | None:
     """Consume one account credit. Return remaining credits, or None if exhausted."""
     with _conn(data_dir) as db:
+        _refill_daily_credits(db, user_id)
         cursor = db.execute(
             "UPDATE users SET credits_remaining = credits_remaining - 1, updated_at = ? "
             "WHERE id = ? AND credits_remaining > 0",
@@ -267,8 +299,7 @@ def get_session_user(data_dir: str, raw_token: str) -> Optional[User]:
     with _conn(data_dir) as db:
         row = db.execute(
             "SELECT s.id as sid, s.expires_at, u.id, u.email, u.display_name, "
-            "       COALESCE(u.is_demo, 0) as is_demo, u.demo_expires_at, "
-            "       COALESCE(u.credits_remaining, 0) as credits_remaining "
+            "       COALESCE(u.is_demo, 0) as is_demo, u.demo_expires_at "
             "FROM auth_sessions s JOIN users u ON u.id = s.user_id "
             "WHERE s.token_hash = ?",
             (token_hash,),
@@ -286,9 +317,14 @@ def get_session_user(data_dir: str, raw_token: str) -> Optional[User]:
             "UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?",
             (now, token_hash),
         )
+        # Read after the refill, so a client that stops sending at zero sees the new day's credits.
+        _refill_daily_credits(db, row["id"])
+        credits = db.execute(
+            "SELECT credits_remaining FROM users WHERE id = ?", (row["id"],),
+        ).fetchone()[0]
     return User(
         id=row["id"], email=row["email"], display_name=row["display_name"],
-        is_demo=bool(row["is_demo"]), credits_remaining=int(row["credits_remaining"]),
+        is_demo=bool(row["is_demo"]), credits_remaining=int(credits),
     )
 
 

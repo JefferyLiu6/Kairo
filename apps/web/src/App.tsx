@@ -16,6 +16,7 @@ import { SecurityPage } from "./pages/SecurityPage";
 import { AuthPage } from "./pages/AuthPage";
 import { streamChat, fetchSession } from "./api";
 import { useSpeech } from "./hooks/useSpeech";
+import { nextCreditRefill, outOfCreditsMessage } from "./lib/credits";
 import type { Message, Mode } from "./types";
 
 function makeId() {
@@ -74,6 +75,21 @@ function MainApp() {
       }
     }
   }, [messages]);
+
+  // Pick up the new day's credits without a reload: when the refill is due, and
+  // when the tab is shown again, since a sleeping tab's timer can fire late.
+  const waitingForRefill = Boolean(user && !user.isDemo && user.creditsRemaining <= 0);
+  useEffect(() => {
+    if (!waitingForRefill) return;
+    const refresh = () => { void refreshUser(); };
+    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    const timer = window.setTimeout(refresh, nextCreditRefill().getTime() - Date.now() + 1000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [waitingForRefill, refreshUser]);
 
   // Refresh schedule on mount
   useEffect(() => {
@@ -193,7 +209,7 @@ function MainApp() {
       const displayMsg = errMsg.includes("429")
         ? "Rate limit reached — please wait a moment before sending another message."
         : errMsg.toLowerCase().includes("credit")
-          ? "No credits left. Sign up with a new account or try another demo later."
+          ? outOfCreditsMessage(user?.isDemo ?? false)
         : `_${errMsg}_`;
       if (errMsg.toLowerCase().includes("credit")) {
         refreshUser().catch(() => {});
@@ -306,6 +322,7 @@ function MainApp() {
                 onChange={setInput}
                 onSubmit={handleSubmit}
                 disabled={busy || (user?.creditsRemaining ?? 1) <= 0}
+                outOfCreditsNotice={outOfCreditsMessage(user?.isDemo ?? false)}
                 onStop={busy ? handleStop : undefined}
                 speechSupported={speech.supported}
                 isListening={speech.isListening}
