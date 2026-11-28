@@ -10,6 +10,8 @@
   all sessions and MFA changes revoke other sessions.
 - The credit system is simple cost control: a registered account's credits
   refill each UTC day, and there is no billing, top-up, or admin grant flow yet.
+- Deleting an account removes it from the live data, not from backups of the
+  server made before the deletion.
 - SQLite files are not encrypted at rest by this project.
 - Demo-account cleanup is opportunistic, not a dedicated scheduled job.
 - Google Calendar sync is limited; full two-way conflict resolution is not implemented.

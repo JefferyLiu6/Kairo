@@ -10,14 +10,16 @@ import re
 import secrets
 import shutil
 import sqlite3
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
 
 from kairo.api.rate_limit import RateLimitRule, bucket, email_bucket, enforce_rate_limit, env_limit, request_ip_bucket
 from kairo.storage import identity
+from kairo.api import account_data
 from kairo.api import account_mail as mail
-from kairo.storage.user_store import User, create_demo_user, create_user, delete_expired_demo_users, delete_session, get_session_user, init_users_db
+from kairo.storage.user_store import User, create_demo_user, create_user, delete_expired_demo_users, delete_session, delete_user, get_session_user, init_users_db
 
 _log = logging.getLogger(__name__)
 
@@ -375,10 +377,10 @@ def account_security(request: Request) -> dict:
     return identity.status(_data_dir(), user.id)
 
 
-def _factor_user(request: Request) -> User:
+def _factor_user(request: Request, demo_detail: str = "Create a real account to use MFA") -> User:
     user = require_user(request)
     if user.is_demo:
-        raise HTTPException(status_code=403, detail="Create a real account to use MFA")
+        raise HTTPException(status_code=403, detail=demo_detail)
     _auth_rate_limit(request, [RateLimitRule(5, 900, "factor/15m")],
                      bucket("account_factor", user.id), ip_kind="account_factor_ip")
     return user
@@ -412,6 +414,48 @@ def update_mfa(req: FactorRequest, request: Request, background: BackgroundTasks
                         "Your Kairo MFA settings or recovery codes changed. Other devices were signed out. "
                         "If you did not do this, reset your password immediately.")
     return result
+
+
+# ── Export and deletion ───────────────────────────────────────────────────────
+
+def _account_holder(req: FactorRequest, request: Request, demo_detail: str) -> User:
+    """The signed-in user, once they have given their password again and their second factor."""
+    user = _factor_user(request, demo_detail)
+    try:
+        identity.confirm_identity(_data_dir(), user.id, request.cookies["kairo_session"],
+                                  req.password, req.code)
+    except identity.IdentityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except identity.IdentityUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Account security is temporarily unavailable") from exc
+    return user
+
+
+@router.post("/account/export")
+def export_account(req: FactorRequest, request: Request) -> Response:
+    """Everything Kairo holds about the account, private notes included, as a zip."""
+    user = _account_holder(req, request, "A temporary demo has no account to export")
+    archive = account_data.export_account(_data_dir(), user)
+    name = f"kairo-export-{datetime.now(timezone.utc).date().isoformat()}.zip"
+    return Response(content=archive, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.post("/account/delete")
+def delete_account(req: FactorRequest, request: Request, response: Response,
+                   background: BackgroundTasks) -> dict:
+    """Delete the account and everything stored for it. There is no undo."""
+    user = _account_holder(req, request, "A temporary demo is deleted on its own after 24 hours")
+    data_dir = _data_dir()
+    # Data first, the account last: if erasing fails the account is still there to try again.
+    account_data.erase_account_data(data_dir, user.id)
+    delete_user(data_dir, user.id)
+    _clear_auth_cookie(response)
+    background.add_task(mail.send_security_notice, user.email,
+                        "Your Kairo account was deleted, along with everything stored in it. "
+                        "This cannot be undone. If you did not do this, someone knew your password: "
+                        "change it wherever else you use it.")
+    return {"detail": "Your account and everything stored in it were deleted."}
 
 
 # ── Demo account ──────────────────────────────────────────────────────────────
@@ -561,9 +605,7 @@ def demo(request: Request, response: Response) -> UserResponse:
         # Seeding failed — tear down the half-created user so we don't accumulate orphans.
         _log.exception("Demo seed failed for user %s — rolling back", user.id)
         try:
-            from kairo.storage.user_store import _conn as _users_conn
-            with _users_conn(data_dir) as db:
-                db.execute("DELETE FROM users WHERE id = ?", (user.id,))
+            delete_user(data_dir, user.id)
         except Exception:
             pass
         _cleanup_demo_data(data_dir, user.id)

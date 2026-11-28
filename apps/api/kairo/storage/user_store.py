@@ -248,6 +248,20 @@ def verify_password(data_dir: str, email: str, password: str) -> Optional[User]:
     )
 
 
+def user_created_at(data_dir: str, user_id: str) -> Optional[str]:
+    """When the account was created (UTC, ISO 8601), or None if there is no such account."""
+    with _conn(data_dir) as db:
+        row = db.execute("SELECT created_at FROM users WHERE id = ?", (user_id,)).fetchone()
+    return row["created_at"] if row else None
+
+
+def delete_user(data_dir: str, user_id: str) -> None:
+    """Delete the account. Its sessions, account links, authenticator, recovery codes and
+    chat threads go with it; what it stored outside users.db is the caller's to erase."""
+    with _conn(data_dir) as db:
+        db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
 def consume_user_credit(data_dir: str, user_id: str) -> int | None:
     """Consume one account credit. Return remaining credits, or None if exhausted."""
     with _conn(data_dir) as db:

@@ -102,6 +102,12 @@ def release(data_dir: str, user_id: str, key: str) -> None:
                    (user_id, key))
 
 
+def forget_user(data_dir: str, user_id: str) -> None:
+    """Drop every key an account sent, with the replies stored under them."""
+    with _conn(data_dir) as db:
+        db.execute("DELETE FROM idempotency_keys WHERE user_id = ?", (user_id,))
+
+
 @contextmanager
 def _conn(data_dir: str) -> Iterator[sqlite3.Connection]:
     os.makedirs(data_dir, exist_ok=True)

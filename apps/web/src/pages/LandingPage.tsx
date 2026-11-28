@@ -2,6 +2,7 @@ import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { EntryBrand } from "./EntryBrand";
 import { WalkthroughLink } from "../components/WalkthroughLink";
+import { LegalFooter } from "./LegalPage";
 
 export function LandingPage() {
   const { user, loading } = useAuth();
@@ -38,6 +39,6 @@ export function LandingPage() {
         <article><h2>Look back on your week</h2><p>Log a habit or write a journal entry, then return to it when you plan your next day.</p></article>
       </section>
     </main>
-    <footer className="entry-foot"><span>© {new Date().getFullYear()} Kairo</span><Link to="/login">Sign in to your workspace</Link></footer>
+    <LegalFooter><Link to="/login">Sign in to your workspace</Link></LegalFooter>
   </div>;
 }

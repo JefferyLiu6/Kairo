@@ -119,6 +119,16 @@ into the repository, and there is no production debug mailbox or token-return en
    designed identity-proofing recovery process; do not manually disable MFA on an
    unverified email request.
 
+7. **Download your data:** in Account security, enter the password (and a code when
+   an authenticator is enabled) and choose **Download my data**. The zip holds the
+   account record, schedule, tasks, notes, journal, chat messages and the rest of
+   what Kairo stores for the account, without credentials or calendar tokens.
+8. **Delete the account:** in Account security, choose **Delete my account…**, enter
+   the password (and a code), type the account's email address and confirm. The
+   account and everything stored for it are deleted, connected calendars are revoked
+   with Google, every device is signed out and a notice is emailed. There is no undo
+   and no grace period; the same address can sign up again and starts empty.
+
 Security changes generate notification emails. Account link requests give the same
 response for registered and unknown addresses. Delivery runs after that response so
 Provider failures do not disclose whether an account exists. The server logs a generic

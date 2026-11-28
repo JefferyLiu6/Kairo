@@ -83,6 +83,8 @@ export function AuthPage({ signup = false }: { signup?: boolean }) {
             {error && <div role="alert" className="entry-error">{error}
               {error.startsWith("Verify your email") && <> <Link to="/verify-email/request">Resend verification email</Link></>}
             </div>}
+            {signup && <small>By creating an account you agree to the <Link to="/terms">terms of use</Link> and
+              the <Link to="/privacy">privacy policy</Link>.</small>}
             <button className="auth-submit" disabled={busy}>{busy ? "Please wait…" : factorStep ? "Verify and sign in" : signup ? "Create account" : "Sign in"}</button>
             {factorStep && <button className="entry-back" type="button" disabled={busy}
               onClick={() => { setFactorStep(false); setCode(""); setPassword(""); setError(""); }}>Back to sign in</button>}

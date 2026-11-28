@@ -167,6 +167,23 @@ export const setupMfa = (password: string) => accountRequest<{ secret: string; o
 export const updateMfa = (action: "enable" | "disable" | "recovery", password: string, code: string) =>
   accountRequest<{ mfa_enabled: boolean; recovery_codes: string[] }>(`/auth/mfa/${action}`, { password, code });
 
+/** Everything the account holds, as a zip. Asks for the password again, and a code when MFA is on. */
+export async function exportAccount(password: string, code: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await apiFetch("/auth/account/export", { method: "POST", body: JSON.stringify({ password, code }) });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body.detail === "string" ? body.detail : "Check your entries and try again.");
+  }
+  const named = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
+  return { blob: await res.blob(), filename: named?.[1] ?? "kairo-export.zip" };
+}
+
+/** Delete the account and everything stored for it. The session ends with it. */
+export async function deleteAccount(password: string, code: string): Promise<void> {
+  await accountRequest<{ detail: string }>("/auth/account/delete", { password, code });
+  _csrfToken = "";
+}
+
 export type SessionEntry = {
   sessionId: string;
   messageCount: number;

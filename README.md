@@ -359,6 +359,7 @@ Security details are in [`SECURITY.md`](SECURITY.md). In short:
 - users authenticate with email/password and HTTP-only cookie sessions
 - registered users get 10 credits a day (`USER_DAILY_CREDITS`); demo users get 12, once
 - user data is scoped by `user_id`; conversation state is scoped by `thread_id`
+- a user can download everything stored for their account, or delete the account with all of it
 - state-changing cookie-auth routes require CSRF protection
 - credentialed CORS requires explicit origins, never wildcard origins
 - prompt-injection-like messages are refused before any model sees them

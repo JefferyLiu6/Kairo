@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { fetchSecurity, setupMfa, updateMfa, type SecurityStatus } from "../api";
 import { useAuth } from "../contexts/AuthContext";
+import { AccountData } from "./AccountData";
 
 export function SecurityPage() {
   const { user } = useAuth();
@@ -13,6 +14,7 @@ export function SecurityPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [deleted, setDeleted] = useState(false);
   useEffect(() => {
     let active = true;
     if (!user?.isDemo) fetchSecurity().then(s => { if (active) setStatus(s); })
@@ -41,6 +43,14 @@ export function SecurityPage() {
     finally { setBusy(false); }
   }
   function submit(e: FormEvent) { e.preventDefault(); void act(setup ? "enable" : status?.mfa_enabled ? "recovery" : "setup"); }
+  // The session is gone with the account. A plain link reloads the app so it starts signed out.
+  if (deleted) return <main className="auth-page"><section className="auth-card security-card">
+    <span className="auth-logo-name">Kairo</span>
+    <h1 className="auth-title">Your account was deleted</h1>
+    <p role="status">Your account and everything stored in it are gone, and Kairo’s access to any
+      connected calendar was ended. A confirmation was sent to your email address.</p>
+    <a href="/">Back to the Kairo home page</a>
+  </section></main>;
   return <main className="auth-page"><section className="auth-card security-card">
     <Link to="/app" className="auth-logo-name">Kairo</Link>
     <h1 className="auth-title">Account security</h1>
@@ -69,7 +79,10 @@ export function SecurityPage() {
         <button className="auth-submit" disabled={busy}>{busy ? "Please wait…" : setup ? "Enable authenticator" : status.mfa_enabled ? "Replace recovery codes" : "Set up authenticator"}</button>
         {status.mfa_enabled && <button type="button" disabled={busy || !password || !code} onClick={() => void act("disable")}>Disable authenticator</button>}
       </form>}
+      {status && user && !codes.length && <AccountData email={user.email}
+        mfaEnabled={status.mfa_enabled} onDeleted={() => setDeleted(true)} />}
     </>}
-    <div className="auth-links">{!codes.length && <Link to="/app">Back to Kairo</Link>}<Link to="/forgot-password">Reset password</Link></div>
+    <div className="auth-links">{!codes.length && <Link to="/app">Back to Kairo</Link>}<Link to="/forgot-password">Reset password</Link>
+      <Link to="/privacy">Privacy policy</Link><Link to="/terms">Terms</Link></div>
   </section></main>;
 }

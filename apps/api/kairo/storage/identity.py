@@ -188,6 +188,16 @@ def _reauth(db, user_id: str, session: str, password: str):
     return _state(db, user_id)
 
 
+def confirm_identity(data_dir: str, user_id: str, session: str, password: str, code: str) -> None:
+    """Check that the signed-in person is the account holder: the password again, and the
+    second factor when one is enabled. For exporting or deleting everything the account holds."""
+    with _conn(data_dir) as db:
+        db.execute("BEGIN IMMEDIATE")
+        state = _reauth(db, user_id, session, password)
+        if state["mfa_secret"] and not _factor(db, user_id, state, code):
+            raise IdentityError("Enter a valid authenticator or recovery code. Each code can be used only once.")
+
+
 def setup_mfa(data_dir: str, user_id: str, session: str, password: str) -> dict:
     secret = base64.b32encode(secrets.token_bytes(20)).decode()
     encrypted = _encrypt(user_id, secret)

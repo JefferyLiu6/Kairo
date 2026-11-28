@@ -162,6 +162,28 @@ Kairo uses a simple account-level credit system to control public-demo cost.
 Credits and the date of the last refill are stored on the user row in
 `users.db`. This is cost control, not a billing system.
 
+## Leaving: Export and Deletion
+
+A registered user can take their data or delete their account from Account
+security in the web app. Both routes require CSRF, the password again and, when
+an authenticator is enabled, a current code; they share the MFA rate limit.
+
+- `POST /auth/account/export` returns a zip: the account record, the files in
+  `data/users/<user_id>/` (schedule, tasks, private notes, profile) and every
+  table of `pm.db` as JSON. It leaves out columns that hold credentials (calendar
+  tokens), the journal's search index and the agent's checkpoint state.
+- `POST /auth/account/delete` asks Google to revoke each connected calendar,
+  deletes the user's stored replies and data directory, then deletes the user
+  row, which takes sessions, account links, the authenticator, recovery codes
+  and chat threads with it. Data goes first: if erasing fails, the account still
+  exists and the deletion can be tried again. A notice is emailed afterwards.
+- Demo accounts can do neither; they expire after 24 hours.
+- Deletion does not reach backups made earlier, or copies held by the model,
+  search and email providers a request was sent to.
+
+The web app links a privacy policy (`/privacy`) and terms of use (`/terms`) from
+sign-up and the footer. They describe what this document does; keep them in step.
+
 ## Approval Gates
 
 State-changing actions are planned as typed `PMAction` objects and passed
@@ -211,7 +233,8 @@ The assistant separates lower-risk shared memory from private Kairo memory.
   free-form model output.
 - `GET /personal-manager/memory` (the About me panel) returns the signed-in
   user's remembered facts and the number of private notes. The text of a
-  private note is never returned.
+  private note is never returned there; it leaves the server only in the
+  owner's own export, after they give their password again.
 
 ## Prompt-Injection Handling
 
@@ -329,7 +352,7 @@ multi-tenant service.
 
 If you find a security issue, please report it privately.
 
-Responsible disclosure contact: `security@example.com`
+Responsible disclosure contact: `kairo.ai.personal@gmail.com`
 
 Please include:
 

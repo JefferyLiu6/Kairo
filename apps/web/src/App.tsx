@@ -14,6 +14,7 @@ import { LandingPage } from "./pages/LandingPage";
 import { AccountRecoveryPage } from "./pages/AccountRecoveryPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { AuthPage } from "./pages/AuthPage";
+import { PrivacyPage, TermsPage } from "./pages/LegalPage";
 import { streamChat, fetchSession } from "./api";
 import { useSpeech } from "./hooks/useSpeech";
 import { nextCreditRefill, outOfCreditsMessage } from "./lib/credits";
@@ -409,6 +410,8 @@ export default function App() {
         <Route path="/verify-email/request" element={<AccountRecoveryPage key="resend" mode="resend" />} />
         <Route path="/verify-email" element={<AccountRecoveryPage key="verify" mode="verify" />} />
         <Route path="/reset-password" element={<AccountRecoveryPage key="reset" mode="reset" />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
         <Route path="/account/security" element={<ProtectedRoute><SecurityPage /></ProtectedRoute>} />
         <Route path="/demo" element={<ProtectedRoute demo>{null}</ProtectedRoute>} />
         <Route

@@ -135,3 +135,48 @@ test('MFA management requires CSRF and never retries a rejected factor', async (
   assert.deepEqual(calls.map(c => c.url), ['/auth/csrf', '/auth/mfa/disable']);
   assert.equal(calls[1].options.headers.get('X-CSRF-Token'), 'session-bound');
 });
+
+test('export returns the file under the name the server gave, and a refusal carries its reason', async (t) => {
+  const module = await api();
+  const calls = [];
+  let refuse = true;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls.push({ url, options });
+    if (url === '/auth/csrf') return json({ csrf_token: 'session-bound' });
+    if (refuse) return json({ detail: 'Your session or password is invalid.' }, 400);
+    return new Response('zip-bytes', { headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename="kairo-export-2026-11-26.zip"',
+    } });
+  });
+  await assert.rejects(module.exportAccount('wrong', ''), /password is invalid/);
+  refuse = false;
+  const { blob, filename } = await module.exportAccount('password', '123456');
+  assert.equal(filename, 'kairo-export-2026-11-26.zip');
+  assert.equal(await blob.text(), 'zip-bytes');
+  assert.deepEqual(calls.map(c => c.url), ['/auth/csrf', '/auth/account/export', '/auth/account/export']);
+  assert.equal(calls[2].options.headers.get('X-CSRF-Token'), 'session-bound');
+  assert.deepEqual(JSON.parse(calls[2].options.body), { password: 'password', code: '123456' });
+});
+
+test('deleting the account ends the session locally only when the server confirms it', async (t) => {
+  const module = await api();
+  const calls = [];
+  let issued = 0;
+  let refuse = true;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls.push({ url, token: options?.headers?.get?.('X-CSRF-Token') });
+    if (url === '/auth/csrf') return json({ csrf_token: `token-${++issued}` });
+    if (url === '/auth/account/delete' && refuse) return json({ detail: 'Enter a valid authenticator or recovery code.' }, 400);
+    return json({ detail: 'ok' });
+  });
+  await assert.rejects(module.deleteAccount('password', ''), /authenticator or recovery code/);
+  refuse = false;
+  await module.deleteAccount('password', '654321');
+  // The refused attempt kept its token; after the deletion the next write has to ask for a new one.
+  await module.updateMfa('recovery', 'password', '111111');
+  assert.deepEqual(calls.map(c => [c.url, c.token]), [
+    ['/auth/csrf', undefined], ['/auth/account/delete', 'token-1'], ['/auth/account/delete', 'token-1'],
+    ['/auth/csrf', undefined], ['/auth/mfa/recovery', 'token-2'],
+  ]);
+});

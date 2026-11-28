@@ -4621,3 +4621,15 @@ body {
 }
 .security-card p, .security-card small { line-height: 1.6; }
 .security-card input[readonly] { font-family: monospace; }
+.security-section { border-top: 1px solid var(--border); padding-top: 20px; }
+.security-section h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--text); }
+.auth-danger {
+  padding: 10px 16px; border: 1px solid var(--red); border-radius: 8px;
+  background: transparent; color: var(--red); font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.auth-danger:not(:disabled):hover { background: var(--red); color: white; }
+.auth-danger:disabled { opacity: 0.5; cursor: default; }
+.auth-quiet {
+  padding: 8px; border: 0; background: transparent; color: var(--text2);
+  font-size: 14px; text-decoration: underline; cursor: pointer;
+}

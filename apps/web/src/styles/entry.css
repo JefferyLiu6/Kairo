@@ -57,6 +57,18 @@
 .entry-features h2 { font-size: 26px; letter-spacing: -.035em; margin-bottom: 10px; }
 .entry-features p { max-width: 39ch; color: #455f55; }
 .entry-foot { border-top: 1px solid var(--entry-line); padding-block: 20px; color: #52665e; }
+.entry-foot nav { display: flex; gap: 24px; }
+.entry-legal { max-width: 70ch; padding-block: clamp(36px, 6vw, 72px); line-height: 1.65; }
+.entry-legal h1 {
+  font-family: Georgia, 'Times New Roman', serif; font-weight: 500; line-height: 1.08;
+  font-size: clamp(38px, 5vw, 58px); letter-spacing: -.045em;
+}
+.entry-legal h2 { margin-block: 36px 10px; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.entry-legal p, .entry-legal li { color: #34504a; }
+.entry-legal p { margin-block: 12px; }
+.entry-legal ul { padding-left: 20px; display: grid; gap: 10px; }
+.entry-legal strong { color: var(--entry-ink); }
+.entry-legal-date { color: #52665e; font-size: 14px; }
 .auth-page.entry-auth {
   background: radial-gradient(ellipse at 18% 15%, #d7ece3, transparent 52%),
     radial-gradient(ellipse at 88% 85%, #f3e6c8, transparent 46%), #faf8f0;
